@@ -202,7 +202,7 @@ class AgentSDKExecutor(BaseExecutor):
         logger.info(f"Starting Ralph execution with max {max_iterations} iterations")
 
         while profile.should_continue():
-            iteration = profile.current_iteration
+            iteration = profile.current_iteration + 1  # 1-indexed for display
             logger.info(f"Ralph iteration {iteration}/{max_iterations}")
 
             try:

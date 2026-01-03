@@ -80,6 +80,11 @@ class RalphWiggumProfile(BaseProfile):
         self._is_complete = False
         self._completion_reason: Optional[str] = None
 
+    @property
+    def current_iteration(self) -> int:
+        """Get the current iteration number (0-indexed)."""
+        return self._current_iteration
+
     def get_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
         """Get the system prompt for Ralph Wiggum execution"""
         context = context or {}
@@ -248,7 +253,10 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
             Processed output with completion status
         """
         content = output_data.get("content", "")
-        iteration = output_data.get("iteration", self._current_iteration)
+
+        # Increment iteration counter at start of each process_output call
+        self._current_iteration += 1
+        iteration = self._current_iteration
 
         # Check for completion signal
         is_complete, promise_text = self.validator.extract_completion_signal(content)
@@ -256,8 +264,7 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
         # Check for stuck patterns
         is_stuck = self._check_stuck_patterns(content)
 
-        # Update iteration state
-        self._current_iteration = iteration
+        # Record iteration state
         iteration_record = {
             "iteration": iteration,
             "success": is_complete,

@@ -2186,7 +2186,7 @@ sugar:
     enabled: true                   # Allow Ralph mode for tasks
     max_iterations: 10              # Default max iterations per task
     iteration_timeout: 300          # Max seconds per iteration (5 min)
-    default_promise: "DONE"         # Default completion signal
+    completion_promise: "DONE"      # Default completion signal
     require_completion_criteria: true  # Require <promise> tags or --max-iterations
     quality_gates_enabled: true     # Run quality gates between iterations
     stop_on_gate_failure: false     # Keep trying even if gates fail

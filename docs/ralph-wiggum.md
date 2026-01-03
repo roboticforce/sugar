@@ -45,7 +45,7 @@ sugar:
     iteration_timeout: 300      # Timeout per iteration (seconds)
 
     # Completion detection
-    default_promise: "DONE"     # Default completion signal
+    completion_promise: "DONE"  # Default completion signal
     require_completion_criteria: true  # Enforce explicit exit conditions
 
     # Quality gates between iterations
@@ -54,12 +54,6 @@ sugar:
 
     # Confidence threshold for completion
     min_confidence: 0.8
-
-    # Task types that should use Ralph by default
-    iterative_task_types:
-      - "complex_bug"
-      - "refactor"
-      - "tdd"
 ```
 
 ## Usage
@@ -72,9 +66,6 @@ sugar add "Fix flaky auth tests" --type complex_bug --ralph
 
 # Add with custom iteration limit
 sugar add "Refactor cache module" --ralph --max-iterations 15
-
-# View Ralph-enabled tasks
-sugar list --ralph
 ```
 
 ### Via Task Queue
@@ -374,20 +365,24 @@ class RalphConfig:
 
 ```python
 class CompletionCriteriaValidator:
-    def validate(prompt: str, config: dict) -> ValidationResult
-    def extract_completion_signal(output: str) -> Tuple[bool, str]
-    def format_validation_error(result: ValidationResult) -> str
+    def __init__(self, strict: bool = True)
+    def validate(self, prompt: str, config: Optional[Dict] = None) -> ValidationResult
+    def extract_completion_signal(self, output: str) -> Tuple[bool, Optional[str]]
+    def format_validation_error(self, result: ValidationResult) -> str
 ```
 
 ### RalphWiggumProfile
 
 ```python
 class RalphWiggumProfile(BaseProfile):
-    async def process_input(input_data: dict) -> dict
-    async def process_output(output_data: dict) -> dict
-    def should_continue() -> bool
-    def reset() -> None
-    def get_iteration_stats() -> dict
+    def __init__(self, config: Optional[ProfileConfig] = None, ralph_config: Optional[RalphConfig] = None)
+    @property
+    def current_iteration(self) -> int
+    async def process_input(self, input_data: dict) -> dict
+    async def process_output(self, output_data: dict) -> dict
+    def should_continue(self) -> bool
+    def reset(self) -> None
+    def get_iteration_stats(self) -> dict
 ```
 
 ## Learn More
