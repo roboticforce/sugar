@@ -2,6 +2,26 @@
 
 Sugar integrates the Ralph Wiggum iterative development technique for complex tasks that benefit from self-correction and refinement.
 
+## Quick Start
+
+The simplest way to use Ralph:
+
+```bash
+# 1. Add a task with --ralph flag
+sugar add "Fix the auth bug" --type bug_fix --ralph \
+  --completion-promise "BUG FIXED"
+
+# 2. Run Sugar (Ralph iterates automatically in the background)
+sugar run
+```
+
+**Key Points:**
+- `--ralph` enables iterative execution for the task
+- `--completion-promise` sets the signal that marks completion (optional, defaults to "DONE")
+- `--max-iterations` limits attempts (optional, defaults to 10)
+- Each iteration, Claude sees previous work and continues improving
+- Task completes when the promise signal is output or max iterations reached
+
 ## What is Ralph Wiggum?
 
 The Ralph Wiggum technique, pioneered by [Geoffrey Huntley](https://ghuntley.com/ralph/), is an iterative AI loop methodology:
@@ -62,10 +82,19 @@ sugar:
 
 ```bash
 # Add a task that will use Ralph iterations
-sugar add "Fix flaky auth tests" --type complex_bug --ralph
+sugar add "Fix flaky auth tests" --type bug_fix --ralph
+
+# Add with custom completion signal
+sugar add "Implement caching" --ralph --completion-promise "CACHING COMPLETE"
 
 # Add with custom iteration limit
 sugar add "Refactor cache module" --ralph --max-iterations 15
+
+# Full example with all options
+sugar add "Refactor auth to JWT" --type refactor --ralph \
+  --completion-promise "JWT AUTH COMPLETE" \
+  --max-iterations 20 \
+  --description "Migrate from session-based to JWT. All auth tests must pass."
 ```
 
 ### Via Task Queue
