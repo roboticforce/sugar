@@ -538,8 +538,9 @@ class TestV3ExecutorIntegration:
         config_path = Path(initialized_project) / ".sugar" / "config.yaml"
         with open(config_path) as f:
             config_content = f.read()
-        # Should have structured requests enabled (part of v3)
-        assert "use_structured_requests" in config_content
+        # Should have quality gates enabled (v3 feature)
+        assert "quality_gates:" in config_content
+        assert "enabled: true" in config_content
 
 
 # ============================================================================
