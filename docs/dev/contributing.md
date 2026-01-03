@@ -2,12 +2,27 @@
 
 Thank you for your interest in contributing to Sugar! This guide will help you get started with contributing to the project.
 
+## 🌿 Branching Model
+
+Sugar uses **Gitflow** for development:
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Production releases only - never commit directly |
+| `develop` | Integration branch for all new work |
+| `feature/*` | New features (branch from `develop`) |
+| `bugfix/*` | Bug fixes (branch from `develop`) |
+| `hotfix/*` | Urgent production fixes (branch from `main`) |
+
+**All contributions should target the `develop` branch**, not `main`.
+
 ## 🚀 Quick Start
 
 1. **Fork and Clone**
    ```bash
    git clone https://github.com/yourusername/sugar.git
    cd sugar
+   git checkout develop  # Always work from develop
    ```
 
 2. **Set up Development Environment**
@@ -154,9 +169,14 @@ bandit -r sugar/
 ### 2. Create a Branch
 
 ```bash
+# Ensure you're on develop and up to date
+git checkout develop
+git pull origin develop
+
+# Create your feature branch from develop
 git checkout -b feature/your-feature-name
 # or
-git checkout -b fix/issue-description
+git checkout -b bugfix/issue-description
 ```
 
 ### 3. Make Changes
@@ -198,7 +218,7 @@ Closes #123"
 git push origin feature/your-feature-name
 ```
 
-Then create a pull request on GitHub.
+Then create a pull request on GitHub **targeting the `develop` branch** (not `main`).
 
 ## 📝 Coding Standards
 
@@ -284,7 +304,7 @@ sugar/
 ### Before Reporting
 
 1. Search existing issues
-2. Check if it's already fixed in main branch
+2. Check if it's already fixed in the `develop` branch
 3. Try to reproduce with minimal example
 
 ### Bug Report Template
@@ -339,12 +359,13 @@ Any other context or screenshots.
 ## 📋 Pull Request Process
 
 1. **Fork** the repository
-2. **Create** a feature branch
-3. **Make** your changes
-4. **Add** tests for new functionality
-5. **Update** documentation if needed
-6. **Run** tests and quality checks
-7. **Submit** pull request
+2. **Checkout** the `develop` branch
+3. **Create** a feature branch from `develop`
+4. **Make** your changes
+5. **Add** tests for new functionality
+6. **Update** documentation if needed
+7. **Run** tests and quality checks
+8. **Submit** pull request **targeting `develop`**
 
 ### PR Checklist
 

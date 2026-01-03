@@ -351,9 +351,10 @@ pip install -e .
 ## 🔄 Updating Sugar
 
 ```bash
-# Pull latest changes
+# Pull latest changes from develop
 cd /path/to/sugar
-git pull origin main
+git checkout develop
+git pull origin develop
 
 # Reinstall (if using development mode)
 pip install -e .

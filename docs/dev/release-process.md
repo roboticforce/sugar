@@ -2,13 +2,41 @@
 
 Guide for creating releases of Sugar.
 
+## Gitflow Branching Model
+
+Sugar uses Gitflow for release management:
+
+| Branch | Purpose | Version Format |
+|--------|---------|----------------|
+| `main` | Production releases only | `X.Y.Z` (final) |
+| `develop` | Integration branch | `X.Y.Z.dev0` (development) |
+| `feature/*` | New features | — |
+| `release/*` | Release preparation (optional) | `X.Y.Z.rcN` |
+| `hotfix/*` | Urgent production fixes | — |
+
+### Development Workflow
+
+1. All work happens on `develop` or feature branches
+2. Version on `develop` is always `X.Y.Z.dev0` (or `.dev1`, `.dev2`, etc.)
+3. Releases are created by merging `develop` → `main`
+4. After release, bump `develop` to next `.dev0` version
+
 ## Version Numbering
 
-Sugar follows [Semantic Versioning](https://semver.org/):
+Sugar follows [Semantic Versioning](https://semver.org/) with [PEP 440](https://peps.python.org/pep-0440/) suffixes:
 
 - **MAJOR** (X.0.0): Breaking changes
 - **MINOR** (0.X.0): New features, backward compatible
 - **PATCH** (0.0.X): Bug fixes, backward compatible
+
+### Version Progression
+
+```
+X.Y.Z.dev0 → X.Y.Z.a1 → X.Y.Z.b1 → X.Y.Z.rc1 → X.Y.Z (final)
+```
+
+On `develop`: Always use `.dev0` suffix (e.g., `3.2.1.dev0`)
+On `main`: Always use final version (e.g., `3.2.0`)
 
 ## Quick Reference
 
@@ -52,10 +80,10 @@ Same process, but:
 
 ### 1. Pre-Release Checklist
 
-- [ ] All tests pass: `pytest tests/`
+- [ ] All PRs merged to `develop`
+- [ ] All tests pass on `develop`: `pytest tests/`
 - [ ] Code formatted: `black sugar/ tests/`
-- [ ] No uncommitted changes on main
-- [ ] Main branch is up to date: `git pull`
+- [ ] `develop` branch is up to date: `git checkout develop && git pull`
 
 ### 2. Update Version Numbers
 
@@ -114,15 +142,33 @@ git commit -m "chore: Release vX.Y.Z"
 git tag vX.Y.Z
 ```
 
-### 6. Push to GitHub
+### 6. Merge to Main and Push
 
 ```bash
+# Create PR from develop to main, or merge directly:
+git checkout main
+git pull origin main
+git merge develop
 git push origin main
+
+# Push the tag
 git push origin vX.Y.Z
 # Or push all tags: git push --tags
 ```
 
-### 7. Create GitHub Release
+### 7. Bump Develop Version
+
+After release, bump `develop` to the next development version:
+
+```bash
+git checkout develop
+# Update pyproject.toml version to X.Y.(Z+1).dev0
+git add pyproject.toml
+git commit -m "chore: Bump version to X.Y.(Z+1).dev0 for development"
+git push origin develop
+```
+
+### 8. Create GitHub Release
 
 ```bash
 gh release create vX.Y.Z \
@@ -138,7 +184,7 @@ gh release create vX.Y.Z \
   --notes-file release-notes.md
 ```
 
-### 8. Verify Release
+### 9. Verify Release
 
 - [ ] Check GitHub releases page
 - [ ] Verify tag appears in repository
