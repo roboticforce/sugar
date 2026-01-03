@@ -311,6 +311,13 @@ def init(project_dir):
 @click.option(
     "--skip-stages", help="Comma-separated stages to skip (research,planning)"
 )
+@click.option("--ralph", is_flag=True, help="Enable Ralph Wiggum iterative execution")
+@click.option(
+    "--max-iterations",
+    type=int,
+    default=None,
+    help="Max iterations for Ralph mode (default: 10)",
+)
 @click.pass_context
 def add(
     ctx,
@@ -325,6 +332,8 @@ def add(
     parse_json,
     orchestrate,
     skip_stages,
+    ralph,
+    max_iterations,
 ):
     """Add a new task to Sugar work queue
 
@@ -415,6 +424,23 @@ def add(
                     s.strip() for s in skip_stages.split(",")
                 ]
 
+        # Add Ralph Wiggum settings if enabled
+        if ralph:
+            task_data["context"]["ralph_enabled"] = True
+            task_data["context"]["max_iterations"] = max_iterations or 10
+            # Validate completion criteria if strict mode
+            from .ralph import CompletionCriteriaValidator
+
+            validator = CompletionCriteriaValidator(strict=False)
+            result = validator.validate(
+                description, {"max_iterations": max_iterations or 10}
+            )
+            if not result.is_valid:
+                click.echo(
+                    f"⚠️  Ralph enabled but completion criteria may be weak: {', '.join(result.suggestions[:2])}",
+                    err=True,
+                )
+
         # Override/merge with complex input data
         if task_data_override:
             # Handle context merging specially to preserve base context
@@ -445,8 +471,13 @@ def add(
         elif parse_json:
             input_method = " (JSON parsed)"
 
+        ralph_mode = ""
+        if ralph:
+            max_iter = task_data["context"].get("max_iterations", 10)
+            ralph_mode = f" [Ralph: max {max_iter} iterations]"
+
         click.echo(
-            f"✅ Added {task_data.get('type', task_type)} task: '{task_data.get('title', title)}' ({urgency}){input_method}"
+            f"✅ Added {task_data.get('type', task_type)} task: '{task_data.get('title', title)}' ({urgency}){input_method}{ralph_mode}"
         )
 
     except Exception as e:
@@ -2149,6 +2180,16 @@ sugar:
 
     # Model selection
     model: "claude-sonnet-4-20250514"
+
+  # Ralph Wiggum (iterative AI execution)
+  ralph:
+    enabled: true                   # Allow Ralph mode for tasks
+    max_iterations: 10              # Default max iterations per task
+    iteration_timeout: 300          # Max seconds per iteration (5 min)
+    default_promise: "DONE"         # Default completion signal
+    require_completion_criteria: true  # Require <promise> tags or --max-iterations
+    quality_gates_enabled: true     # Run quality gates between iterations
+    stop_on_gate_failure: false     # Keep trying even if gates fail
 """
 
 

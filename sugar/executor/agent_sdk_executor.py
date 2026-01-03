@@ -20,6 +20,7 @@ from ..storage import IssueResponseManager
 from ..profiles import IssueResponderProfile
 from ..config import IssueResponderConfig
 from ..integrations import GitHubClient
+from ..ralph import RalphWiggumProfile, RalphConfig
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,129 @@ class AgentSDKExecutor(BaseExecutor):
         finally:
             await agent.end_session()
 
+    async def _execute_ralph_iteration(
+        self, work_item: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute a work item with Ralph Wiggum iterative loop."""
+        context = work_item.get("context", {})
+        max_iterations = context.get("max_iterations", 10)
+
+        # Create Ralph config
+        ralph_config = RalphConfig(
+            max_iterations=max_iterations,
+            completion_promise=context.get("completion_promise", "DONE"),
+            require_completion_criteria=False,  # Already validated at CLI
+            quality_gates_enabled=self.quality_gates_enabled,
+            stop_on_gate_failure=context.get("stop_on_gate_failure", False),
+        )
+
+        profile = RalphWiggumProfile(ralph_config=ralph_config)
+
+        # Validate input
+        input_data = {
+            "prompt": work_item.get("description", work_item.get("title", "")),
+            "work_item": work_item,
+        }
+        processed = await profile.process_input(input_data)
+
+        if not processed.get("valid", True):
+            return {
+                "success": False,
+                "error": "Invalid Ralph input: "
+                + ", ".join(processed.get("errors", [])),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "work_item_id": work_item.get("id"),
+            }
+
+        start_time = datetime.now(timezone.utc)
+        agent = await self._get_agent()
+        prompt = processed.get("prompt", work_item.get("description", ""))
+
+        iteration_results = []
+        final_result = None
+
+        logger.info(f"Starting Ralph execution with max {max_iterations} iterations")
+
+        while profile.should_continue():
+            iteration = profile.current_iteration
+            logger.info(f"Ralph iteration {iteration}/{max_iterations}")
+
+            try:
+                # Execute the prompt
+                response = await agent.execute(prompt)
+
+                # Process output to check for completion
+                output_data = {
+                    "content": response.content,
+                    "success": response.success,
+                    "files_changed": getattr(response, "files_changed", []),
+                }
+
+                result = await profile.process_output(output_data)
+
+                iteration_results.append(
+                    {
+                        "iteration": iteration,
+                        "complete": result.get("complete", False),
+                        "promise_detected": result.get("promise_detected"),
+                        "stuck": result.get("stuck", False),
+                    }
+                )
+
+                if result.get("complete"):
+                    logger.info(f"Ralph completed after {iteration} iterations")
+                    final_result = {
+                        "success": True,
+                        "content": response.content,
+                        "iterations": iteration,
+                        "completion_reason": result.get(
+                            "completion_reason", "promise_detected"
+                        ),
+                    }
+                    break
+
+                if result.get("stuck"):
+                    logger.warning(
+                        f"Ralph detected stuck state at iteration {iteration}"
+                    )
+                    final_result = {
+                        "success": False,
+                        "error": "Task appears stuck",
+                        "iterations": iteration,
+                        "stuck_reason": result.get("stuck_reason"),
+                    }
+                    break
+
+            except Exception as e:
+                logger.error(f"Ralph iteration {iteration} failed: {e}")
+                iteration_results.append(
+                    {
+                        "iteration": iteration,
+                        "error": str(e),
+                    }
+                )
+
+        # If loop ended without completion
+        if final_result is None:
+            final_result = {
+                "success": False,
+                "error": f"Max iterations ({max_iterations}) reached without completion",
+                "iterations": profile.current_iteration,
+            }
+
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        stats = profile.get_iteration_stats()
+
+        return {
+            **final_result,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "work_item_id": work_item.get("id"),
+            "execution_time": execution_time,
+            "executor": "agent_sdk_ralph",
+            "ralph_stats": stats,
+            "iteration_results": iteration_results,
+        }
+
     async def execute_work(self, work_item: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute a work item using the Claude Agent SDK.
@@ -169,9 +293,15 @@ class AgentSDKExecutor(BaseExecutor):
         """
         # Check for specialized task types
         task_type = work_item.get("type", "")
+        context = work_item.get("context", {})
 
         if task_type == "issue_response":
             return await self._execute_issue_response(work_item)
+
+        # Check for Ralph-enabled tasks
+        if context.get("ralph_enabled"):
+            logger.info(f"Executing with Ralph Wiggum: {work_item.get('title')}")
+            return await self._execute_ralph_iteration(work_item)
 
         if self.dry_run:
             logger.info(f"DRY RUN: Simulating execution of {work_item.get('title')}")
