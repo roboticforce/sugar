@@ -27,7 +27,9 @@ class ValidationResult:
     is_valid: bool
 
     # Detected completion mechanism
-    completion_type: Optional[str] = None  # "promise", "max_iterations", "criteria", None
+    completion_type: Optional[str] = (
+        None  # "promise", "max_iterations", "criteria", None
+    )
 
     # Extracted promise text (if any)
     promise_text: Optional[str] = None
@@ -75,21 +77,19 @@ class CompletionCriteriaValidator:
 
     # Pattern to detect <promise> tags
     PROMISE_PATTERN = re.compile(
-        r"<promise>\s*(.+?)\s*</promise>",
-        re.IGNORECASE | re.DOTALL
+        r"<promise>\s*(.+?)\s*</promise>", re.IGNORECASE | re.DOTALL
     )
 
     # Pattern to detect "Output: <promise>..." instructions
     OUTPUT_PROMISE_PATTERN = re.compile(
-        r"output[:\s]+<promise>\s*(.+?)\s*</promise>",
-        re.IGNORECASE | re.DOTALL
+        r"output[:\s]+<promise>\s*(.+?)\s*</promise>", re.IGNORECASE | re.DOTALL
     )
 
     # Pattern to detect "When complete:" sections
     # Handles optional leading whitespace on each line
     WHEN_COMPLETE_PATTERN = re.compile(
         r"when\s+complete[:\s]*\n((?:\s*[-*]\s+[^\n]+\n?)+)",
-        re.IGNORECASE | re.MULTILINE
+        re.IGNORECASE | re.MULTILINE,
     )
 
     # Pattern to detect max_iterations in various formats
@@ -126,9 +126,7 @@ class CompletionCriteriaValidator:
         self.strict = strict
 
     def validate(
-        self,
-        prompt: str,
-        config: Optional[Dict[str, Any]] = None
+        self, prompt: str, config: Optional[Dict[str, Any]] = None
     ) -> ValidationResult:
         """
         Validate that a prompt has clear completion criteria.
@@ -195,8 +193,7 @@ class CompletionCriteriaValidator:
         if not result.is_valid:
             prompt_lower = prompt.lower()
             found_phrases = [
-                phrase for phrase in self.COMPLETION_PHRASES
-                if phrase in prompt_lower
+                phrase for phrase in self.COMPLETION_PHRASES if phrase in prompt_lower
             ]
             if found_phrases:
                 result.warnings.append(
@@ -252,9 +249,7 @@ class CompletionCriteriaValidator:
         )
 
         # Suggest max_iterations
-        suggestions.append(
-            "Add a safety limit: --max-iterations 10"
-        )
+        suggestions.append("Add a safety limit: --max-iterations 10")
 
         return suggestions
 

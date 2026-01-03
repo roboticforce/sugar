@@ -39,7 +39,7 @@ class RalphWiggumProfile(BaseProfile):
     def __init__(
         self,
         config: Optional[ProfileConfig] = None,
-        ralph_config: Optional[RalphConfig] = None
+        ralph_config: Optional[RalphConfig] = None,
     ):
         """
         Initialize the Ralph Wiggum profile.
@@ -85,13 +85,9 @@ class RalphWiggumProfile(BaseProfile):
         context = context or {}
 
         iteration = context.get("iteration", self._current_iteration)
-        max_iterations = context.get(
-            "max_iterations",
-            self.ralph_config.max_iterations
-        )
+        max_iterations = context.get("max_iterations", self.ralph_config.max_iterations)
         completion_promise = context.get(
-            "completion_promise",
-            self.ralph_config.completion_promise
+            "completion_promise", self.ralph_config.completion_promise
         )
 
         prompt = f"""# Ralph Wiggum Iterative Execution
@@ -169,13 +165,9 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
         config = input_data.get("config", {})
 
         # Merge config with ralph_config
-        max_iterations = config.get(
-            "max_iterations",
-            self.ralph_config.max_iterations
-        )
+        max_iterations = config.get("max_iterations", self.ralph_config.max_iterations)
         completion_promise = config.get(
-            "completion_promise",
-            self.ralph_config.completion_promise
+            "completion_promise", self.ralph_config.completion_promise
         )
 
         # Validate completion criteria
@@ -198,10 +190,7 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
 
         # Build the execution prompt
         execution_prompt = self._build_execution_prompt(
-            prompt,
-            completion_promise,
-            max_iterations,
-            validation.success_criteria
+            prompt, completion_promise, max_iterations, validation.success_criteria
         )
 
         return {
@@ -219,7 +208,7 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
         prompt: str,
         completion_promise: str,
         max_iterations: int,
-        success_criteria: List[str]
+        success_criteria: List[str],
     ) -> str:
         """Build the full execution prompt with Ralph context"""
         lines = [prompt]
@@ -319,7 +308,7 @@ You are executing a task iteratively. This is iteration {iteration + 1} of up to
         summary_match = re.search(
             r"(?:summary|status|progress)[:\s]+(.+?)(?:\n\n|\n-|\n#|$)",
             content,
-            re.IGNORECASE | re.DOTALL
+            re.IGNORECASE | re.DOTALL,
         )
         if summary_match:
             return summary_match.group(1).strip()[:200]

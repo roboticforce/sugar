@@ -349,19 +349,23 @@ class TestRalphWiggumProfile:
     async def test_iteration_history_accumulates(self, profile):
         # Process multiple outputs
         for i in range(3):
-            await profile.process_output({
-                "content": f"Working on iteration {i}...",
-                "iteration": i,
-            })
+            await profile.process_output(
+                {
+                    "content": f"Working on iteration {i}...",
+                    "iteration": i,
+                }
+            )
 
         assert len(profile._iteration_history) == 3
 
     @pytest.mark.asyncio
     async def test_completion_stops_further_iterations(self, profile):
-        await profile.process_output({
-            "content": "Done! <promise>DONE</promise>",
-            "iteration": 2,
-        })
+        await profile.process_output(
+            {
+                "content": "Done! <promise>DONE</promise>",
+                "iteration": 2,
+            }
+        )
 
         assert profile.should_continue() is False
         assert profile._completion_reason is not None
@@ -374,28 +378,33 @@ class TestValidationPatterns:
     def validator(self):
         return CompletionCriteriaValidator(strict=True)
 
-    @pytest.mark.parametrize("prompt,expected_valid", [
-        # Valid prompts
-        ("Fix bug <promise>DONE</promise>", True),
-        ("Task --max-iterations 10", True),
-        ("max_iterations: 5", True),
-        ("When complete:\n- Tests pass\n- <promise>DONE</promise>", True),
-
-        # Invalid prompts (strict mode)
-        ("Just fix it", False),
-        ("Do something", False),
-        ("Complete the task", False),
-    ])
+    @pytest.mark.parametrize(
+        "prompt,expected_valid",
+        [
+            # Valid prompts
+            ("Fix bug <promise>DONE</promise>", True),
+            ("Task --max-iterations 10", True),
+            ("max_iterations: 5", True),
+            ("When complete:\n- Tests pass\n- <promise>DONE</promise>", True),
+            # Invalid prompts (strict mode)
+            ("Just fix it", False),
+            ("Do something", False),
+            ("Complete the task", False),
+        ],
+    )
     def test_various_patterns(self, validator, prompt, expected_valid):
         result = validator.validate(prompt)
         assert result.is_valid is expected_valid
 
-    @pytest.mark.parametrize("iterations_text,expected", [
-        ("--max-iterations 10", 10),
-        ("max_iterations: 15", 15),
-        ("maximum of 20 iterations", 20),
-        ("5 iterations max", 5),
-    ])
+    @pytest.mark.parametrize(
+        "iterations_text,expected",
+        [
+            ("--max-iterations 10", 10),
+            ("max_iterations: 15", 15),
+            ("maximum of 20 iterations", 20),
+            ("5 iterations max", 5),
+        ],
+    )
     def test_max_iterations_patterns(self, validator, iterations_text, expected):
         result = validator.validate(iterations_text)
         assert result.max_iterations == expected
