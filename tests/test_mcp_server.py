@@ -16,6 +16,7 @@ try:
         SugarMCPServer,
         create_server,
     )
+
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -217,6 +218,7 @@ class TestValidateResponseTool:
 # Check if CLI can be imported (requires claude_agent_sdk)
 try:
     from sugar.main import cli
+
     CLI_AVAILABLE = True
 except ImportError:
     CLI_AVAILABLE = False

@@ -60,7 +60,11 @@ class TestGitHubLabel:
 
     def test_from_dict_complete(self):
         """Test creating label from complete dict"""
-        data = {"name": "bug", "color": "d73a4a", "description": "Something isn't working"}
+        data = {
+            "name": "bug",
+            "color": "d73a4a",
+            "description": "Something isn't working",
+        }
         label = GitHubLabel.from_dict(data)
         assert label.name == "bug"
         assert label.color == "d73a4a"
@@ -229,8 +233,20 @@ class TestGitHubClientGetIssue:
             "createdAt": "2024-01-01T00:00:00Z",
             "updatedAt": "2024-01-01T00:00:00Z",
             "comments": [
-                {"id": 1, "body": "First comment", "author": {"login": "user1"}, "createdAt": "", "updatedAt": ""},
-                {"id": 2, "body": "Second comment", "author": {"login": "user2"}, "createdAt": "", "updatedAt": ""},
+                {
+                    "id": 1,
+                    "body": "First comment",
+                    "author": {"login": "user1"},
+                    "createdAt": "",
+                    "updatedAt": "",
+                },
+                {
+                    "id": 2,
+                    "body": "Second comment",
+                    "author": {"login": "user2"},
+                    "createdAt": "",
+                    "updatedAt": "",
+                },
             ],
             "url": "",
         }
@@ -269,8 +285,30 @@ class TestGitHubClientListIssues:
         """Test listing issues with default parameters"""
         # gh CLI format
         gh_output = [
-            {"number": 1, "title": "Issue 1", "body": "", "state": "open", "author": {"login": "a"}, "labels": [], "createdAt": "", "updatedAt": "", "comments": [], "url": ""},
-            {"number": 2, "title": "Issue 2", "body": "", "state": "open", "author": {"login": "b"}, "labels": [], "createdAt": "", "updatedAt": "", "comments": [], "url": ""},
+            {
+                "number": 1,
+                "title": "Issue 1",
+                "body": "",
+                "state": "open",
+                "author": {"login": "a"},
+                "labels": [],
+                "createdAt": "",
+                "updatedAt": "",
+                "comments": [],
+                "url": "",
+            },
+            {
+                "number": 2,
+                "title": "Issue 2",
+                "body": "",
+                "state": "open",
+                "author": {"login": "b"},
+                "labels": [],
+                "createdAt": "",
+                "updatedAt": "",
+                "comments": [],
+                "url": "",
+            },
         ]
 
         mock_run.return_value = CompletedProcess(
@@ -290,7 +328,18 @@ class TestGitHubClientListIssues:
     def test_list_issues_with_labels(self, mock_run):
         """Test listing issues filtered by labels"""
         gh_output = [
-            {"number": 5, "title": "Bug Issue", "body": "", "state": "open", "author": {"login": "a"}, "labels": [{"name": "bug"}], "createdAt": "", "updatedAt": "", "comments": [], "url": ""},
+            {
+                "number": 5,
+                "title": "Bug Issue",
+                "body": "",
+                "state": "open",
+                "author": {"login": "a"},
+                "labels": [{"name": "bug"}],
+                "createdAt": "",
+                "updatedAt": "",
+                "comments": [],
+                "url": "",
+            },
         ]
 
         mock_run.return_value = CompletedProcess(
@@ -337,7 +386,9 @@ class TestGitHubClientPostComment:
     @patch("sugar.integrations.github.subprocess.run")
     def test_post_comment_builds_correct_command(self, mock_run):
         """Test that post_comment builds the correct gh command"""
-        mock_run.return_value = CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
 
         client = GitHubClient(repo="owner/repo")
         client.post_comment(42, "My comment body")
@@ -404,7 +455,16 @@ class TestGitHubClientSearch:
     def test_search_issues(self, mock_run):
         """Test searching for issues"""
         search_results = [
-            {"number": 10, "title": "Match 1", "body": "contains search term", "state": "open", "user": {"login": "a"}, "labels": [], "created_at": "", "updated_at": ""},
+            {
+                "number": 10,
+                "title": "Match 1",
+                "body": "contains search term",
+                "state": "open",
+                "user": {"login": "a"},
+                "labels": [],
+                "created_at": "",
+                "updated_at": "",
+            },
         ]
 
         mock_run.return_value = CompletedProcess(
@@ -489,7 +549,9 @@ class TestGitHubClientHelpers:
             title="Bot issue",
             body="",
             state="open",
-            user=GitHubUser(login="github-actions[bot]", id=1, type="User"),  # Type might be wrong
+            user=GitHubUser(
+                login="github-actions[bot]", id=1, type="User"
+            ),  # Type might be wrong
             labels=[],
             created_at="",
             updated_at="",

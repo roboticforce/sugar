@@ -22,6 +22,7 @@ def __getattr__(name: str):
         if name not in _lazy_imports:
             try:
                 from .server import SugarMCPServer, create_server
+
                 _lazy_imports["SugarMCPServer"] = SugarMCPServer
                 _lazy_imports["create_server"] = create_server
             except ImportError as e:
