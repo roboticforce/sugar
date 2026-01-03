@@ -157,3 +157,45 @@ sugar:
   logging:
     level: "INFO"
     file: ".sugar/sugar.log"
+
+  # Ralph Wiggum Integration
+  # -----------------------------------------------------------------
+  # Ralph Wiggum is an iterative AI loop technique. Instead of trying
+  # to complete a task in one shot (and often failing on complex tasks),
+  # Ralph feeds the SAME prompt repeatedly. Each iteration, Claude sees
+  # its previous work in the files and iteratively improves until done.
+  #
+  # Think of it like this: instead of asking a junior dev to write a
+  # feature perfectly the first time, you let them iterate. They write
+  # something, see what's wrong, fix it, repeat until it works.
+  #
+  # This makes Sugar WAY more effective at complex tasks because:
+  # 1. It can self-correct mistakes
+  # 2. It builds incrementally instead of trying to do everything at once
+  # 3. It runs tests between iterations and fixes failures
+  # 4. It stops automatically when the task is actually complete
+  # -----------------------------------------------------------------
+  ralph:
+    enabled: true
+
+    # Safety: max iterations before giving up (prevents infinite loops)
+    max_iterations: 10
+    iteration_timeout: 300  # 5 min per iteration
+
+    # How Claude signals "I'm done" - looks for <promise>DONE</promise>
+    default_promise: "DONE"
+
+    # IMPORTANT: Require explicit completion criteria in prompts
+    # Without this, Ralph could loop forever!
+    require_completion_criteria: true
+
+    # Run quality gates (tests, linting) between iterations
+    quality_gates_enabled: true
+    stop_on_gate_failure: false  # Keep trying even if tests fail
+
+    # Confidence threshold for completion
+    min_confidence: 0.8
+
+    # Task types that automatically use Ralph (empty = opt-in only)
+    # Example: ["complex_bug", "refactor", "tdd"]
+    iterative_task_types: []

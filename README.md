@@ -154,6 +154,108 @@ sugar list --status completed
 - Confidence-based auto-posting
 - Searchable issue history
 
+**Ralph Wiggum Integration** *(New)*
+- Iterative execution for complex tasks
+- Self-correcting loops until tests pass
+- Prevents single-shot failures
+- Automatic completion detection
+
+## Ralph Wiggum: Why Sugar Gets It Right
+
+Here's the thing about AI coding: **single-shot attempts often fail on complex tasks**.
+
+Ask Claude to implement a feature in one go, and you might get something that's 80% right. But that 20% means broken tests, edge cases missed, or subtle bugs. You end up going back and forth, manually iterating until it works.
+
+**Ralph Wiggum fixes this by design.**
+
+Instead of trying to complete a task perfectly the first time, Sugar can feed the same prompt repeatedly. Each iteration:
+
+1. Claude sees its previous work in the files
+2. Runs tests and sees what's failing
+3. Fixes issues and improves the implementation
+4. Repeats until the task is actually complete
+
+```bash
+# Without Ralph (traditional single-shot):
+sugar add "Implement rate limiting"
+# Claude attempts once, maybe tests fail, task marked "done" anyway
+
+# With Ralph (iterative):
+sugar add "Implement rate limiting" --ralph --max-iterations 10
+# Claude iterates: implement → test → fix → test → fix → done
+# Only marked complete when tests actually pass
+```
+
+**Think of it like code review cycles**, but automated. Junior dev writes code, tests fail, they fix it, tests pass, PR merged. Ralph does this loop automatically.
+
+### When to Use Ralph
+
+| Task Type | Without Ralph | With Ralph |
+|-----------|---------------|------------|
+| Simple bug fix | Works fine | Overkill |
+| New feature | Hit or miss | Iterates until working |
+| Complex refactor | Often breaks things | Self-corrects |
+| TDD implementation | Tests often fail | Keeps going until green |
+| Flaky test debugging | Might give up | Tries multiple approaches |
+
+### How It Works
+
+```
+Iteration 1: "Implement rate limiting"
+  → Creates RateLimiter class
+  → Tests: 2 passing, 3 failing
+
+Iteration 2: Same prompt, sees previous work
+  → Fixes failing tests
+  → Tests: 4 passing, 1 failing
+
+Iteration 3: Same prompt, sees more progress
+  → Handles edge case
+  → Tests: 5 passing, 0 failing
+  → Outputs: <promise>DONE</promise>
+  → Task complete!
+```
+
+The `<promise>` tag is how Claude signals "I'm actually done." Without it, Ralph knows to keep iterating.
+
+### Setup
+
+**Ralph is built into Sugar** - no separate installation required. Just enable it in your config:
+
+```yaml
+# .sugar/config.yaml
+sugar:
+  ralph:
+    enabled: true
+    max_iterations: 10
+    require_completion_criteria: true
+```
+
+Or use the `--ralph` flag when adding tasks:
+
+```bash
+sugar add "Complex feature" --ralph --max-iterations 15
+```
+
+### Safety First
+
+Ralph won't run forever. You must include:
+- A `<promise>` tag in your prompt (completion signal)
+- OR `--max-iterations` flag (safety limit)
+
+Sugar validates this BEFORE starting. No completion criteria = task rejected.
+
+### Interactive Use (Claude Code)
+
+For interactive Ralph loops in Claude Code sessions (outside of Sugar), install the Ralph Wiggum plugin:
+
+```bash
+# If you have the toolkit installed:
+/ralph-wiggum:ralph-loop "Fix the flaky tests" --max-iterations 10
+```
+
+**Full docs:** [docs/ralph-wiggum.md](docs/ralph-wiggum.md)
+
 ## Issue Responder
 
 Automatically analyze and respond to GitHub issues with AI-powered insights. Sugar understands issue context, codebase structure, and project patterns to generate helpful responses.
