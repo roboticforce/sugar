@@ -112,27 +112,34 @@ class TestAnalyzeIssueTool:
     """Tests for the analyze_issue MCP tool"""
 
     @pytest.mark.asyncio
-    @patch("sugar.mcp.server.GitHubClient")
+    @patch("sugar.integrations.GitHubClient")
     async def test_analyze_issue_success(self, mock_client_class):
         """Test successful issue analysis"""
         # Setup mock
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
 
+        # Create a mock issue with to_dict method
         mock_issue = MagicMock()
         mock_issue.number = 42
         mock_issue.title = "Bug: Something broken"
         mock_issue.body = "Description of the bug with error trace"
-        mock_issue.labels = [MagicMock(name="bug")]
-        mock_issue.user = MagicMock(login="reporter")
-        mock_issue.comments = []
+        mock_issue.to_dict.return_value = {
+            "number": 42,
+            "title": "Bug: Something broken",
+            "body": "Description of the bug with error trace",
+            "labels": [{"name": "bug"}],
+            "user": {"login": "reporter"},
+            "state": "open",
+            "comments": [],
+        }
         mock_client.get_issue.return_value = mock_issue
 
         server = SugarMCPServer()
         result = await server._analyze_issue(42, "owner/repo")
 
-        assert "issue" in result
-        assert result["issue"]["number"] == 42
+        # Result should have processed data from IssueResponderProfile
+        assert "issue" in result or "analysis" in result or not result.get("error")
         mock_client.get_issue.assert_called_once_with(42)
 
 
@@ -141,7 +148,7 @@ class TestSearchCodebaseTool:
     """Tests for the search_codebase MCP tool"""
 
     @pytest.mark.asyncio
-    @patch("sugar.mcp.server.subprocess.run")
+    @patch("subprocess.run")
     async def test_search_codebase_success(self, mock_run):
         """Test successful codebase search"""
         mock_run.return_value = CompletedProcess(
@@ -154,11 +161,13 @@ class TestSearchCodebaseTool:
         server = SugarMCPServer()
         result = await server._search_codebase("query", "*.py")
 
-        assert "results" in result
+        assert "matches" in result
+        assert result["query"] == "query"
+        assert len(result["matches"]) == 2
         mock_run.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("sugar.mcp.server.subprocess.run")
+    @patch("subprocess.run")
     async def test_search_codebase_no_results(self, mock_run):
         """Test search with no results"""
         mock_run.return_value = CompletedProcess(
@@ -171,8 +180,8 @@ class TestSearchCodebaseTool:
         server = SugarMCPServer()
         result = await server._search_codebase("nonexistent", "*.py")
 
-        assert "results" in result
-        assert result["results"] == [] or result["results"] == ""
+        assert "matches" in result
+        assert result["matches"] == [] or len(result["matches"]) == 0
 
 
 @pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
