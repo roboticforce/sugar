@@ -86,10 +86,28 @@ safety check
 
 ## PR Instructions
 
+### Branching Model (Gitflow)
+
+Sugar uses Gitflow - all PRs should target `develop`, not `main`:
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Production releases only |
+| `develop` | Integration branch (target for all PRs) |
+| `feature/*` | New features |
+| `bugfix/*` | Bug fixes |
+
+```bash
+# Always create branches from develop
+git checkout develop
+git pull origin develop
+git checkout -b feature/your-feature
+```
+
 ### PR Title Format
 Follow conventional commit style:
 - `feat: description` - New features
-- `fix: description` - Bug fixes  
+- `fix: description` - Bug fixes
 - `refactor: description` - Code refactoring
 - `test: description` - Test additions/modifications
 - `docs: description` - Documentation updates

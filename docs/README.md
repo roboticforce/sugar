@@ -52,5 +52,5 @@ Documentation for developers who want to **contribute** to Sugar:
 
 ---
 
-**Sugar v3.0.0** - Autonomous development powered by Claude Agent SDK
-Created by [Steven Leggett](https://github.com/cdnsteve) | [Robotic Force](https://roboticforce.io)
+**Sugar** - Autonomous development powered by Claude Agent SDK
+Created by [Steven Leggett](https://github.com/cdnsteve) | [RoboticForce](https://roboticforce.io)

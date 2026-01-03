@@ -311,25 +311,29 @@ Complete phased implementation plan for transforming Sugar into a premier Claude
 ### Development Workflow
 
 ```bash
-# 1. Feature branch (already created)
-git checkout feature/claude-code-plugin
+# 1. Start from develop branch
+git checkout develop
+git pull origin develop
 
-# 2. Implement changes
+# 2. Create feature branch
+git checkout -b feature/your-feature
+
+# 3. Implement changes
 # ... development work ...
 
-# 3. Run tests
+# 4. Run tests
 pytest tests/plugin/ -v
 
-# 4. Format code
+# 5. Format code
 ./venv/bin/black .
 
-# 5. Commit changes
+# 6. Commit changes
 git add .
 git commit -m "feat(plugin): implement MCP server"
 
-# 6. Push and create PR
-git push origin feature/claude-code-plugin
-gh pr create --title "Add Claude Code Plugin Support"
+# 7. Push and create PR targeting develop
+git push origin feature/your-feature
+gh pr create --base develop --title "Add Claude Code Plugin Support"
 ```
 
 ### Testing Strategy

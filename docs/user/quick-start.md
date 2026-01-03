@@ -11,7 +11,7 @@ Get Sugar up and running in your project in just a few minutes!
 Before installing Sugar, make sure you have:
 
 - **Python 3.11 or higher**
-- **Claude Code CLI installed** ([installation guide](https://docs.anthropic.com/claude-code))
+- **Claude Code CLI installed** ([installation guide](https://docs.anthropic.com/en/docs/claude-code))
 - **Git** (for project management)
 
 ### Install Claude Code CLI
@@ -26,7 +26,13 @@ claude --version
 
 ## Installation
 
-### Option 1: Install from Source (Recommended)
+### Option 1: Install from PyPI (Recommended)
+
+```bash
+pip install sugarai
+```
+
+### Option 2: Install from Source (For Development)
 
 ```bash
 # Clone the repository
@@ -35,12 +41,6 @@ cd sugar
 
 # Install Sugar
 pip install -e .
-```
-
-### Option 2: Install from PyPI (Recommended)
-
-```bash
-pip install sugarai
 ```
 
 ## Basic Usage
@@ -143,7 +143,7 @@ Sugar starts in **dry-run mode** by default:
 
 ## Next Steps
 
-1. **Customize Configuration** → See [Configuration Reference](configuration.md)
+1. **Customize Configuration** → See [Configuration Best Practices](configuration-best-practices.md)
 2. **Explore Commands** → See [CLI Reference](cli-reference.md)  
 3. **Real Examples** → See [Examples](examples.md)
 4. **Need Help?** → See [Troubleshooting](troubleshooting.md)

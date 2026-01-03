@@ -172,6 +172,6 @@ MIT License - see [LICENSE](https://github.com/roboticforce/sugar/blob/main/LICE
 
 ---
 
-**Sugar 🍰 v2.1.0** - Transform any project into an autonomous development environment.
+**Sugar 🍰** - Transform any project into an autonomous development environment.
 
 ⚠️ **Disclaimer**: Sugar is an independent third-party tool. "Claude," "Claude Code," and related marks are trademarks of Anthropic, Inc. Sugar is not affiliated with, endorsed by, or sponsored by Anthropic, Inc.
