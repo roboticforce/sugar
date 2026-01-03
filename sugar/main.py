@@ -3427,5 +3427,54 @@ def issue_search(ctx, query, repo, limit):
         sys.exit(1)
 
 
+# =============================================================================
+# MCP Server Commands
+# =============================================================================
+
+
+@cli.group()
+@click.pass_context
+def mcp(ctx):
+    """MCP (Model Context Protocol) server for Goose and other MCP clients"""
+    pass
+
+
+@mcp.command("serve")
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=8080, type=int, help="Port to listen on")
+@click.option("--repo", help="Default repository (owner/repo)")
+@click.pass_context
+def mcp_serve(ctx, host, port, repo):
+    """Start the Sugar MCP server for Goose integration"""
+    import asyncio
+
+    try:
+        from .mcp.server import create_server
+    except ImportError as e:
+        click.echo(
+            "❌ MCP dependencies not installed. Install with:\n"
+            "   pip install sugarai[mcp]",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(f"🍰 Starting Sugar MCP server on {host}:{port}")
+    if repo:
+        click.echo(f"   Default repository: {repo}")
+    click.echo("\nPress Ctrl+C to stop\n")
+
+    server = create_server(
+        host=host,
+        port=port,
+        default_repo=repo,
+    )
+
+    try:
+        asyncio.run(server.run())
+    except KeyboardInterrupt:
+        click.echo("\n👋 Server stopped")
+
+
 if __name__ == "__main__":
     cli()
