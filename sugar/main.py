@@ -318,6 +318,12 @@ def init(project_dir):
     default=None,
     help="Max iterations for Ralph mode (default: 10)",
 )
+@click.option(
+    "--completion-promise",
+    type=str,
+    default=None,
+    help="Completion signal for Ralph mode (only with --ralph)",
+)
 @click.pass_context
 def add(
     ctx,
@@ -334,6 +340,7 @@ def add(
     skip_stages,
     ralph,
     max_iterations,
+    completion_promise,
 ):
     """Add a new task to Sugar work queue
 
@@ -343,6 +350,14 @@ def add(
     - Stdin input (--stdin with JSON data)
     - JSON description parsing (--json with --description containing JSON)
     """
+
+    # Validate that --completion-promise is only used with --ralph
+    if completion_promise and not ralph:
+        click.echo(
+            "❌ Error: --completion-promise can only be used with --ralph",
+            err=True,
+        )
+        raise click.Abort()
 
     if urgent:
         priority = 5
@@ -428,18 +443,27 @@ def add(
         if ralph:
             task_data["context"]["ralph_enabled"] = True
             task_data["context"]["max_iterations"] = max_iterations or 10
-            # Validate completion criteria if strict mode
+
+            # Store completion promise if provided
+            if completion_promise:
+                task_data["context"]["completion_promise"] = completion_promise
+
+            # Validate completion criteria in strict mode
             from .ralph import CompletionCriteriaValidator
 
-            validator = CompletionCriteriaValidator(strict=False)
+            validator = CompletionCriteriaValidator(strict=True)
             result = validator.validate(
                 description, {"max_iterations": max_iterations or 10}
             )
             if not result.is_valid:
                 click.echo(
-                    f"⚠️  Ralph enabled but completion criteria may be weak: {', '.join(result.suggestions[:2])}",
+                    f"❌ Ralph validation failed: {result.errors[0] if result.errors else 'No completion criteria'}",
                     err=True,
                 )
+                click.echo("", err=True)
+                for suggestion in result.suggestions[:2]:
+                    click.echo(f"  💡 {suggestion}", err=True)
+                raise click.Abort()
 
         # Override/merge with complex input data
         if task_data_override:

@@ -95,6 +95,32 @@ sugar add TITLE [OPTIONS]
 - `--stdin` - Read task data from stdin (JSON format)
 - `--json` - Parse description as JSON and store in context
 
+**Ralph Wiggum Options (Iterative Execution):**
+- `--ralph` - Enable iterative execution for complex tasks that benefit from self-correction
+- `--completion-promise TEXT` - Custom completion signal (default: DONE). Requires `--ralph`
+- `--max-iterations INTEGER` - Maximum iterations before auto-stopping (default: 10)
+
+Ralph mode runs tasks iteratively until completion criteria are met. Each iteration, Claude sees previous work and continues improving. Ideal for:
+- Complex debugging requiring multiple attempts
+- TDD workflows (write tests, implement, refine)
+- Exploratory refactoring
+- Tasks with clear success criteria (tests pass, linting clean)
+
+**Ralph Examples:**
+```bash
+# Simple iterative bug fix
+sugar add "Fix auth timeout" --type bug_fix --ralph
+
+# With custom completion signal
+sugar add "Implement rate limiting" --type feature --ralph \
+  --completion-promise "RATE LIMITING COMPLETE"
+
+# With higher iteration limit for complex refactoring
+sugar add "Refactor database layer" --type refactor --ralph \
+  --max-iterations 20 \
+  --description "Refactor to repository pattern. Output <promise>REFACTOR DONE</promise> when tests pass."
+```
+
 **Standard Examples:**
 ```bash
 # Basic task
