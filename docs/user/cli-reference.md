@@ -106,6 +106,27 @@ Ralph mode runs tasks iteratively until completion criteria are met. Each iterat
 - Exploratory refactoring
 - Tasks with clear success criteria (tests pass, linting clean)
 
+**Intelligent Triage Options:**
+- `--triage` - Enable intelligent triage to auto-detect execution mode and completion criteria
+
+Triage mode analyzes task complexity and codebase capabilities to:
+- Automatically recommend Ralph mode for complex tasks
+- Generate appropriate completion criteria based on task type
+- Detect available test frameworks, linters, and quality gates
+- Enrich task context with triage analysis
+
+When `--triage` is enabled and Ralph mode is recommended with high confidence (60%+), it will be automatically enabled.
+
+**Triage Examples:**
+```bash
+# Let Sugar decide if Ralph mode is needed
+sugar add "Fix authentication bug" --type bug_fix --triage
+
+# Triage for a complex refactor (likely to recommend Ralph)
+sugar add "Refactor to use repository pattern" --type refactor --triage \
+  --description "Update data access layer. All tests must pass."
+```
+
 **Ralph Examples:**
 ```bash
 # Simple iterative bug fix

@@ -324,6 +324,11 @@ def init(project_dir):
     default=None,
     help="Completion signal for Ralph mode (only with --ralph)",
 )
+@click.option(
+    "--triage",
+    is_flag=True,
+    help="Enable intelligent triage (auto-detect Ralph mode and completion criteria)",
+)
 @click.pass_context
 def add(
     ctx,
@@ -341,6 +346,7 @@ def add(
     ralph,
     max_iterations,
     completion_promise,
+    triage,
 ):
     """Add a new task to Sugar work queue
 
@@ -479,6 +485,36 @@ def add(
             if "id" not in task_data or not task_data["id"]:
                 task_data["id"] = str(uuid.uuid4())
 
+        # Perform intelligent triage if enabled
+        triage_info = ""
+        if triage and not ralph:  # Triage recommends Ralph mode if needed
+            from .triage import TaskTriageAnalyzer
+
+            async def do_triage():
+                analyzer = TaskTriageAnalyzer(root_path=".")
+                result = await analyzer.triage(task_data)
+                return result
+
+            triage_result = asyncio.run(do_triage())
+
+            # Apply triage recommendations to task context
+            task_data["context"]["triage"] = triage_result.context_enrichments.get(
+                "triage", {}
+            )
+
+            # Auto-enable Ralph mode if recommended with high confidence
+            if triage_result.use_ralph_mode and triage_result.confidence >= 0.6:
+                task_data["context"]["ralph_enabled"] = True
+                task_data["context"][
+                    "completion_promise"
+                ] = triage_result.completion_promise
+                task_data["context"]["max_iterations"] = triage_result.max_iterations
+                triage_info = f" [Triage: Ralph recommended, confidence {triage_result.confidence:.0%}]"
+            else:
+                triage_info = (
+                    f" [Triage: single-pass, confidence {triage_result.confidence:.0%}]"
+                )
+
         # Add to queue
         asyncio.run(_add_task_async(work_queue, task_data))
 
@@ -501,7 +537,7 @@ def add(
             ralph_mode = f" [Ralph: max {max_iter} iterations]"
 
         click.echo(
-            f"✅ Added {task_data.get('type', task_type)} task: '{task_data.get('title', title)}' ({urgency}){input_method}{ralph_mode}"
+            f"✅ Added {task_data.get('type', task_type)} task: '{task_data.get('title', title)}' ({urgency}){input_method}{ralph_mode}{triage_info}"
         )
 
     except Exception as e:
