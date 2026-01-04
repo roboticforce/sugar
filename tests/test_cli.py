@@ -648,3 +648,108 @@ class TestSugarCleanup:
 
             # Should not error out
             assert result.exit_code in [0, 1]
+
+
+class TestSugarTriage:
+    """Test sugar add with --triage flag"""
+
+    def test_add_task_with_triage_simple(self, cli_runner):
+        """Test adding a simple task with triage (should recommend single-pass)"""
+        with cli_runner.isolated_filesystem():
+            (Path.cwd() / ".sugar").mkdir()
+            with open(".sugar/config.yaml", "w") as f:
+                yaml.dump({"sugar": {"storage": {"database": ".sugar/sugar.db"}}}, f)
+
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "add",
+                    "Fix typo in README",
+                    "--type",
+                    "documentation",
+                    "--triage",
+                    "--description",
+                    "Simple typo fix",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "Fix typo in README" in result.output
+            assert "Triage:" in result.output
+            assert "single-pass" in result.output
+
+    def test_add_task_with_triage_complex(self, cli_runner):
+        """Test adding a complex task with triage (should recommend Ralph)"""
+        with cli_runner.isolated_filesystem():
+            (Path.cwd() / ".sugar").mkdir()
+            with open(".sugar/config.yaml", "w") as f:
+                yaml.dump({"sugar": {"storage": {"database": ".sugar/sugar.db"}}}, f)
+
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "add",
+                    "Refactor entire authentication system",
+                    "--type",
+                    "refactor",
+                    "--triage",
+                    "--description",
+                    "System-wide migration from sessions to JWT. "
+                    "Multiple files across the codebase. "
+                    "Breaking change requiring data migration.",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "Refactor entire authentication system" in result.output
+            assert "Triage:" in result.output
+            assert "Ralph recommended" in result.output
+
+    def test_add_task_triage_not_with_ralph(self, cli_runner):
+        """Test that --triage is skipped when --ralph is explicitly set"""
+        with cli_runner.isolated_filesystem():
+            (Path.cwd() / ".sugar").mkdir()
+            with open(".sugar/config.yaml", "w") as f:
+                yaml.dump({"sugar": {"storage": {"database": ".sugar/sugar.db"}}}, f)
+
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "add",
+                    "Simple task",
+                    "--type",
+                    "feature",
+                    "--ralph",
+                    "--triage",
+                    "--description",
+                    "Test task. Output: <promise>DONE</promise>",
+                ],
+            )
+
+            assert result.exit_code == 0
+            # When --ralph is set, --triage is skipped
+            assert "Ralph:" in result.output
+            assert "Triage:" not in result.output
+
+    def test_add_task_triage_shows_confidence(self, cli_runner):
+        """Test that triage output includes confidence percentage"""
+        with cli_runner.isolated_filesystem():
+            (Path.cwd() / ".sugar").mkdir()
+            with open(".sugar/config.yaml", "w") as f:
+                yaml.dump({"sugar": {"storage": {"database": ".sugar/sugar.db"}}}, f)
+
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "add",
+                    "Add user login feature",
+                    "--type",
+                    "feature",
+                    "--triage",
+                ],
+            )
+
+            assert result.exit_code == 0
+            # Should show confidence as percentage
+            assert "confidence" in result.output
+            assert "%" in result.output
