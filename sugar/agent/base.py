@@ -134,8 +134,8 @@ class SugarAgentConfig:
     # Working directory
     working_directory: Optional[str] = None
 
-    # Timeout for operations (seconds)
-    timeout: int = 300
+    # Timeout for operations (seconds) - default 2 hours for complex tasks
+    timeout: int = 7200
 
     # Retry settings for transient errors
     max_retries: int = 3
@@ -299,60 +299,76 @@ Guidelines:
         files_modified = []
 
         # Use the SDK's query() function which returns an async generator
-        async for message in query(prompt=prompt, options=options):
-            # Handle different message types from the SDK
-            # The SDK may return dicts or typed objects depending on version
-            if SDK_HAS_TYPES and isinstance(message, AssistantMessage):
-                # Typed SDK - iterate through content blocks
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        content_parts.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        tool_use = {
-                            "tool": block.name,
-                            "input": block.input,
-                        }
-                        tool_uses.append(tool_use)
+        # Wrap with timeout to prevent hanging if generator doesn't signal completion
+        try:
+            async with asyncio.timeout(self.config.timeout):
+                async for message in query(prompt=prompt, options=options):
+                    # Handle different message types from the SDK
+                    # The SDK may return dicts or typed objects depending on version
+                    if SDK_HAS_TYPES and isinstance(message, AssistantMessage):
+                        # Typed SDK - iterate through content blocks
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                content_parts.append(block.text)
+                            elif isinstance(block, ToolUseBlock):
+                                tool_use = {
+                                    "tool": block.name,
+                                    "input": block.input,
+                                }
+                                tool_uses.append(tool_use)
 
-                        # Track file modifications
-                        if block.name in ("Write", "Edit"):
-                            file_path = block.input.get("file_path")
-                            if file_path and file_path not in files_modified:
-                                files_modified.append(file_path)
+                                # Track file modifications
+                                if block.name in ("Write", "Edit"):
+                                    file_path = block.input.get("file_path")
+                                    if file_path and file_path not in files_modified:
+                                        files_modified.append(file_path)
 
-            elif isinstance(message, dict):
-                # Dict-based SDK response
-                msg_type = message.get("type", "")
+                    elif isinstance(message, dict):
+                        # Dict-based SDK response
+                        msg_type = message.get("type", "")
 
-                if msg_type == "assistant":
-                    # Process content blocks
-                    content = message.get("content", [])
-                    for block in content:
-                        block_type = block.get("type", "")
-                        if block_type == "text":
-                            content_parts.append(block.get("text", ""))
-                        elif block_type == "tool_use":
-                            tool_use = {
-                                "tool": block.get("name", ""),
-                                "input": block.get("input", {}),
-                            }
-                            tool_uses.append(tool_use)
+                        if msg_type == "assistant":
+                            # Process content blocks
+                            content = message.get("content", [])
+                            for block in content:
+                                block_type = block.get("type", "")
+                                if block_type == "text":
+                                    content_parts.append(block.get("text", ""))
+                                elif block_type == "tool_use":
+                                    tool_use = {
+                                        "tool": block.get("name", ""),
+                                        "input": block.get("input", {}),
+                                    }
+                                    tool_uses.append(tool_use)
 
-                            # Track file modifications
-                            tool_name = block.get("name", "")
-                            if tool_name in ("Write", "Edit"):
-                                file_path = block.get("input", {}).get("file_path")
-                                if file_path and file_path not in files_modified:
-                                    files_modified.append(file_path)
+                                    # Track file modifications
+                                    tool_name = block.get("name", "")
+                                    if tool_name in ("Write", "Edit"):
+                                        file_path = block.get("input", {}).get(
+                                            "file_path"
+                                        )
+                                        if (
+                                            file_path
+                                            and file_path not in files_modified
+                                        ):
+                                            files_modified.append(file_path)
 
-                elif msg_type == "text":
-                    # Direct text message
-                    content_parts.append(message.get("text", ""))
+                        elif msg_type == "text":
+                            # Direct text message
+                            content_parts.append(message.get("text", ""))
 
-                elif msg_type == "result":
-                    # Final result message
-                    if message.get("content"):
-                        content_parts.append(str(message.get("content", "")))
+                        elif msg_type == "result":
+                            # Final result message
+                            if message.get("content"):
+                                content_parts.append(str(message.get("content", "")))
+
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Query timed out after {self.config.timeout}s. "
+                f"Returning partial results: {len(tool_uses)} tool uses, "
+                f"{len(files_modified)} files modified"
+            )
+            # Return partial results - the work done so far is still valid
 
         return content_parts, tool_uses, files_modified
 

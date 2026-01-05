@@ -118,7 +118,9 @@ class TestSugarAgentConfig:
         assert config.allowed_tools == []
         assert config.mcp_servers == {}
         assert config.quality_gates_enabled is True
-        assert config.timeout == 300
+        assert (
+            config.timeout == 7200
+        )  # 2 hours - increased to handle long-running tasks
         assert config.max_retries == 3
 
     def test_custom_values(self):
@@ -575,6 +577,27 @@ class TestExecute:
 
         assert response.success is True
         assert "Success after retry" in response.content
+
+    @pytest.mark.asyncio
+    async def test_execute_with_timeout(self, agent_config):
+        """Test timeout handling when query hangs."""
+        agent_config.timeout = 0.1  # 100ms for testing
+        agent = SugarAgent(agent_config)
+
+        async def mock_query_that_hangs(**kwargs):
+            yield {"type": "text", "text": "Started work"}
+            # Simulate a hanging generator
+            await asyncio.sleep(10)  # Much longer than timeout
+            yield {"type": "text", "text": "This should not appear"}
+
+        with patch("sugar.agent.base.query", mock_query_that_hangs):
+            response = await agent.execute("Test with timeout")
+
+        # Should succeed with partial results (the first message before hang)
+        assert response.success is True
+        assert "Started work" in response.content
+        # The second message should NOT appear since we timed out
+        assert "This should not appear" not in response.content
 
 
 # ============================================================================
