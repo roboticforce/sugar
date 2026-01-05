@@ -344,8 +344,13 @@ Guidelines:
                                     # Track file modifications
                                     tool_name = block.get("name", "")
                                     if tool_name in ("Write", "Edit"):
-                                        file_path = block.get("input", {}).get("file_path")
-                                        if file_path and file_path not in files_modified:
+                                        file_path = block.get("input", {}).get(
+                                            "file_path"
+                                        )
+                                        if (
+                                            file_path
+                                            and file_path not in files_modified
+                                        ):
                                             files_modified.append(file_path)
 
                         elif msg_type == "text":

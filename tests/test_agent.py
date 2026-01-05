@@ -118,7 +118,9 @@ class TestSugarAgentConfig:
         assert config.allowed_tools == []
         assert config.mcp_servers == {}
         assert config.quality_gates_enabled is True
-        assert config.timeout == 7200  # 2 hours - increased to handle long-running tasks
+        assert (
+            config.timeout == 7200
+        )  # 2 hours - increased to handle long-running tasks
         assert config.max_retries == 3
 
     def test_custom_values(self):
