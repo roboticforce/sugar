@@ -343,6 +343,26 @@ class SugarLoop:
                     datetime.now(timezone.utc) - start_time
                 ).total_seconds()
 
+                # Check if execution actually succeeded
+                # Default to False as fail-safe - all executors should set success explicitly
+                if "success" not in result:
+                    logger.warning(
+                        f"⚠️ Missing 'success' field in result for [{work_item['id']}]"
+                    )
+                execution_success = result.get("success", False)
+                if not execution_success:
+                    error_msg = result.get("error") or result.get(
+                        "summary", "Execution returned failure"
+                    )
+                    logger.warning(
+                        f"⚠️ Task execution failed [{work_item['id']}]: {error_msg}"
+                    )
+                    await self.work_queue.fail_work(
+                        work_item["id"], error_msg, execution_time=execution_time
+                    )
+                    await self._handle_failed_workflow(work_item, workflow, error_msg)
+                    return
+
                 # Complete unified workflow (commit, branch, PR, issues)
                 workflow_success = (
                     await self.workflow_orchestrator.complete_work_execution(

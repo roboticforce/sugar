@@ -259,6 +259,54 @@ class TestSugarLoop:
             loop.work_queue.fail_work.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_execute_work_result_failure(self, sugar_config_file):
+        """Test work execution when result indicates failure (not exception)"""
+        with (
+            patch("sugar.core.loop.WorkQueue"),
+            patch("sugar.core.loop.ClaudeWrapper"),
+            patch("sugar.core.loop.AgentSDKExecutor"),
+            patch("sugar.core.loop.ErrorLogMonitor"),
+            patch("sugar.core.loop.WorkflowOrchestrator"),
+        ):
+
+            loop = SugarLoop(str(sugar_config_file))
+
+            mock_tasks = [
+                {
+                    "id": "task-1",
+                    "type": "bug_fix",
+                    "title": "Fix auth bug",
+                    "priority": 5,
+                }
+            ]
+
+            # Replace components with AsyncMock
+            loop.work_queue = AsyncMock()
+            loop.work_queue.get_next_work = AsyncMock(side_effect=[mock_tasks[0], None])
+            loop.work_queue.fail_work = AsyncMock()
+            loop.work_queue.complete_work = AsyncMock()
+            loop.workflow_orchestrator = AsyncMock()
+            loop.workflow_orchestrator.prepare_work_execution = AsyncMock(
+                return_value={}
+            )
+            loop.executor = AsyncMock()
+            # Return failure result instead of raising exception
+            loop.executor.execute_work = AsyncMock(
+                return_value={
+                    "success": False,
+                    "error": "Task could not be completed",
+                }
+            )
+            loop._handle_failed_workflow = AsyncMock()
+
+            await loop._execute_work()
+
+            # Verify work was marked as failed (not completed)
+            loop.work_queue.fail_work.assert_called_once()
+            loop.work_queue.complete_work.assert_not_called()
+            loop._handle_failed_workflow.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_concurrent_work_execution(self, sugar_config_file):
         """Test concurrent execution of multiple tasks"""
         with (

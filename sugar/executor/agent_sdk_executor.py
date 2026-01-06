@@ -60,6 +60,14 @@ class AgentSDKExecutor(BaseExecutor):
         # MCP servers
         self.mcp_servers = config.get("mcp_servers", {})
 
+        # Log MCP server configuration for debugging
+        if self.mcp_servers:
+            logger.info(f"MCP servers configured: {list(self.mcp_servers.keys())}")
+            for name, server_config in self.mcp_servers.items():
+                logger.debug(f"  {name}: {server_config.get('command', 'N/A')}")
+        else:
+            logger.debug("No MCP servers configured")
+
         # Agent instance (lazy initialization)
         self._agent: Optional[SugarAgent] = None
         self._session_active = False
