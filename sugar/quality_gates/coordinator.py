@@ -18,6 +18,7 @@ from .functional_verifier import FunctionalVerifier
 from .preflight_checks import PreFlightChecker
 from .failure_handler import VerificationFailureHandler
 from .diff_validator import DiffValidator
+from .verification_gate import VerificationGate, VerificationResults, VerificationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ class QualityGateResult:
         preflight_passed: bool = True,
         functional_verified: bool = True,
         diff_validated: bool = True,
+        self_verified: bool = True,
+        verification_results: Optional[VerificationResults] = None,
         evidence_collector: Optional[EvidenceCollector] = None,
         failure_report: Optional[Any] = None,
     ):
@@ -46,6 +49,8 @@ class QualityGateResult:
         self.preflight_passed = preflight_passed
         self.functional_verified = functional_verified
         self.diff_validated = diff_validated
+        self.self_verified = self_verified
+        self.verification_results = verification_results
         self.evidence_collector = evidence_collector
         self.failure_report = failure_report
 
@@ -60,7 +65,11 @@ class QualityGateResult:
             "preflight_passed": self.preflight_passed,
             "functional_verified": self.functional_verified,
             "diff_validated": self.diff_validated,
+            "self_verified": self.self_verified,
         }
+
+        if self.verification_results:
+            result["verification_results"] = self.verification_results.to_dict()
 
         if self.evidence_collector:
             result["evidence_summary"] = self.evidence_collector.get_evidence_summary()
@@ -104,6 +113,9 @@ class QualityGatesCoordinator:
         # Initialize Phase 3 components
         self.failure_handler = VerificationFailureHandler(config)
         self.diff_validator = DiffValidator(config)
+
+        # Initialize Phase 4 components - Self-verification (AUTO-005)
+        self.verification_gate = VerificationGate(config)
 
     def is_enabled(self) -> bool:
         """Check if quality gates are enabled"""
@@ -259,6 +271,72 @@ class QualityGatesCoordinator:
             evidence_collector=evidence_collector,
         )
 
+    async def validate_before_completion(
+        self,
+        work_item: Dict[str, Any],
+        execution_result: Dict[str, Any],
+        task_type_manager=None,
+    ) -> Tuple[bool, QualityGateResult]:
+        """
+        Run self-verification before allowing task completion (AUTO-005).
+
+        This method integrates the VerificationGate to ensure tasks
+        self-verify before being marked as complete.
+
+        Args:
+            work_item: The work item being completed
+            execution_result: The result from task execution
+            task_type_manager: Optional TaskTypeManager for default criteria
+
+        Returns:
+            Tuple of (can_complete, quality_gate_result)
+        """
+        if not self.is_enabled():
+            logger.debug("Quality gates disabled - allowing completion")
+            return True, QualityGateResult(
+                can_complete=True,
+                reason="Quality gates disabled",
+            )
+
+        task_id = work_item.get("id", "unknown")
+        logger.info(f"Running self-verification for task {task_id}")
+
+        # Check if verification is required for this work item
+        if not self.verification_gate.should_require_verification(work_item):
+            logger.debug(f"Verification not required for task {task_id}")
+            return True, QualityGateResult(
+                can_complete=True,
+                reason="Verification not required for this task type",
+                self_verified=True,
+            )
+
+        # Run verification gate
+        can_complete, verification_results = (
+            await self.verification_gate.verify_task_completion(
+                work_item=work_item,
+                execution_result=execution_result,
+                criteria_verifier=self.criteria_verifier,
+                task_type_manager=task_type_manager,
+            )
+        )
+
+        if can_complete:
+            logger.info(f"✅ Self-verification passed for task {task_id}")
+            return True, QualityGateResult(
+                can_complete=True,
+                reason=verification_results.reason,
+                self_verified=True,
+                verification_results=verification_results,
+            )
+        else:
+            logger.warning(f"❌ Self-verification failed for task {task_id}: {verification_results.reason}")
+            return False, QualityGateResult(
+                can_complete=False,
+                reason=verification_results.reason,
+                self_verified=False,
+                verification_results=verification_results,
+            )
+
     def get_commit_message_footer(self, quality_gate_result: QualityGateResult) -> str:
         """
         Generate commit message footer with quality gate evidence
@@ -278,6 +356,7 @@ class QualityGatesCoordinator:
         footer += f"- Tests: {'✅ PASSED' if quality_gate_result.tests_passed else '❌ SKIPPED'}\n"
         footer += f"- Success Criteria: {'✅ VERIFIED' if quality_gate_result.criteria_verified else '⏭️ NONE'}\n"
         footer += f"- Claims Proven: {'✅ YES' if quality_gate_result.claims_proven else '⏭️ NONE'}\n"
+        footer += f"- Self-Verified: {'✅ YES' if quality_gate_result.self_verified else '❌ NO'}\n"
         footer += f"- Total Evidence: {summary.get('total_evidence_items', 0)} items\n"
 
         evidence_urls = quality_gate_result.evidence_collector.generate_evidence_urls()

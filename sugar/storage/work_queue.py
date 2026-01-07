@@ -73,6 +73,7 @@ class WorkQueue:
             await self._migrate_task_types_table(db)
             await self._migrate_orchestration_columns(db)
             await self._migrate_acceptance_criteria_column(db)
+            await self._migrate_verification_columns(db)
 
             await db.commit()
 
@@ -293,6 +294,38 @@ class WorkQueue:
 
         except Exception as e:
             logger.warning(f"Acceptance criteria migration warning (non-critical): {e}")
+
+    async def _migrate_verification_columns(self, db):
+        """Add verification columns to work_items table (AUTO-005)"""
+        try:
+            # Check existing columns
+            cursor = await db.execute("PRAGMA table_info(work_items)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            # Add verification_required column (boolean flag)
+            if "verification_required" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN verification_required BOOLEAN DEFAULT 0"
+                )
+                logger.info("Added verification_required column to existing database")
+
+            # Add verification_status column (pending, verified, failed)
+            if "verification_status" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN verification_status TEXT DEFAULT 'pending'"
+                )
+                logger.info("Added verification_status column to existing database")
+
+            # Add verification_results column (JSON field storing detailed results)
+            if "verification_results" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN verification_results TEXT"
+                )
+                logger.info("Added verification_results column to existing database")
+
+        except Exception as e:
+            logger.warning(f"Verification columns migration warning (non-critical): {e}")
 
     async def close(self):
         """Close the work queue (for testing)"""
@@ -680,7 +713,8 @@ class WorkQueue:
                        completed_at, result, total_execution_time, started_at,
                        total_elapsed_time, commit_sha,
                        orchestrate, parent_task_id, stage, blocked_by, context_path, assigned_agent,
-                       acceptance_criteria
+                       acceptance_criteria,
+                       verification_required, verification_status, verification_results
                 FROM work_items
                 WHERE id = ?
             """,
@@ -715,6 +749,9 @@ class WorkQueue:
                         "context_path": row[22],
                         "assigned_agent": row[23],
                         "acceptance_criteria": json.loads(row[24]) if row[24] else [],
+                        "verification_required": bool(row[25]) if row[25] is not None else False,
+                        "verification_status": row[26] if row[26] else "pending",
+                        "verification_results": json.loads(row[27]) if row[27] else None,
                     }
                 return None
 
@@ -735,7 +772,7 @@ class WorkQueue:
         values = []
 
         for key, value in updates.items():
-            if key in ("context", "acceptance_criteria", "blocked_by"):
+            if key in ("context", "acceptance_criteria", "blocked_by", "verification_results"):
                 set_clauses.append(f"{key} = ?")
                 values.append(json.dumps(value) if value else None)
             else:

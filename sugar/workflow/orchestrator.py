@@ -205,6 +205,15 @@ class WorkflowOrchestrator:
         execution_result: Dict[str, Any],
     ) -> bool:
         """Complete workflow after work execution"""
+        # Run self-verification before any completion steps (AUTO-005)
+        if self.quality_gates and self.quality_gates.is_enabled():
+            verification_passed = await self._run_self_verification(
+                work_item, execution_result
+            )
+            if not verification_passed:
+                logger.error("🚫 Self-verification failed - blocking work completion")
+                return False
+
         if not workflow.get("auto_commit", True):
             logger.info("🔧 Auto-commit disabled, skipping git operations")
             return True
@@ -365,3 +374,71 @@ class WorkflowOrchestrator:
                     break
 
         return claims
+
+    async def _run_self_verification(
+        self,
+        work_item: Dict[str, Any],
+        execution_result: Dict[str, Any],
+    ) -> bool:
+        """
+        Run self-verification before allowing task completion (AUTO-005).
+
+        This method integrates the QualityGatesCoordinator's verification
+        gate to ensure tasks self-verify before being marked as complete.
+
+        Args:
+            work_item: The work item being completed
+            execution_result: The result from task execution
+
+        Returns:
+            True if verification passed, False otherwise
+        """
+        if not self.quality_gates:
+            return True
+
+        try:
+            task_id = work_item.get("id", "unknown")
+            logger.info(f"🔍 Running self-verification for task {task_id}")
+
+            # Run the verification gate
+            can_complete, gate_result = (
+                await self.quality_gates.validate_before_completion(
+                    work_item=work_item,
+                    execution_result=execution_result,
+                )
+            )
+
+            # Store verification results in work item
+            if self.work_queue and gate_result.verification_results:
+                verification_updates = {
+                    "verification_status": gate_result.verification_results.status.value,
+                    "verification_results": gate_result.verification_results.to_dict(),
+                }
+                await self.work_queue.update_work(work_item["id"], verification_updates)
+
+            if can_complete:
+                logger.info(f"✅ Self-verification passed for task {task_id}")
+                return True
+            else:
+                logger.warning(
+                    f"❌ Self-verification failed for task {task_id}: {gate_result.reason}"
+                )
+
+                # Store failure information
+                if self.work_queue:
+                    await self.work_queue.update_work(
+                        work_item["id"],
+                        {
+                            "verification_status": "failed",
+                            "quality_gate_status": "failed",
+                            "quality_gate_reason": gate_result.reason,
+                            "quality_gate_details": gate_result.to_dict(),
+                        },
+                    )
+
+                return False
+
+        except Exception as e:
+            logger.error(f"Error during self-verification: {e}")
+            # On error, allow completion but log the issue
+            return True

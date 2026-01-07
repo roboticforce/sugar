@@ -18,6 +18,15 @@ Phase 3 (Implemented):
 - Verification failure handling and retry logic
 - Git diff validation
 - Task schema validation
+
+Phase 4 (Implemented):
+- Acceptance criteria templates
+- Default criteria per task type
+
+Phase 5 (Implemented - AUTO-005):
+- Self-verification before task completion
+- Verification gate integration
+- Verification status tracking
 """
 
 # Phase 1 exports
@@ -37,6 +46,14 @@ from .diff_validator import DiffValidator, DiffValidationResult
 
 # Phase 4 exports - Acceptance Criteria
 from .criteria_templates import CriteriaTemplates
+
+# Phase 5 exports - Self-verification (AUTO-005)
+from .verification_gate import (
+    VerificationGate,
+    VerificationResult,
+    VerificationResults,
+    VerificationStatus,
+)
 
 __all__ = [
     # Phase 1
@@ -61,4 +78,9 @@ __all__ = [
     "DiffValidationResult",
     # Phase 4
     "CriteriaTemplates",
+    # Phase 5 - Self-verification (AUTO-005)
+    "VerificationGate",
+    "VerificationResult",
+    "VerificationResults",
+    "VerificationStatus",
 ]
