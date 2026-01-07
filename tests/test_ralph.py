@@ -737,12 +737,16 @@ class TestValidatorWithNewSignals:
     def test_backward_compatible_extract_signal(self, validator):
         """Test that extract_completion_signal still works with new patterns"""
         # Promise tag (original pattern)
-        is_complete, text = validator.extract_completion_signal("<promise>DONE</promise>")
+        is_complete, text = validator.extract_completion_signal(
+            "<promise>DONE</promise>"
+        )
         assert is_complete is True
         assert text == "DONE"
 
         # Complete tag (new pattern)
-        is_complete, text = validator.extract_completion_signal("<complete>SUCCESS</complete>")
+        is_complete, text = validator.extract_completion_signal(
+            "<complete>SUCCESS</complete>"
+        )
         assert is_complete is True
         assert text == "SUCCESS"
 
@@ -752,7 +756,9 @@ class TestValidatorWithNewSignals:
         assert text == "FINISHED"
 
         # TASK_COMPLETE prefix (new pattern)
-        is_complete, text = validator.extract_completion_signal("TASK_COMPLETE: all done")
+        is_complete, text = validator.extract_completion_signal(
+            "TASK_COMPLETE: all done"
+        )
         assert is_complete is True
         assert "all done" in text
 

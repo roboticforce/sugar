@@ -90,7 +90,9 @@ class AgentSDKExecutor(BaseExecutor):
         # Completion signal detector for all executions
         self._signal_detector = CompletionSignalDetector()
 
-        logger.debug(f"AgentSDKExecutor initialized with default model: {self.default_model}")
+        logger.debug(
+            f"AgentSDKExecutor initialized with default model: {self.default_model}"
+        )
         logger.debug(f"Dynamic model routing enabled: {self.dynamic_routing_enabled}")
         logger.debug(f"Quality gates enabled: {self.quality_gates_enabled}")
         logger.debug(f"Dry run mode: {self.dry_run}")
@@ -123,6 +125,7 @@ class AgentSDKExecutor(BaseExecutor):
         if not self.dynamic_routing_enabled:
             # Return default model when routing is disabled
             from ..orchestration.model_router import ModelTier
+
             return ModelSelection(
                 model=self.default_model,
                 tier=ModelTier.STANDARD,
@@ -195,7 +198,9 @@ class AgentSDKExecutor(BaseExecutor):
         if signal.detected:
             result["completion_signal"] = signal.to_dict()
             result["completion_detected"] = True
-            result["completion_type"] = signal.signal_type.name if signal.signal_type else None
+            result["completion_type"] = (
+                signal.signal_type.name if signal.signal_type else None
+            )
             result["completion_text"] = signal.signal_text
 
             logger.debug(

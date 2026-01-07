@@ -189,7 +189,12 @@ class CriteriaTemplates:
         {
             "type": "code_change",
             "description": "CI/CD configuration updated",
-            "file_patterns": [".github/**", "Dockerfile", "docker-compose*.yml", ".gitlab-ci.yml"],
+            "file_patterns": [
+                ".github/**",
+                "Dockerfile",
+                "docker-compose*.yml",
+                ".gitlab-ci.yml",
+            ],
             "min_files_changed": 1,
             "required": True,
         },
@@ -307,13 +312,21 @@ class CriteriaTemplates:
             return False, "Criterion must have a 'type' field"
 
         valid_types = {
-            "test_suite", "file_exists", "string_in_file",
-            "http_status", "http_no_redirect", "code_change",
-            "no_regressions", "browser_element_exists",
+            "test_suite",
+            "file_exists",
+            "string_in_file",
+            "http_status",
+            "http_no_redirect",
+            "code_change",
+            "no_regressions",
+            "browser_element_exists",
         }
 
         if criterion_type not in valid_types:
-            return False, f"Unknown criterion type: {criterion_type}. Valid types: {valid_types}"
+            return (
+                False,
+                f"Unknown criterion type: {criterion_type}. Valid types: {valid_types}",
+            )
 
         # Type-specific validation
         if criterion_type == "test_suite":
@@ -322,7 +335,10 @@ class CriteriaTemplates:
 
         elif criterion_type == "file_exists":
             if "file_path" not in criterion and "file_pattern" not in criterion:
-                return False, "file_exists criterion requires 'file_path' or 'file_pattern' field"
+                return (
+                    False,
+                    "file_exists criterion requires 'file_path' or 'file_pattern' field",
+                )
 
         elif criterion_type == "string_in_file":
             if "file_path" not in criterion:
@@ -343,7 +359,9 @@ class CriteriaTemplates:
         return True, ""
 
     @classmethod
-    def validate_criteria_list(cls, criteria: List[Dict[str, Any]]) -> tuple[bool, List[str]]:
+    def validate_criteria_list(
+        cls, criteria: List[Dict[str, Any]]
+    ) -> tuple[bool, List[str]]:
         """Validate a list of criteria definitions
 
         Args:

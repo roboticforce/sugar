@@ -16,21 +16,21 @@ logger = logging.getLogger(__name__)
 class ModelTier(Enum):
     """Model tiers for cost/capability trade-offs"""
 
-    SIMPLE = "simple"      # Low complexity - fast, cheap model (e.g., Haiku)
+    SIMPLE = "simple"  # Low complexity - fast, cheap model (e.g., Haiku)
     STANDARD = "standard"  # Medium complexity - balanced model (e.g., Sonnet)
-    COMPLEX = "complex"    # High complexity - most capable model (e.g., Opus)
+    COMPLEX = "complex"  # High complexity - most capable model (e.g., Opus)
 
 
 @dataclass
 class ModelSelection:
     """Result of model routing decision"""
 
-    model: str                    # The actual Claude model name
-    tier: ModelTier              # The tier that was selected
-    reason: str                  # Reason for the selection
-    task_type: Optional[str]     # Task type that influenced the decision
-    complexity_level: int        # Complexity level (1-5)
-    override_applied: bool       # Whether an override was applied
+    model: str  # The actual Claude model name
+    tier: ModelTier  # The tier that was selected
+    reason: str  # Reason for the selection
+    task_type: Optional[str]  # Task type that influenced the decision
+    complexity_level: int  # Complexity level (1-5)
+    override_applied: bool  # Whether an override was applied
 
 
 class ModelRouter:
@@ -142,7 +142,11 @@ class ModelRouter:
         # Check for explicit tier override in task context
         if context.get("model_tier"):
             tier_str = context["model_tier"]
-            tier = ModelTier(tier_str) if tier_str in [t.value for t in ModelTier] else ModelTier.STANDARD
+            tier = (
+                ModelTier(tier_str)
+                if tier_str in [t.value for t in ModelTier]
+                else ModelTier.STANDARD
+            )
             model = self.get_model_for_tier(tier)
             return ModelSelection(
                 model=model,
@@ -169,7 +173,9 @@ class ModelRouter:
             tier = ModelTier.STANDARD
 
         # Perform runtime complexity analysis to potentially upgrade tier
-        analyzed_tier, analysis_reason = self._analyze_runtime_complexity(task, tier, complexity_level)
+        analyzed_tier, analysis_reason = self._analyze_runtime_complexity(
+            task, tier, complexity_level
+        )
 
         model = self.get_model_for_tier(analyzed_tier)
 
@@ -209,15 +215,33 @@ class ModelRouter:
 
         # Keywords that suggest higher complexity
         complex_indicators = [
-            "refactor", "migrate", "redesign", "rewrite", "architecture",
-            "system-wide", "multi-file", "complex", "comprehensive",
-            "integrate", "breaking change", "major", "overhaul",
+            "refactor",
+            "migrate",
+            "redesign",
+            "rewrite",
+            "architecture",
+            "system-wide",
+            "multi-file",
+            "complex",
+            "comprehensive",
+            "integrate",
+            "breaking change",
+            "major",
+            "overhaul",
         ]
 
         # Keywords that suggest simpler tasks
         simple_indicators = [
-            "typo", "comment", "formatting", "style", "rename",
-            "trivial", "minor", "quick", "simple", "update docs",
+            "typo",
+            "comment",
+            "formatting",
+            "style",
+            "rename",
+            "trivial",
+            "minor",
+            "quick",
+            "simple",
+            "update docs",
         ]
 
         # Count indicators
@@ -226,13 +250,23 @@ class ModelRouter:
 
         # Adjust tier based on indicators
         if complex_count >= 2 and base_tier != ModelTier.COMPLEX:
-            return ModelTier.COMPLEX, f"Runtime analysis detected {complex_count} complexity indicators"
+            return (
+                ModelTier.COMPLEX,
+                f"Runtime analysis detected {complex_count} complexity indicators",
+            )
 
         if simple_count >= 2 and base_tier != ModelTier.SIMPLE:
-            return ModelTier.SIMPLE, f"Runtime analysis detected {simple_count} simplicity indicators"
+            return (
+                ModelTier.SIMPLE,
+                f"Runtime analysis detected {simple_count} simplicity indicators",
+            )
 
         # Check task scope (multiple files mentioned)
-        if "multiple files" in full_text or "several files" in full_text or "across" in full_text:
+        if (
+            "multiple files" in full_text
+            or "several files" in full_text
+            or "across" in full_text
+        ):
             if base_tier == ModelTier.SIMPLE:
                 return ModelTier.STANDARD, "Multi-file scope detected"
 

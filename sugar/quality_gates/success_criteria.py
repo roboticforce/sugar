@@ -79,8 +79,10 @@ class SuccessCriteriaVerifier:
         # If no explicit criteria and we have a task type manager, get defaults
         if not criteria and task_type_manager:
             task_type = work_item.get("type", "feature")
-            default_criteria = await task_type_manager.get_default_acceptance_criteria_for_type(
-                task_type
+            default_criteria = (
+                await task_type_manager.get_default_acceptance_criteria_for_type(
+                    task_type
+                )
             )
             if default_criteria:
                 criteria = default_criteria
@@ -88,6 +90,7 @@ class SuccessCriteriaVerifier:
         # If still no criteria, use template defaults
         if not criteria:
             from .criteria_templates import CriteriaTemplates
+
             task_type = work_item.get("type", "feature")
             criteria = CriteriaTemplates.get_template(task_type)
 

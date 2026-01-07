@@ -243,7 +243,9 @@ class CompletionSignalDetector:
                         raw_match=raw_match,
                         confidence=1.0,
                         metadata={
-                            "pattern_index": self.patterns.index((signal_type, pattern)),
+                            "pattern_index": self.patterns.index(
+                                (signal_type, pattern)
+                            ),
                             "match_start": match.start(),
                             "match_end": match.end(),
                         },

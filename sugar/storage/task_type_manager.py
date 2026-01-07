@@ -101,7 +101,9 @@ class TaskTypeManager:
                     "ALTER TABLE task_types ADD COLUMN default_acceptance_criteria TEXT DEFAULT '[]'"
                 )
                 await db.commit()
-                logger.info("Added default_acceptance_criteria column to task_types table")
+                logger.info(
+                    "Added default_acceptance_criteria column to task_types table"
+                )
         except Exception as e:
             logger.warning(f"Migration warning for default_acceptance_criteria: {e}")
 
@@ -672,7 +674,9 @@ class TaskTypeManager:
         task_type = await self.get_task_type(type_id)
         return task_type.get("file_patterns", []) if task_type else []
 
-    async def get_default_acceptance_criteria_for_type(self, type_id: str) -> List[Dict]:
+    async def get_default_acceptance_criteria_for_type(
+        self, type_id: str
+    ) -> List[Dict]:
         """Get the default acceptance criteria for a task type"""
         await self.initialize()
         task_type = await self.get_task_type(type_id)
@@ -701,11 +705,15 @@ class TaskTypeManager:
     async def set_model_tier_for_type(self, type_id: str, model_tier: str) -> bool:
         """Set the model tier for a task type"""
         if model_tier not in ("simple", "standard", "complex"):
-            logger.error(f"Invalid model tier '{model_tier}'. Must be simple, standard, or complex.")
+            logger.error(
+                f"Invalid model tier '{model_tier}'. Must be simple, standard, or complex."
+            )
             return False
         return await self.update_task_type(type_id, model_tier=model_tier)
 
-    async def set_complexity_level_for_type(self, type_id: str, complexity_level: int) -> bool:
+    async def set_complexity_level_for_type(
+        self, type_id: str, complexity_level: int
+    ) -> bool:
         """Set the complexity level for a task type"""
         if complexity_level not in range(1, 6):
             logger.error(f"Invalid complexity level '{complexity_level}'. Must be 1-5.")

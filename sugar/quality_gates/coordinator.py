@@ -329,7 +329,9 @@ class QualityGatesCoordinator:
                 verification_results=verification_results,
             )
         else:
-            logger.warning(f"❌ Self-verification failed for task {task_id}: {verification_results.reason}")
+            logger.warning(
+                f"❌ Self-verification failed for task {task_id}: {verification_results.reason}"
+            )
             return False, QualityGateResult(
                 can_complete=False,
                 reason=verification_results.reason,

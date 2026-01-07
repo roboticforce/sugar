@@ -65,7 +65,9 @@ class ValidationResult:
         return {
             "is_valid": self.is_valid,
             "completion_type": self.completion_type,
-            "completion_signal": self.completion_signal.to_dict() if self.completion_signal else None,
+            "completion_signal": (
+                self.completion_signal.to_dict() if self.completion_signal else None
+            ),
             "promise_text": self.promise_text,
             "success_criteria": self.success_criteria,
             "max_iterations": self.max_iterations,

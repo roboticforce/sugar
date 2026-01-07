@@ -506,7 +506,9 @@ def add(
                     parsed_criteria = json.loads(acceptance_criteria)
 
                 # Validate the criteria
-                is_valid, errors = CriteriaTemplates.validate_criteria_list(parsed_criteria)
+                is_valid, errors = CriteriaTemplates.validate_criteria_list(
+                    parsed_criteria
+                )
                 if not is_valid:
                     click.echo("❌ Invalid acceptance criteria:", err=True)
                     for error in errors[:3]:
@@ -519,7 +521,10 @@ def add(
                 click.echo(f"❌ Invalid JSON in acceptance criteria: {e}", err=True)
                 raise click.Abort()
             except FileNotFoundError:
-                click.echo(f"❌ Acceptance criteria file not found: {acceptance_criteria[1:]}", err=True)
+                click.echo(
+                    f"❌ Acceptance criteria file not found: {acceptance_criteria[1:]}",
+                    err=True,
+                )
                 raise click.Abort()
 
         # Perform intelligent triage if enabled
@@ -1423,8 +1428,16 @@ def logs(ctx, lines, follow, level):
 
 
 @cli.command()
-@click.option("--lines", "-n", default=None, type=int, help="Number of lines to show (default: all)")
-@click.option("--sessions", "-s", default=None, type=int, help="Show last N session summaries")
+@click.option(
+    "--lines",
+    "-n",
+    default=None,
+    type=int,
+    help="Number of lines to show (default: all)",
+)
+@click.option(
+    "--sessions", "-s", default=None, type=int, help="Show last N session summaries"
+)
 @click.option("--clear", is_flag=True, help="Clear the learnings log (creates backup)")
 @click.option("--refresh", is_flag=True, help="Generate fresh insights and save to log")
 @click.pass_context
@@ -1486,19 +1499,27 @@ def learnings(ctx, lines, sessions, clear, refresh):
             if success:
                 metrics = insights.get("performance_metrics", {})
                 click.echo(f"✅ Insights saved to .sugar/LEARNINGS.md")
-                click.echo(f"   Tasks processed: {metrics.get('total_tasks_processed', 0)}")
-                click.echo(f"   Success rate: {metrics.get('success_rate_percent', 0):.1f}%")
+                click.echo(
+                    f"   Tasks processed: {metrics.get('total_tasks_processed', 0)}"
+                )
+                click.echo(
+                    f"   Success rate: {metrics.get('success_rate_percent', 0):.1f}%"
+                )
                 recommendations = insights.get("recommendations", [])
                 click.echo(f"   Recommendations: {len(recommendations)}")
             else:
-                click.echo("❌ No insights to save (process some tasks first)", err=True)
+                click.echo(
+                    "❌ No insights to save (process some tasks first)", err=True
+                )
             return
 
         if sessions:
             # Show recent session summaries
             recent = learnings_writer.get_recent_sessions(sessions)
             if not recent:
-                click.echo("📭 No session summaries found. Run 'sugar learnings --refresh' to generate.")
+                click.echo(
+                    "📭 No session summaries found. Run 'sugar learnings --refresh' to generate."
+                )
                 return
 
             click.echo(f"\n📊 Last {len(recent)} Session Summaries\n")
@@ -1514,7 +1535,9 @@ def learnings(ctx, lines, sessions, clear, refresh):
             click.echo(content)
         else:
             click.echo("📭 No learnings recorded yet.")
-            click.echo("   Run 'sugar learnings --refresh' to generate insights from task history.")
+            click.echo(
+                "   Run 'sugar learnings --refresh' to generate insights from task history."
+            )
 
     except FileNotFoundError:
         click.echo("❌ Sugar not initialized. Run 'sugar init' first.", err=True)

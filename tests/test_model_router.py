@@ -315,9 +315,18 @@ class TestModelRouterHelpers:
 
     def test_get_model_for_tier(self, custom_model_router):
         """get_model_for_tier returns correct model."""
-        assert custom_model_router.get_model_for_tier(ModelTier.SIMPLE) == "claude-haiku-3-5-20241022"
-        assert custom_model_router.get_model_for_tier(ModelTier.STANDARD) == "claude-sonnet-4-20250514"
-        assert custom_model_router.get_model_for_tier(ModelTier.COMPLEX) == "claude-sonnet-4-20250514"
+        assert (
+            custom_model_router.get_model_for_tier(ModelTier.SIMPLE)
+            == "claude-haiku-3-5-20241022"
+        )
+        assert (
+            custom_model_router.get_model_for_tier(ModelTier.STANDARD)
+            == "claude-sonnet-4-20250514"
+        )
+        assert (
+            custom_model_router.get_model_for_tier(ModelTier.COMPLEX)
+            == "claude-sonnet-4-20250514"
+        )
 
     def test_get_tier_for_complexity(self, model_router):
         """get_tier_for_complexity maps levels to tiers."""
@@ -363,9 +372,18 @@ class TestModelRouterHelpers:
     def test_infer_tier_from_model(self, model_router):
         """Infer tier from model name."""
         # Private method test
-        assert model_router._infer_tier_from_model("claude-haiku-3-5-20241022") == ModelTier.SIMPLE
-        assert model_router._infer_tier_from_model("claude-sonnet-4-20250514") == ModelTier.STANDARD
-        assert model_router._infer_tier_from_model("claude-opus-4-20250514") == ModelTier.COMPLEX
+        assert (
+            model_router._infer_tier_from_model("claude-haiku-3-5-20241022")
+            == ModelTier.SIMPLE
+        )
+        assert (
+            model_router._infer_tier_from_model("claude-sonnet-4-20250514")
+            == ModelTier.STANDARD
+        )
+        assert (
+            model_router._infer_tier_from_model("claude-opus-4-20250514")
+            == ModelTier.COMPLEX
+        )
 
 
 # ============================================================================
@@ -397,36 +415,44 @@ class TestCreateModelRouter:
 class TestTaskTypeMappings:
     """Tests for default task type to tier mappings."""
 
-    @pytest.mark.parametrize("task_type,expected_tier", [
-        ("docs", "simple"),
-        ("style", "simple"),
-        ("chore", "simple"),
-        ("test", "standard"),
-        ("bug_fix", "standard"),
-        ("ci", "standard"),
-        ("feature", "complex"),
-        ("refactor", "complex"),
-        ("perf", "complex"),
-        ("security", "complex"),
-    ])
+    @pytest.mark.parametrize(
+        "task_type,expected_tier",
+        [
+            ("docs", "simple"),
+            ("style", "simple"),
+            ("chore", "simple"),
+            ("test", "standard"),
+            ("bug_fix", "standard"),
+            ("ci", "standard"),
+            ("feature", "complex"),
+            ("refactor", "complex"),
+            ("perf", "complex"),
+            ("security", "complex"),
+        ],
+    )
     def test_task_type_default_tier(self, model_router, task_type, expected_tier):
         """Each task type has correct default tier."""
         tier = model_router._get_default_tier_for_type(task_type)
         assert tier == expected_tier
 
-    @pytest.mark.parametrize("task_type,expected_level", [
-        ("docs", 1),
-        ("style", 1),
-        ("chore", 2),
-        ("test", 2),
-        ("bug_fix", 3),
-        ("ci", 2),
-        ("feature", 3),
-        ("refactor", 4),
-        ("perf", 4),
-        ("security", 4),
-    ])
-    def test_task_type_default_complexity(self, model_router, task_type, expected_level):
+    @pytest.mark.parametrize(
+        "task_type,expected_level",
+        [
+            ("docs", 1),
+            ("style", 1),
+            ("chore", 2),
+            ("test", 2),
+            ("bug_fix", 3),
+            ("ci", 2),
+            ("feature", 3),
+            ("refactor", 4),
+            ("perf", 4),
+            ("security", 4),
+        ],
+    )
+    def test_task_type_default_complexity(
+        self, model_router, task_type, expected_level
+    ):
         """Each task type has correct default complexity level."""
         level = model_router._get_default_complexity_for_type(task_type)
         assert level == expected_level
@@ -465,7 +491,9 @@ class TestModelRouterIntegration:
 
         for task, expected_tier in zip(tasks, expected_tiers):
             selection = custom_model_router.route(task)
-            assert selection.tier == expected_tier, f"Task '{task['title']}' should route to {expected_tier}"
+            assert (
+                selection.tier == expected_tier
+            ), f"Task '{task['title']}' should route to {expected_tier}"
             assert selection.model is not None
             assert len(selection.reason) > 0
 

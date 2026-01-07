@@ -325,7 +325,9 @@ class WorkQueue:
                 logger.info("Added verification_results column to existing database")
 
         except Exception as e:
-            logger.warning(f"Verification columns migration warning (non-critical): {e}")
+            logger.warning(
+                f"Verification columns migration warning (non-critical): {e}"
+            )
 
     async def close(self):
         """Close the work queue (for testing)"""
@@ -374,7 +376,9 @@ class WorkQueue:
             # Prepare acceptance_criteria as JSON if it's a list
             acceptance_criteria = work_item.get("acceptance_criteria", [])
             if isinstance(acceptance_criteria, list):
-                acceptance_criteria_json = json.dumps(acceptance_criteria) if acceptance_criteria else None
+                acceptance_criteria_json = (
+                    json.dumps(acceptance_criteria) if acceptance_criteria else None
+                )
             else:
                 acceptance_criteria_json = acceptance_criteria
 
@@ -749,9 +753,13 @@ class WorkQueue:
                         "context_path": row[22],
                         "assigned_agent": row[23],
                         "acceptance_criteria": json.loads(row[24]) if row[24] else [],
-                        "verification_required": bool(row[25]) if row[25] is not None else False,
+                        "verification_required": (
+                            bool(row[25]) if row[25] is not None else False
+                        ),
                         "verification_status": row[26] if row[26] else "pending",
-                        "verification_results": json.loads(row[27]) if row[27] else None,
+                        "verification_results": (
+                            json.loads(row[27]) if row[27] else None
+                        ),
                     }
                 return None
 
@@ -772,7 +780,12 @@ class WorkQueue:
         values = []
 
         for key, value in updates.items():
-            if key in ("context", "acceptance_criteria", "blocked_by", "verification_results"):
+            if key in (
+                "context",
+                "acceptance_criteria",
+                "blocked_by",
+                "verification_results",
+            ):
                 set_clauses.append(f"{key} = ?")
                 values.append(json.dumps(value) if value else None)
             else:

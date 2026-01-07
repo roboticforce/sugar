@@ -46,7 +46,9 @@ It tracks session summaries, success/failure patterns, and recommendations.
         try:
             self._ensure_file_exists()
 
-            timestamp = insights.get("timestamp", datetime.now(timezone.utc).isoformat())
+            timestamp = insights.get(
+                "timestamp", datetime.now(timezone.utc).isoformat()
+            )
 
             # Build the session summary markdown
             summary_parts = []
@@ -56,17 +58,27 @@ It tracks session summaries, success/failure patterns, and recommendations.
             metrics = insights.get("performance_metrics", {})
             if metrics:
                 summary_parts.append("### 📊 Performance Metrics\n")
-                summary_parts.append(f"- **Total Tasks Processed:** {metrics.get('total_tasks_processed', 0)}")
-                summary_parts.append(f"- **Success Rate:** {metrics.get('success_rate_percent', 0):.1f}%")
-                summary_parts.append(f"- **Completed Tasks:** {metrics.get('completed_tasks', 0)}")
-                summary_parts.append(f"- **Failed Tasks:** {metrics.get('failed_tasks', 0)}")
-                velocity = metrics.get('task_completion_velocity_per_day', 0)
+                summary_parts.append(
+                    f"- **Total Tasks Processed:** {metrics.get('total_tasks_processed', 0)}"
+                )
+                summary_parts.append(
+                    f"- **Success Rate:** {metrics.get('success_rate_percent', 0):.1f}%"
+                )
+                summary_parts.append(
+                    f"- **Completed Tasks:** {metrics.get('completed_tasks', 0)}"
+                )
+                summary_parts.append(
+                    f"- **Failed Tasks:** {metrics.get('failed_tasks', 0)}"
+                )
+                velocity = metrics.get("task_completion_velocity_per_day", 0)
                 summary_parts.append(f"- **Velocity:** {velocity:.1f} tasks/day")
 
-                time_stats = metrics.get('execution_time_statistics', {})
+                time_stats = metrics.get("execution_time_statistics", {})
                 if time_stats:
-                    avg_time = time_stats.get('average_execution_time', 0)
-                    summary_parts.append(f"- **Average Execution Time:** {self._format_duration(avg_time)}")
+                    avg_time = time_stats.get("average_execution_time", 0)
+                    summary_parts.append(
+                        f"- **Average Execution Time:** {self._format_duration(avg_time)}"
+                    )
                 summary_parts.append("")
 
             # Success Patterns
@@ -77,13 +89,17 @@ It tracks session summaries, success/failure patterns, and recommendations.
                 task_types = success_patterns.get("successful_task_types", {})
                 if task_types:
                     summary_parts.append("**Successful Task Types:**")
-                    for task_type, count in sorted(task_types.items(), key=lambda x: x[1], reverse=True):
+                    for task_type, count in sorted(
+                        task_types.items(), key=lambda x: x[1], reverse=True
+                    ):
                         summary_parts.append(f"- {task_type}: {count} tasks")
 
                 sources = success_patterns.get("successful_sources", {})
                 if sources:
                     summary_parts.append("\n**Successful Sources:**")
-                    for source, count in sorted(sources.items(), key=lambda x: x[1], reverse=True):
+                    for source, count in sorted(
+                        sources.items(), key=lambda x: x[1], reverse=True
+                    ):
                         summary_parts.append(f"- {source}: {count} tasks")
                 summary_parts.append("")
 
@@ -95,13 +111,17 @@ It tracks session summaries, success/failure patterns, and recommendations.
                 failure_reasons = failure_patterns.get("common_failure_reasons", {})
                 if failure_reasons:
                     summary_parts.append("**Common Failure Reasons:**")
-                    for reason, count in sorted(failure_reasons.items(), key=lambda x: x[1], reverse=True):
+                    for reason, count in sorted(
+                        failure_reasons.items(), key=lambda x: x[1], reverse=True
+                    ):
                         summary_parts.append(f"- {reason}: {count} occurrences")
 
                 failed_types = failure_patterns.get("failed_task_types", {})
                 if failed_types:
                     summary_parts.append("\n**Failed Task Types:**")
-                    for task_type, count in sorted(failed_types.items(), key=lambda x: x[1], reverse=True):
+                    for task_type, count in sorted(
+                        failed_types.items(), key=lambda x: x[1], reverse=True
+                    ):
                         summary_parts.append(f"- {task_type}: {count} tasks")
                 summary_parts.append("")
 
@@ -143,10 +163,7 @@ It tracks session summaries, success/failure patterns, and recommendations.
             return False
 
     def write_custom_entry(
-        self,
-        title: str,
-        content: str,
-        entry_type: str = "note"
+        self, title: str, content: str, entry_type: str = "note"
     ) -> bool:
         """
         Write a custom entry to the learnings log.
@@ -241,18 +258,22 @@ It tracks session summaries, success/failure patterns, and recommendations.
             for line in content.split("\n"):
                 if line.startswith("## Session Summary - "):
                     if current_session:
-                        sessions.append({
-                            "timestamp": current_session,
-                            "content": "\n".join(current_lines)
-                        })
+                        sessions.append(
+                            {
+                                "timestamp": current_session,
+                                "content": "\n".join(current_lines),
+                            }
+                        )
                     current_session = line.replace("## Session Summary - ", "").strip()
                     current_lines = [line]
                 elif current_session:
                     if line.startswith("---"):
-                        sessions.append({
-                            "timestamp": current_session,
-                            "content": "\n".join(current_lines)
-                        })
+                        sessions.append(
+                            {
+                                "timestamp": current_session,
+                                "content": "\n".join(current_lines),
+                            }
+                        )
                         current_session = None
                         current_lines = []
                     else:

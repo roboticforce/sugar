@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class VerificationStatus(Enum):
     """Status of verification for a task"""
+
     PENDING = "pending"
     VERIFIED = "verified"
     FAILED = "failed"
@@ -28,11 +29,14 @@ class VerificationStatus(Enum):
 @dataclass
 class VerificationResult:
     """Result of a single verification check"""
+
     check_name: str
     passed: bool
     message: str
     details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -48,11 +52,14 @@ class VerificationResult:
 @dataclass
 class VerificationResults:
     """Aggregated verification results for a task"""
+
     status: VerificationStatus
     overall_passed: bool
     checks: List[VerificationResult] = field(default_factory=list)
     reason: str = ""
-    verified_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    verified_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -296,7 +303,9 @@ class VerificationGate:
         Returns:
             VerificationResult for this check
         """
-        output = execution_result.get("output", "") or execution_result.get("content", "")
+        output = execution_result.get("output", "") or execution_result.get(
+            "content", ""
+        )
         actions = execution_result.get("actions_taken", [])
         summary = execution_result.get("summary", "")
         files_changed = execution_result.get("files_changed", [])
