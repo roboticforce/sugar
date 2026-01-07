@@ -10,7 +10,17 @@ sugar:
     command: "/Users/steve/.claude/local/claude"  # Full path to Claude CLI
     timeout: 1800  # 30 minutes max per task
     context_file: "sugar_context.json"
-    
+
+    # MCP Server Configuration (optional)
+    # Enables browser automation, filesystem access, and other MCP tools
+    # mcp_servers:
+    #   playwright:
+    #     command: npx
+    #     args: ["-y", "@anthropic/mcp-server-playwright"]
+    #   filesystem:
+    #     command: npx
+    #     args: ["-y", "@anthropic/mcp-server-filesystem"]
+
     # Structured Claude Agent Integration System (Complete Implementation)
     use_structured_requests: true  # Enable structured JSON communication
     structured_input_file: ".sugar/claude_input.json"  # Temp file for complex inputs
