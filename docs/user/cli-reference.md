@@ -89,6 +89,7 @@ sugar add TITLE [OPTIONS]
 - `--urgent` - Mark as urgent (sets priority to 5)
 - `--orchestrate` - Enable task orchestration for complex features
 - `--skip-stages TEXT` - Skip specific orchestration stages (comma-separated)
+- `--acceptance-criteria TEXT` - JSON array of acceptance criteria for task verification
 
 **Complex Data Input Options:**
 - `--input-file PATH` - JSON file containing task data
@@ -156,6 +157,40 @@ sugar add "Fix authentication crash" --type bug_fix --urgent
 # With detailed description
 sugar add "Refactor API endpoints" --type refactor --priority 3 --description "Clean up REST API structure and improve error handling"
 ```
+
+**Acceptance Criteria Examples:**
+
+Acceptance criteria define what must be verified before a task is marked complete:
+
+```bash
+# Bug fix with test requirements
+sugar add "Fix login timeout" --type bug_fix \
+  --acceptance-criteria '[{"type": "test_suite", "command": "pytest tests/auth/"}]'
+
+# Feature requiring new test file
+sugar add "Add user profile endpoint" --type feature \
+  --acceptance-criteria '[
+    {"type": "test_suite", "command": "pytest", "expected_failures": 0},
+    {"type": "file_exists", "file_pattern": "tests/test_profile.py"}
+  ]'
+
+# Security fix with specific checks
+sugar add "Fix SQL injection in search" --type bug_fix --priority 5 \
+  --acceptance-criteria '[
+    {"type": "test_suite", "command": "pytest tests/security/"},
+    {"type": "no_regressions", "description": "No new vulnerabilities"}
+  ]'
+```
+
+**Supported Criterion Types:**
+- `test_suite` - Run tests and verify pass/fail counts
+- `file_exists` - Verify file exists at path or pattern
+- `string_in_file` - Check for string in file
+- `code_change` - Verify code changes were made
+- `no_regressions` - Ensure no test regressions
+- `http_status` - Verify HTTP endpoint returns expected status
+
+If no acceptance criteria are specified, default templates are applied based on task type. See [Acceptance Criteria Templates](#acceptance-criteria-templates) for defaults.
 
 **Complex Data Examples:**
 
@@ -463,6 +498,68 @@ P3 [test] Add integration tests
 
 ---
 
+### `sugar learnings`
+
+View Sugar's learning progress log with session summaries, success/failure patterns, and recommendations.
+
+```bash
+sugar learnings [OPTIONS]
+```
+
+**Options:**
+- `--lines INTEGER` - Number of recent lines to show (default: all)
+- `--sessions INTEGER` - Number of recent sessions to show (default: 5)
+- `--clear` - Clear the learnings log (creates backup first)
+
+**Examples:**
+```bash
+# View all learnings
+sugar learnings
+
+# View last 50 lines
+sugar learnings --lines 50
+
+# View last 3 sessions
+sugar learnings --sessions 3
+
+# Clear and start fresh (creates backup)
+sugar learnings --clear
+```
+
+**What it shows:**
+- Session summaries with completion stats
+- Success rate and task velocity
+- Successful task types and sources
+- Common failure patterns and reasons
+- Automated recommendations
+
+**Example output:**
+```
+## Session Summary - 2024-01-15T10:30:00Z
+
+### 📊 Performance Metrics
+- **Total Tasks Processed:** 12
+- **Success Rate:** 83.3%
+- **Completed Tasks:** 10
+- **Failed Tasks:** 2
+- **Velocity:** 4.2 tasks/day
+- **Average Execution Time:** 8m 23s
+
+### ✅ Success Patterns
+**Successful Task Types:**
+- feature: 5 tasks
+- bug_fix: 3 tasks
+- test: 2 tasks
+
+### 💡 Recommendations
+- 🎯 **priority_adjustment:** Consider increasing priority for bug_fix tasks
+- ⚡ **optimization:** Tests are passing consistently - good coverage
+```
+
+The learnings log is stored at `.sugar/LEARNINGS.md` and is automatically updated after each Sugar session.
+
+---
+
 ### `sugar run`
 
 Start the Sugar autonomous development system.
@@ -598,9 +695,57 @@ pending → active → completed
 - `SUGAR_CONFIG` - Override default config file path
 - `SUGAR_LOG_LEVEL` - Set logging level (DEBUG, INFO, WARNING, ERROR)
 
+## Acceptance Criteria Templates
+
+When no acceptance criteria are specified, Sugar applies default templates based on task type:
+
+### Feature Tasks
+- All tests must pass
+- Code changes must be made
+- No test regressions
+
+### Bug Fix Tasks
+- All tests must pass
+- Code changes must fix the bug
+- No test regressions
+
+### Refactor Tasks
+- All tests must pass after refactoring
+- No test regressions
+- Code must be refactored
+
+### Test Tasks
+- All tests must pass (including new ones)
+- Test files must be created/modified
+
+### Documentation Tasks
+- Documentation files must be updated
+
+### Security Tasks
+- All tests must pass
+- Security-related changes must be made
+- No regressions
+
+You can override these defaults using `--acceptance-criteria` or by configuring default criteria per task type in the database.
+
+## Completion Signals
+
+Sugar recognizes several completion signal patterns in task output:
+
+| Pattern | Example | Description |
+|---------|---------|-------------|
+| `<promise>TEXT</promise>` | `<promise>DONE</promise>` | Standard Ralph completion |
+| `<complete>TEXT</complete>` | `<complete>Feature implemented</complete>` | Explicit completion |
+| `<done reason="..."/>` | `<done reason="All tests pass"/>` | XML-style completion |
+| `TASK_COMPLETE: desc` | `TASK_COMPLETE: Bug fixed` | Plain text completion |
+
+These signals help Sugar determine when a task has genuinely completed, especially for iterative (Ralph) tasks.
+
 ## Tips
 
-💡 Use `--dry-run --once` to safely test Sugar behavior  
-💡 Check `.sugar/sugar.log` for detailed execution logs  
-💡 Tasks are isolated per project - each project needs its own `sugar init`  
+💡 Use `--dry-run --once` to safely test Sugar behavior
+💡 Check `.sugar/sugar.log` for detailed execution logs
+💡 Tasks are isolated per project - each project needs its own `sugar init`
 💡 Use `sugar status` to monitor progress and queue health
+💡 Use `sugar learnings` to review execution patterns and recommendations
+💡 Specify `--acceptance-criteria` for tasks requiring specific verification
