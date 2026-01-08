@@ -2,6 +2,8 @@
 
 The dev team that never stops.
 
+<!-- mcp-name: io.github.cdnsteve/sugar -->
+
 Autonomous AI development for Claude Code. Sugar builds features, fixes bugs, and ships code while you focus on what matters.
 
 ## What It Does

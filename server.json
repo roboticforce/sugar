@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cdnsteve/sugar",
+  "title": "Sugar",
+  "description": "Autonomous AI development system with persistent task queue and background execution",
+  "repository": {
+    "url": "https://github.com/roboticforce/sugar",
+    "source": "github"
+  },
+  "version": "3.4.1",
+  "websiteUrl": "https://github.com/roboticforce/sugar",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "sugarai",
+      "version": "3.4.1",
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"},
+        {"type": "positional", "value": "serve"}
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic API key for Claude model access",
+          "required": false
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub token for repository access",
+          "required": false
+        },
+        {
+          "name": "SUGAR_DEFAULT_REPO",
+          "description": "Default repository in owner/repo format",
+          "required": false
+        }
+      ]
+    }
+  ]
+}
