@@ -1428,6 +1428,135 @@ def logs(ctx, lines, follow, level):
 
 
 @cli.command()
+@click.argument("task_id", required=False)
+@click.option("--list", "-l", "list_logs", is_flag=True, help="List all available thinking logs")
+@click.option("--stats", "-s", is_flag=True, help="Show thinking statistics")
+@click.pass_context
+def thinking(ctx, task_id, list_logs, stats):
+    """View Claude's thinking logs for task execution.
+
+    Display the thinking blocks captured during autonomous task execution,
+    providing visibility into Claude's reasoning process.
+
+    \b
+    Examples:
+        sugar thinking TASK_ID           # View full thinking log
+        sugar thinking TASK_ID --stats   # View thinking statistics
+        sugar thinking --list            # List all thinking logs
+    """
+    from .executor.thinking_display import read_thinking_log, list_thinking_logs
+    from .storage.work_queue import WorkQueue
+    import yaml
+
+    if list_logs:
+        # List all available thinking logs
+        logs = list_thinking_logs()
+
+        if not logs:
+            click.echo("📊 No thinking logs found")
+            click.echo("\nThinking logs are generated when tasks are executed with thinking capture enabled.")
+            return
+
+        click.echo(f"📊 Found {len(logs)} thinking log(s):\n")
+        for task_id_log, log_path, modified_time in logs[:20]:  # Show max 20
+            click.echo(f"  {task_id_log}")
+            click.echo(f"    Path: {log_path}")
+            click.echo(f"    Modified: {modified_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            click.echo()
+
+        if len(logs) > 20:
+            click.echo(f"  ... and {len(logs) - 20} more")
+
+        return
+
+    if not task_id:
+        click.echo("❌ Please provide a task ID or use --list to see all logs")
+        click.echo("\nUsage: sugar thinking TASK_ID")
+        sys.exit(1)
+
+    try:
+        config_file = ctx.obj["config"]
+        with open(config_file, "r") as f:
+            config = yaml.safe_load(f)
+
+        db_path = config["sugar"]["storage"]["database"]
+
+        # Get task info
+        async def get_task():
+            queue = WorkQueue(db_path)
+            await queue.initialize()
+            return await queue.get_work_by_id(task_id)
+
+        task = asyncio.run(get_task())
+
+        if not task:
+            click.echo(f"❌ Task not found: {task_id}")
+            sys.exit(1)
+
+        if stats:
+            # Show thinking statistics
+            thinking_stats = task.get("thinking_stats")
+            if thinking_stats and isinstance(thinking_stats, str):
+                thinking_stats = json.loads(thinking_stats)
+
+            if not thinking_stats:
+                click.echo(f"📊 No thinking statistics available for task: {task['title']}")
+                click.echo("\nThis task may not have been executed yet or thinking capture was disabled.")
+                return
+
+            click.echo(f"📊 Thinking Statistics for: {task['title']}")
+            click.echo(f"Task ID: {task_id}")
+            click.echo("=" * 60)
+            click.echo()
+            click.echo(f"  Thinking Blocks: {thinking_stats.get('count', 0)}")
+            click.echo(f"  Total Characters: {thinking_stats.get('total_characters', 0):,}")
+            click.echo(f"  Average Length: {thinking_stats.get('average_length', 0)} chars")
+
+            if thinking_stats.get('tool_uses_considered'):
+                click.echo(f"  Tools Considered: {', '.join(thinking_stats['tool_uses_considered'])}")
+
+            if thinking_stats.get('first_thinking'):
+                click.echo(f"  First Thinking: {thinking_stats['first_thinking']}")
+            if thinking_stats.get('last_thinking'):
+                click.echo(f"  Last Thinking: {thinking_stats['last_thinking']}")
+
+            click.echo()
+            if task.get('thinking_log_path'):
+                click.echo(f"  Full log: {task['thinking_log_path']}")
+
+        else:
+            # Read and display thinking log
+            thinking_content = read_thinking_log(task_id)
+
+            if not thinking_content:
+                click.echo(f"📊 No thinking log found for task: {task['title']}")
+                click.echo(f"Task ID: {task_id}")
+                click.echo()
+
+                if task.get('thinking_summary'):
+                    click.echo(f"Summary: {task['thinking_summary']}")
+                else:
+                    click.echo("This task may not have been executed yet or thinking capture was disabled.")
+
+                return
+
+            click.echo(f"📊 Thinking Log for: {task['title']}")
+            click.echo(f"Task ID: {task_id}")
+            click.echo("=" * 60)
+            click.echo()
+            click.echo(thinking_content)
+
+    except FileNotFoundError:
+        click.echo(f"❌ Configuration file not found: {ctx.obj['config']}")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error reading thinking log: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@cli.command()
 @click.option(
     "--lines",
     "-n",

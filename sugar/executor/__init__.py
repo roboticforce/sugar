@@ -10,10 +10,12 @@ Provides task execution implementations:
 from .base import BaseExecutor, ExecutionResult
 from .claude_wrapper import ClaudeWrapper
 from .agent_sdk_executor import AgentSDKExecutor
+from .hooks import HookExecutor
 
 __all__ = [
     "BaseExecutor",
     "ExecutionResult",
     "ClaudeWrapper",
     "AgentSDKExecutor",
+    "HookExecutor",
 ]

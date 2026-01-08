@@ -8,8 +8,10 @@ Claude Agent SDK integration, providing:
 - MCP server support
 - Observable execution
 - Dynamic model routing by task complexity (AUTO-001)
+- Real-time thinking capture for visibility into Claude's reasoning
 """
 
+import os
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -28,6 +30,8 @@ from ..ralph.signals import (
     CompletionType,
 )
 from ..orchestration.model_router import ModelRouter, ModelSelection
+from .thinking_display import ThinkingCapture
+from .hooks import HookExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +94,27 @@ class AgentSDKExecutor(BaseExecutor):
         # Completion signal detector for all executions
         self._signal_detector = CompletionSignalDetector()
 
+        # Thinking capture
+        self.thinking_capture_enabled = config.get("thinking_capture", True)
+
         logger.debug(
             f"AgentSDKExecutor initialized with default model: {self.default_model}"
         )
         logger.debug(f"Dynamic model routing enabled: {self.dynamic_routing_enabled}")
         logger.debug(f"Quality gates enabled: {self.quality_gates_enabled}")
+        logger.debug(f"Thinking capture enabled: {self.thinking_capture_enabled}")
+        # Hook executor for pre/post task hooks
+        project_dir = config.get("project_dir", os.getcwd())
+        self._hook_executor = HookExecutor(project_dir)
+        self.hooks_enabled = config.get("hooks_enabled", True)
         logger.debug(f"Dry run mode: {self.dry_run}")
 
-    def _create_agent_config(self, model: Optional[str] = None) -> SugarAgentConfig:
+    def _create_agent_config(
+        self,
+        model: Optional[str] = None,
+        allowed_tools: Optional[List[str]] = None,
+        disallowed_tools: Optional[List[str]] = None,
+    ) -> SugarAgentConfig:
         """Create agent configuration from executor config"""
         return SugarAgentConfig(
             model=model or self.model,
@@ -105,7 +122,29 @@ class AgentSDKExecutor(BaseExecutor):
             mcp_servers=self.mcp_servers,
             quality_gates_enabled=self.quality_gates_enabled,
             timeout=self.timeout,
+            allowed_tools=allowed_tools or self.config.get("allowed_tools", []),
+            disallowed_tools=disallowed_tools or self.config.get("disallowed_tools", []),
         )
+
+    def _get_tool_restrictions(
+        self, task_type_info: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Optional[List[str]]]:
+        """
+        Extract tool restrictions from task type information.
+
+        Args:
+            task_type_info: Optional task type information from database
+
+        Returns:
+            Dictionary with 'allowed_tools' and 'disallowed_tools' keys
+        """
+        if not task_type_info:
+            return {"allowed_tools": None, "disallowed_tools": None}
+
+        return {
+            "allowed_tools": task_type_info.get("allowed_tools"),
+            "disallowed_tools": task_type_info.get("disallowed_tools"),
+        }
 
     def select_model_for_task(
         self,
@@ -137,8 +176,13 @@ class AgentSDKExecutor(BaseExecutor):
 
         return self._model_router.route(work_item, task_type_info)
 
-    async def _get_agent(self, model: Optional[str] = None) -> SugarAgent:
-        """Get or create the agent instance, optionally with a specific model"""
+    async def _get_agent(
+        self,
+        model: Optional[str] = None,
+        tool_restrictions: Optional[Dict[str, Optional[List[str]]]] = None,
+        bash_permissions: Optional[List[str]] = None,
+    ) -> SugarAgent:
+        """Get or create the agent instance, optionally with a specific model, tool restrictions, and bash permissions"""
         target_model = model or self.model
 
         # If we need a different model than current, recreate the agent
@@ -147,6 +191,30 @@ class AgentSDKExecutor(BaseExecutor):
                 await self._agent.end_session()
                 self._session_active = False
             self._agent = None
+
+        # If tool restrictions or bash permissions are specified, always create a new agent
+        # (these are per-task, not per-session)
+        needs_custom_agent = (
+            (tool_restrictions and (tool_restrictions.get("allowed_tools") or tool_restrictions.get("disallowed_tools"))) or
+            bash_permissions is not None
+        )
+
+        if needs_custom_agent:
+            if self._agent is not None and self._session_active:
+                await self._agent.end_session()
+                self._session_active = False
+
+            agent_config = self._create_agent_config(
+                model=target_model,
+                allowed_tools=tool_restrictions.get("allowed_tools") if tool_restrictions else None,
+                disallowed_tools=tool_restrictions.get("disallowed_tools") if tool_restrictions else None,
+            )
+            # Create a new agent with tool restrictions and bash permissions
+            return SugarAgent(
+                config=agent_config,
+                quality_gates_config=self.quality_gates_config,
+                bash_permissions=bash_permissions,
+            )
 
         if self._agent is None:
             agent_config = self._create_agent_config(model=target_model)
@@ -447,11 +515,73 @@ class AgentSDKExecutor(BaseExecutor):
             f"(reason: {model_selection.reason})"
         )
 
+        # Apply tool restrictions from task type if provided
+        tool_restrictions = self._get_tool_restrictions(task_type_info)
+        if tool_restrictions.get("allowed_tools") or tool_restrictions.get("disallowed_tools"):
+            logger.info(
+                f"Tool restrictions: allowed={tool_restrictions.get('allowed_tools')}, "
+                f"disallowed={tool_restrictions.get('disallowed_tools')}"
+            )
+
+        # Apply bash permissions from task type if provided
+        bash_permissions = task_type_info.get("bash_permissions", []) if task_type_info else []
+        if bash_permissions:
+            logger.info(f"Bash permissions configured: {len(bash_permissions)} patterns")
+            logger.debug(f"Bash permission patterns: {bash_permissions}")
+
+        # Extract hooks from task_type_info
+        pre_hooks = []
+        post_hooks = []
+        if task_type_info and self.hooks_enabled:
+            pre_hooks = task_type_info.get("pre_hooks", [])
+            post_hooks = task_type_info.get("post_hooks", [])
+            
+            # Execute pre-hooks
+            if pre_hooks:
+                logger.info(f"Executing {len(pre_hooks)} pre-hooks for task {work_item.get('id')}")
+                hook_result = await self._hook_executor.execute_hooks(
+                    pre_hooks,
+                    "pre_hooks",
+                    work_item
+                )
+                
+                if not hook_result["success"]:
+                    logger.error(f"Pre-hook failed: {hook_result.get('failed_hook')}")
+                    return {
+                        "success": False,
+                        "error": f"Pre-hook failed: {hook_result.get('failed_hook')}",
+                        "hook_result": hook_result,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "work_item_id": work_item.get("id"),
+                        "executor": "agent_sdk",
+                        "output": "",
+                        "files_changed": [],
+                        "actions_taken": [],
+                        "summary": "Task cancelled due to pre-hook failure",
+                    }
+
         start_time = datetime.now(timezone.utc)
 
+        # Setup thinking capture if enabled
+        thinking_capture = None
+        if self.thinking_capture_enabled:
+            thinking_capture = ThinkingCapture(
+                task_id=work_item.get("id", "unknown"),
+                task_title=work_item.get("title", ""),
+            )
+
         try:
-            # Get agent with the selected model
-            agent = await self._get_agent(model=selected_model)
+            # Get agent with the selected model, tool restrictions, and bash permissions
+            agent = await self._get_agent(
+                model=selected_model,
+                tool_restrictions=tool_restrictions,
+                bash_permissions=bash_permissions,
+            )
+
+            # Attach thinking capture to agent if enabled
+            if thinking_capture:
+                agent.set_thinking_capture(thinking_capture)
+
             result = await agent.execute_work_item(work_item)
 
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -463,6 +593,12 @@ class AgentSDKExecutor(BaseExecutor):
             result["model_routing_reason"] = model_selection.reason
             result["execution_time"] = execution_time
 
+            # Add thinking capture metadata if enabled
+            if thinking_capture:
+                result["thinking_summary"] = thinking_capture.get_summary()
+                result["thinking_log_path"] = thinking_capture.get_thinking_log_path()
+                result["thinking_stats"] = thinking_capture.get_stats()
+
             # Detect completion signals in all executions
             content = result.get("content", result.get("output", ""))
             if content:
@@ -472,6 +608,28 @@ class AgentSDKExecutor(BaseExecutor):
                 f"Task completed in {execution_time:.2f}s using {selected_model}: "
                 f"{work_item.get('title', 'unknown')}"
             )
+
+
+            # Execute post-hooks
+            if post_hooks and self.hooks_enabled:
+                logger.info(f"Executing {len(post_hooks)} post-hooks for task {work_item.get('id')}")
+                hook_result = await self._hook_executor.execute_hooks(
+                    post_hooks,
+                    "post_hooks",
+                    work_item
+                )
+                
+                result["post_hook_result"] = hook_result
+                
+                if not hook_result["success"]:
+                    logger.warning(f"Post-hook failed: {hook_result.get('failed_hook')}")
+                    result["post_hook_failed"] = True
+                    result["post_hook_error"] = hook_result.get("failed_hook")
+                    # Mark for review but don't fail the task
+                    result["needs_review"] = True
+                    result["review_reason"] = "Post-hook validation failed"
+                else:
+                    result["post_hook_failed"] = False
 
             return result
 

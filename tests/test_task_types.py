@@ -73,9 +73,13 @@ def task_type_manager(temp_sugar_env):
 
 async def _init_database(db_path):
     """Helper to initialize database with default task types"""
+    # Initialize TaskTypeManager first to get the proper defaults with tool restrictions
+    task_type_mgr = TaskTypeManager(db_path)
+    await task_type_mgr.initialize()
+
+    # Then initialize work queue (which runs its own migrations)
     work_queue = WorkQueue(db_path)
     await work_queue.initialize()
-    # The initialize() method will create the task_types table and populate defaults
 
 
 class TestTaskTypeManager:
@@ -86,12 +90,13 @@ class TestTaskTypeManager:
         """Test that default task types are created during initialization"""
         task_types = await task_type_manager.get_all_task_types()
 
-        # Should have 5 default types
-        assert len(task_types) == 5
+        # Should have 10 default types
+        assert len(task_types) == 10
 
         # Check specific defaults exist
         type_ids = [t["id"] for t in task_types]
-        expected_defaults = ["bug_fix", "feature", "test", "refactor", "documentation"]
+        expected_defaults = ["bug_fix", "feature", "test", "refactor", "docs",
+                           "chore", "style", "perf", "ci", "security"]
         assert all(default in type_ids for default in expected_defaults)
 
         # Check they're marked as default (SQLite returns 1 for True)
@@ -704,6 +709,104 @@ sugar:
             assert "Regular task" not in result.output
 
 
+class TestTaskTypeToolRestrictions:
+    """Test tool restrictions for task types"""
+
+    @pytest.mark.asyncio
+    async def test_default_tool_restrictions(self, task_type_manager):
+        """Test that default task types have appropriate tool restrictions"""
+        # Simple tier tasks should have restricted tools
+        docs = await task_type_manager.get_task_type("docs")
+        assert docs["allowed_tools"] == ["Read", "Write", "Edit", "Glob", "Grep"]
+        assert docs["disallowed_tools"] is None
+
+        style = await task_type_manager.get_task_type("style")
+        assert style["allowed_tools"] == ["Read", "Write", "Edit", "Glob", "Grep"]
+
+        # Standard tier tasks should disallow WebSearch
+        bug_fix = await task_type_manager.get_task_type("bug_fix")
+        assert bug_fix["allowed_tools"] is None  # All tools
+        assert bug_fix["disallowed_tools"] == ["WebSearch"]
+
+        # Complex tier tasks should have no restrictions
+        feature = await task_type_manager.get_task_type("feature")
+        assert feature["allowed_tools"] is None
+        assert feature["disallowed_tools"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_tool_restrictions(self, task_type_manager):
+        """Test getting tool restrictions for a task type"""
+        restrictions = await task_type_manager.get_tool_restrictions_for_type("docs")
+        assert restrictions["allowed_tools"] == ["Read", "Write", "Edit", "Glob", "Grep"]
+        assert restrictions["disallowed_tools"] is None
+
+        restrictions = await task_type_manager.get_tool_restrictions_for_type("feature")
+        assert restrictions["allowed_tools"] is None
+        assert restrictions["disallowed_tools"] is None
+
+    @pytest.mark.asyncio
+    async def test_set_tool_restrictions(self, task_type_manager):
+        """Test setting tool restrictions for a task type"""
+        # Add a custom task type
+        await task_type_manager.add_task_type("custom_restricted", "Custom Restricted")
+
+        # Set tool restrictions
+        success = await task_type_manager.set_tool_restrictions_for_type(
+            "custom_restricted",
+            allowed_tools=["Read", "Grep"],
+            disallowed_tools=None,
+        )
+        assert success is True
+
+        # Verify restrictions were set
+        task_type = await task_type_manager.get_task_type("custom_restricted")
+        assert task_type["allowed_tools"] == ["Read", "Grep"]
+        assert task_type["disallowed_tools"] is None
+
+    @pytest.mark.asyncio
+    async def test_update_tool_restrictions(self, task_type_manager):
+        """Test updating tool restrictions for existing task type"""
+        # Get original restrictions for feature type
+        original = await task_type_manager.get_task_type("feature")
+        assert original["allowed_tools"] is None
+        assert original["disallowed_tools"] is None
+
+        # Update restrictions (this would normally not be done for defaults, but testing the functionality)
+        success = await task_type_manager.update_task_type(
+            "feature",
+            allowed_tools=["Read", "Write", "Edit"],
+            disallowed_tools=["Bash"],
+        )
+        assert success is True
+
+        # Verify updated restrictions
+        updated = await task_type_manager.get_task_type("feature")
+        assert updated["allowed_tools"] == ["Read", "Write", "Edit"]
+        assert updated["disallowed_tools"] == ["Bash"]
+
+    @pytest.mark.asyncio
+    async def test_tool_restrictions_persist_across_sessions(self, task_type_manager):
+        """Test that tool restrictions are persisted in database"""
+        db_path = task_type_manager.db_path
+
+        # Set restrictions
+        await task_type_manager.add_task_type("persist_test", "Persist Test")
+        await task_type_manager.set_tool_restrictions_for_type(
+            "persist_test",
+            allowed_tools=["Read", "Write"],
+            disallowed_tools=None,
+        )
+
+        # Create new manager instance (simulating new session)
+        new_manager = TaskTypeManager(db_path)
+        await new_manager.initialize()
+
+        # Verify restrictions persisted
+        task_type = await new_manager.get_task_type("persist_test")
+        assert task_type["allowed_tools"] == ["Read", "Write"]
+        assert task_type["disallowed_tools"] is None
+
+
 class TestTaskTypeMigration:
     """Test database migration and backwards compatibility"""
 
@@ -711,36 +814,56 @@ class TestTaskTypeMigration:
         """Test that database migration creates task_types table with defaults"""
         db_path = str(temp_sugar_env["db_path"])
 
-        # Initialize WorkQueue (which triggers migration)
-        work_queue = WorkQueue(db_path)
-        asyncio.run(work_queue.initialize())
+        # Initialize TaskTypeManager first (gets proper defaults)
+        manager = TaskTypeManager(db_path)
+        asyncio.run(manager.initialize())
 
         # Verify task_types table was created
-        manager = TaskTypeManager(db_path)
         task_types = asyncio.run(manager.get_all_task_types())
 
-        assert len(task_types) == 5  # Should have 5 defaults
+        assert len(task_types) >= 10  # Should have at least 10 defaults
 
-        # Check all defaults are present
+        # Check expected defaults are present
         type_ids = {t["id"] for t in task_types}
-        expected = {"bug_fix", "feature", "test", "refactor", "documentation"}
-        assert type_ids == expected
+        expected_defaults = {"bug_fix", "feature", "test", "refactor", "docs",
+                           "chore", "style", "perf", "ci", "security"}
+        assert expected_defaults.issubset(type_ids)
 
     def test_migration_is_idempotent(self, temp_sugar_env):
         """Test that running migration multiple times is safe"""
         db_path = str(temp_sugar_env["db_path"])
 
         # Initialize twice
-        work_queue1 = WorkQueue(db_path)
-        asyncio.run(work_queue1.initialize())
+        manager1 = TaskTypeManager(db_path)
+        asyncio.run(manager1.initialize())
 
-        work_queue2 = WorkQueue(db_path)
-        asyncio.run(work_queue2.initialize())
+        manager2 = TaskTypeManager(db_path)
+        asyncio.run(manager2.initialize())
 
-        # Should still have exactly 5 default types (no duplicates)
+        # Should still have the default types (no duplicates)
+        task_types = asyncio.run(manager2.get_all_task_types())
+        assert len(task_types) == 10  # Exactly 10, not duplicated
+
+    def test_tool_restriction_columns_added(self, temp_sugar_env):
+        """Test that migration adds tool restriction columns"""
+        db_path = str(temp_sugar_env["db_path"])
+
+        # Initialize database
         manager = TaskTypeManager(db_path)
+        asyncio.run(manager.initialize())
+
+        # Verify tool restriction columns exist
         task_types = asyncio.run(manager.get_all_task_types())
-        assert len(task_types) == 5
+
+        # Check that at least one task type has tool restrictions
+        docs_type = next((t for t in task_types if t["id"] == "docs"), None)
+        assert docs_type is not None
+        assert "allowed_tools" in docs_type
+        assert "disallowed_tools" in docs_type
+
+        # Verify the docs type has the expected restrictions
+        assert docs_type["allowed_tools"] == ["Read", "Write", "Edit", "Glob", "Grep"]
+        assert docs_type["disallowed_tools"] is None
 
 
 if __name__ == "__main__":

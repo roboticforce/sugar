@@ -48,6 +48,11 @@ class TaskTypeManager:
                         default_acceptance_criteria TEXT DEFAULT '[]',
                         model_tier TEXT DEFAULT 'standard',
                         complexity_level INTEGER DEFAULT 3,
+                        allowed_tools TEXT DEFAULT NULL,
+                        disallowed_tools TEXT DEFAULT NULL,
+                        bash_permissions TEXT DEFAULT '[]',
+                        pre_hooks TEXT DEFAULT '[]',
+                        post_hooks TEXT DEFAULT '[]',
                         is_default INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -58,12 +63,18 @@ class TaskTypeManager:
                 # Populate with default types
                 default_types = self._get_default_task_types()
                 for task_type in default_types:
+                    allowed_tools = task_type.get("allowed_tools")
+                    disallowed_tools = task_type.get("disallowed_tools")
+                    pre_hooks = task_type.get("pre_hooks", [])
+                    post_hooks = task_type.get("post_hooks", [])
+
                     await db.execute(
                         """
                         INSERT INTO task_types
                         (id, name, description, agent, commit_template, emoji, file_patterns,
-                         model_tier, complexity_level, is_default)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         model_tier, complexity_level, allowed_tools, disallowed_tools,
+                         bash_permissions, pre_hooks, post_hooks, is_default)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             task_type["id"],
@@ -75,6 +86,11 @@ class TaskTypeManager:
                             json.dumps(task_type.get("file_patterns", [])),
                             task_type.get("model_tier", "standard"),
                             task_type.get("complexity_level", 3),
+                            json.dumps(allowed_tools) if allowed_tools else None,
+                            json.dumps(disallowed_tools) if disallowed_tools else None,
+                            json.dumps(task_type.get("bash_permissions", [])),
+                            json.dumps(pre_hooks),
+                            json.dumps(post_hooks),
                             1,
                         ),
                     )
@@ -86,6 +102,12 @@ class TaskTypeManager:
                 await self._migrate_acceptance_criteria_column(db)
                 # Migrate to add model_tier and complexity_level columns (AUTO-001)
                 await self._migrate_model_routing_columns(db)
+                # Migrate to add tool restriction columns
+                await self._migrate_tool_restriction_columns(db)
+                # Migrate to add bash_permissions column
+                await self._migrate_bash_permissions_column(db)
+                # Migrate to add hooks columns
+                await self._migrate_hooks_columns(db)
 
         self._initialized = True
 
@@ -165,10 +187,267 @@ class TaskTypeManager:
 
         await db.commit()
 
+    async def _migrate_tool_restriction_columns(self, db):
+        """Add allowed_tools and disallowed_tools columns for tool restrictions"""
+        try:
+            cursor = await db.execute("PRAGMA table_info(task_types)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            # Add allowed_tools column (JSON array)
+            if "allowed_tools" not in column_names:
+                await db.execute(
+                    "ALTER TABLE task_types ADD COLUMN allowed_tools TEXT DEFAULT NULL"
+                )
+                await db.commit()
+                logger.info("Added allowed_tools column to task_types table")
+
+            # Add disallowed_tools column (JSON array)
+            if "disallowed_tools" not in column_names:
+                await db.execute(
+                    "ALTER TABLE task_types ADD COLUMN disallowed_tools TEXT DEFAULT NULL"
+                )
+                await db.commit()
+                logger.info("Added disallowed_tools column to task_types table")
+
+            # Set default tool restrictions for existing task types
+            await self._set_default_tool_restrictions(db)
+
+        except Exception as e:
+            logger.warning(f"Migration warning for tool_restriction columns: {e}")
+
+    async def _set_default_tool_restrictions(self, db):
+        """Set default tool restrictions for built-in task types"""
+        # Simple tasks (docs, style, chore) - restricted toolset
+        simple_restrictions = {
+            "allowed_tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+            "disallowed_tools": None,
+        }
+
+        # Standard tasks - limited web access
+        standard_restrictions = {
+            "allowed_tools": None,  # All tools
+            "disallowed_tools": ["WebSearch"],
+        }
+
+        # Complex tasks - full access
+        complex_restrictions = {
+            "allowed_tools": None,
+            "disallowed_tools": None,
+        }
+
+        restriction_map = {
+            # Simple tier - basic file operations only
+            "docs": simple_restrictions,
+            "style": simple_restrictions,
+            "chore": simple_restrictions,
+
+            # Standard tier - most tools except web search
+            "test": standard_restrictions,
+            "bug_fix": standard_restrictions,
+            "ci": standard_restrictions,
+
+            # Complex tier - full tool access
+            "feature": complex_restrictions,
+            "refactor": complex_restrictions,
+            "perf": complex_restrictions,
+            "security": complex_restrictions,
+        }
+
+        for type_id, restrictions in restriction_map.items():
+            try:
+                allowed_json = json.dumps(restrictions["allowed_tools"]) if restrictions["allowed_tools"] else None
+                disallowed_json = json.dumps(restrictions["disallowed_tools"]) if restrictions["disallowed_tools"] else None
+
+                await db.execute(
+                    "UPDATE task_types SET allowed_tools = ?, disallowed_tools = ? WHERE id = ?",
+                    (allowed_json, disallowed_json, type_id),
+                )
+            except Exception as e:
+                logger.debug(f"Could not update tool restrictions for {type_id}: {e}")
+
+        await db.commit()
+
+    async def _migrate_bash_permissions_column(self, db):
+        """Add bash_permissions column for wildcard Bash command permissions"""
+        try:
+            cursor = await db.execute("PRAGMA table_info(task_types)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            if "bash_permissions" not in column_names:
+                await db.execute(
+                    "ALTER TABLE task_types ADD COLUMN bash_permissions TEXT DEFAULT '[]'"
+                )
+                await db.commit()
+                logger.info("Added bash_permissions column to task_types table")
+
+            # Set default bash permissions based on tier
+            await self._set_default_bash_permissions(db)
+
+        except Exception as e:
+            logger.warning(f"Migration warning for bash_permissions column: {e}")
+
+    async def _set_default_bash_permissions(self, db):
+        """Set default bash permissions for built-in task types based on tier"""
+        # Default bash permissions by tier
+        bash_permissions_by_tier = {
+            "simple": [
+                "cat *",
+                "ls *",
+                "head *",
+                "tail *",
+                "grep *",
+                "find *",
+            ],
+            "standard": [
+                "pytest *",
+                "python *",
+                "python3 *",
+                "pip *",
+                "npm *",
+                "git status*",
+                "git diff*",
+                "git log*",
+                "cat *",
+                "ls *",
+                "head *",
+                "tail *",
+                "grep *",
+                "find *",
+            ],
+            "complex": [
+                # No restrictions for complex tier - empty list means all allowed
+            ],
+        }
+
+        # Get all task types
+        cursor = await db.execute("SELECT id, model_tier FROM task_types")
+        task_types = await cursor.fetchall()
+
+        for type_id, tier in task_types:
+            permissions = bash_permissions_by_tier.get(tier, [])
+            try:
+                await db.execute(
+                    "UPDATE task_types SET bash_permissions = ? WHERE id = ?",
+                    (json.dumps(permissions), type_id),
+                )
+            except Exception as e:
+                logger.debug(f"Could not update bash permissions for {type_id}: {e}")
+
+        await db.commit()
+
+    async def _migrate_hooks_columns(self, db):
+        """Add pre_hooks and post_hooks columns for task execution hooks"""
+        try:
+            cursor = await db.execute("PRAGMA table_info(task_types)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            # Add pre_hooks column (JSON array of shell commands)
+            if "pre_hooks" not in column_names:
+                await db.execute(
+                    "ALTER TABLE task_types ADD COLUMN pre_hooks TEXT DEFAULT '[]'"
+                )
+                await db.commit()
+                logger.info("Added pre_hooks column to task_types table")
+
+            # Add post_hooks column (JSON array of shell commands)
+            if "post_hooks" not in column_names:
+                await db.execute(
+                    "ALTER TABLE task_types ADD COLUMN post_hooks TEXT DEFAULT '[]'"
+                )
+                await db.commit()
+                logger.info("Added post_hooks column to task_types table")
+
+            # Set default hooks for built-in task types
+            await self._set_default_hooks(db)
+
+        except Exception as e:
+            logger.warning(f"Migration warning for hooks columns: {e}")
+
+    async def _set_default_hooks(self, db):
+        """Set default hooks for built-in task types"""
+        default_hooks = {
+            # Bug fixes should run tests after completion
+            "bug_fix": {
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -x --tb=short"]
+            },
+            # Features should run tests and check formatting
+            "feature": {
+                "pre_hooks": [],
+                "post_hooks": [
+                    "pytest tests/ -x --tb=short",
+                    "black --check ."
+                ]
+            },
+            # Tests should run the test suite
+            "test": {
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -v"]
+            },
+            # Style tasks should check formatting
+            "style": {
+                "pre_hooks": [],
+                "post_hooks": ["black --check ."]
+            },
+            # Refactoring should run tests
+            "refactor": {
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -x --tb=short"]
+            },
+        }
+
+        for type_id, hooks in default_hooks.items():
+            try:
+                await db.execute(
+                    "UPDATE task_types SET pre_hooks = ?, post_hooks = ? WHERE id = ?",
+                    (
+                        json.dumps(hooks.get("pre_hooks", [])),
+                        json.dumps(hooks.get("post_hooks", [])),
+                        type_id
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Could not update hooks for {type_id}: {e}")
+
+        await db.commit()
+
+
     def _get_default_task_types(self) -> List[Dict]:
         """Get the default task types"""
         # Import default criteria templates
         from ..quality_gates.criteria_templates import CriteriaTemplates
+
+        # Default bash permissions by tier
+        bash_permissions_by_tier = {
+            "simple": [
+                "cat *",
+                "ls *",
+                "head *",
+                "tail *",
+                "grep *",
+                "find *",
+            ],
+            "standard": [
+                "pytest *",
+                "python *",
+                "python3 *",
+                "pip *",
+                "npm *",
+                "git status*",
+                "git diff*",
+                "git log*",
+                "cat *",
+                "ls *",
+                "head *",
+                "tail *",
+                "grep *",
+                "find *",
+            ],
+            "complex": [],  # Empty = all allowed
+        }
 
         return [
             {
@@ -182,6 +461,11 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.FEATURE,
                 "model_tier": "complex",
                 "complexity_level": 3,
+                "allowed_tools": None,  # All tools
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["complex"],
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -x --tb=short", "black --check ."],
             },
             {
                 "id": "bug_fix",
@@ -194,6 +478,11 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.BUG_FIX,
                 "model_tier": "standard",
                 "complexity_level": 3,
+                "allowed_tools": None,
+                "disallowed_tools": ["WebSearch"],
+                "bash_permissions": bash_permissions_by_tier["standard"],
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -x --tb=short"],
             },
             {
                 "id": "refactor",
@@ -206,6 +495,11 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.REFACTOR,
                 "model_tier": "complex",
                 "complexity_level": 4,
+                "allowed_tools": None,
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["complex"],
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -x --tb=short"],
             },
             {
                 "id": "docs",
@@ -218,6 +512,9 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.DOCUMENTATION,
                 "model_tier": "simple",
                 "complexity_level": 1,
+                "allowed_tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["simple"],
             },
             {
                 "id": "test",
@@ -230,6 +527,11 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.TEST,
                 "model_tier": "standard",
                 "complexity_level": 2,
+                "allowed_tools": None,
+                "disallowed_tools": ["WebSearch"],
+                "bash_permissions": bash_permissions_by_tier["standard"],
+                "pre_hooks": [],
+                "post_hooks": ["pytest tests/ -v"],
             },
             {
                 "id": "chore",
@@ -242,6 +544,9 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.CHORE,
                 "model_tier": "simple",
                 "complexity_level": 2,
+                "allowed_tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["simple"],
             },
             {
                 "id": "style",
@@ -254,6 +559,11 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.STYLE,
                 "model_tier": "simple",
                 "complexity_level": 1,
+                "allowed_tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["simple"],
+                "pre_hooks": [],
+                "post_hooks": ["black --check ."],
             },
             {
                 "id": "perf",
@@ -266,6 +576,9 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.PERFORMANCE,
                 "model_tier": "complex",
                 "complexity_level": 4,
+                "allowed_tools": None,
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["complex"],
             },
             {
                 "id": "ci",
@@ -278,6 +591,9 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.CI_CD,
                 "model_tier": "standard",
                 "complexity_level": 2,
+                "allowed_tools": None,
+                "disallowed_tools": ["WebSearch"],
+                "bash_permissions": bash_permissions_by_tier["standard"],
             },
             {
                 "id": "security",
@@ -290,6 +606,9 @@ class TaskTypeManager:
                 "default_acceptance_criteria": CriteriaTemplates.SECURITY,
                 "model_tier": "complex",
                 "complexity_level": 4,
+                "allowed_tools": None,
+                "disallowed_tools": None,
+                "bash_permissions": bash_permissions_by_tier["complex"],
             },
         ]
 
@@ -335,6 +654,52 @@ class TaskTypeManager:
                         task_type["default_acceptance_criteria"] = []
                 else:
                     task_type["default_acceptance_criteria"] = []
+                # Parse JSON bash_permissions
+                if task_type.get("bash_permissions"):
+                    try:
+                        task_type["bash_permissions"] = json.loads(
+                            task_type["bash_permissions"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["bash_permissions"] = []
+                else:
+                    task_type["bash_permissions"] = []
+                # Parse JSON allowed_tools
+                if task_type.get("allowed_tools"):
+                    try:
+                        task_type["allowed_tools"] = json.loads(
+                            task_type["allowed_tools"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["allowed_tools"] = None
+                # Parse JSON disallowed_tools
+                if task_type.get("disallowed_tools"):
+                    try:
+                        task_type["disallowed_tools"] = json.loads(
+                            task_type["disallowed_tools"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["disallowed_tools"] = None
+                # Parse JSON pre_hooks
+                if task_type.get("pre_hooks"):
+                    try:
+                        task_type["pre_hooks"] = json.loads(
+                            task_type["pre_hooks"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["pre_hooks"] = []
+                else:
+                    task_type["pre_hooks"] = []
+                # Parse JSON post_hooks
+                if task_type.get("post_hooks"):
+                    try:
+                        task_type["post_hooks"] = json.loads(
+                            task_type["post_hooks"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["post_hooks"] = []
+                else:
+                    task_type["post_hooks"] = []
                 result.append(task_type)
 
             return result
@@ -380,6 +745,52 @@ class TaskTypeManager:
                         task_type["default_acceptance_criteria"] = []
                 else:
                     task_type["default_acceptance_criteria"] = []
+                # Parse JSON bash_permissions
+                if task_type.get("bash_permissions"):
+                    try:
+                        task_type["bash_permissions"] = json.loads(
+                            task_type["bash_permissions"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["bash_permissions"] = []
+                else:
+                    task_type["bash_permissions"] = []
+                # Parse JSON allowed_tools
+                if task_type.get("allowed_tools"):
+                    try:
+                        task_type["allowed_tools"] = json.loads(
+                            task_type["allowed_tools"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["allowed_tools"] = None
+                # Parse JSON disallowed_tools
+                if task_type.get("disallowed_tools"):
+                    try:
+                        task_type["disallowed_tools"] = json.loads(
+                            task_type["disallowed_tools"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["disallowed_tools"] = None
+                                # Parse JSON pre_hooks
+                if task_type.get("pre_hooks"):
+                    try:
+                        task_type["pre_hooks"] = json.loads(
+                            task_type["pre_hooks"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["pre_hooks"] = []
+                else:
+                    task_type["pre_hooks"] = []
+                # Parse JSON post_hooks
+                if task_type.get("post_hooks"):
+                    try:
+                        task_type["post_hooks"] = json.loads(
+                            task_type["post_hooks"]
+                        )
+                    except json.JSONDecodeError:
+                        task_type["post_hooks"] = []
+                else:
+                    task_type["post_hooks"] = []
                 return task_type
 
             return None
@@ -466,6 +877,9 @@ class TaskTypeManager:
         default_acceptance_criteria: List[Dict] = None,
         model_tier: str = None,
         complexity_level: int = None,
+        allowed_tools: List[str] = None,
+        disallowed_tools: List[str] = None,
+        bash_permissions: List[str] = None,
     ) -> bool:
         """Update an existing task type"""
         await self.initialize()
@@ -505,6 +919,15 @@ class TaskTypeManager:
         if complexity_level is not None:
             updates.append("complexity_level = ?")
             params.append(complexity_level)
+        if allowed_tools is not None:
+            updates.append("allowed_tools = ?")
+            params.append(json.dumps(allowed_tools) if allowed_tools else None)
+        if disallowed_tools is not None:
+            updates.append("disallowed_tools = ?")
+            params.append(json.dumps(disallowed_tools) if disallowed_tools else None)
+        if bash_permissions is not None:
+            updates.append("bash_permissions = ?")
+            params.append(json.dumps(bash_permissions))
 
         if not updates:
             logger.warning(f"No updates provided for task type '{type_id}'")
@@ -719,3 +1142,148 @@ class TaskTypeManager:
             logger.error(f"Invalid complexity level '{complexity_level}'. Must be 1-5.")
             return False
         return await self.update_task_type(type_id, complexity_level=complexity_level)
+
+    async def get_tool_restrictions_for_type(
+        self, type_id: str
+    ) -> Dict[str, Optional[List[str]]]:
+        """Get the tool restrictions for a task type
+
+        Returns:
+            Dictionary with 'allowed_tools' and 'disallowed_tools' keys.
+            None values mean no restriction for that category.
+        """
+        await self.initialize()
+        task_type = await self.get_task_type(type_id)
+        if not task_type:
+            return {"allowed_tools": None, "disallowed_tools": None}
+
+        return {
+            "allowed_tools": task_type.get("allowed_tools"),
+            "disallowed_tools": task_type.get("disallowed_tools"),
+        }
+
+    async def set_tool_restrictions_for_type(
+        self,
+        type_id: str,
+        allowed_tools: Optional[List[str]] = None,
+        disallowed_tools: Optional[List[str]] = None,
+    ) -> bool:
+        """Set the tool restrictions for a task type
+
+        Args:
+            type_id: Task type ID
+            allowed_tools: List of allowed tool names (None = all tools)
+            disallowed_tools: List of disallowed tool names (None = no restrictions)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        updates = {}
+        if allowed_tools is not None:
+            updates["allowed_tools"] = allowed_tools
+        if disallowed_tools is not None:
+            updates["disallowed_tools"] = disallowed_tools
+
+        if not updates:
+            logger.warning(f"No tool restrictions provided for task type '{type_id}'")
+            return False
+
+        return await self.update_task_type(type_id, **updates)
+
+    async def get_bash_permissions_for_type(self, type_id: str) -> List[str]:
+        """Get the bash permissions for a task type"""
+        await self.initialize()
+        task_type = await self.get_task_type(type_id)
+        return task_type.get("bash_permissions", []) if task_type else []
+
+    async def set_bash_permissions_for_type(
+        self, type_id: str, bash_permissions: List[str]
+    ) -> bool:
+        """Set the bash permissions for a task type"""
+        return await self.update_task_type(type_id, bash_permissions=bash_permissions)
+
+    async def get_pre_hooks_for_type(self, type_id: str) -> List[str]:
+        """Get the pre-execution hooks for a task type"""
+        await self.initialize()
+        task_type = await self.get_task_type(type_id)
+        if not task_type:
+            return []
+        
+        hooks = task_type.get("pre_hooks", "[]")
+        if isinstance(hooks, str):
+            try:
+                return json.loads(hooks)
+            except json.JSONDecodeError:
+                return []
+        return hooks if isinstance(hooks, list) else []
+
+    async def get_post_hooks_for_type(self, type_id: str) -> List[str]:
+        """Get the post-execution hooks for a task type"""
+        await self.initialize()
+        task_type = await self.get_task_type(type_id)
+        if not task_type:
+            return []
+        
+        hooks = task_type.get("post_hooks", "[]")
+        if isinstance(hooks, str):
+            try:
+                return json.loads(hooks)
+            except json.JSONDecodeError:
+                return []
+        return hooks if isinstance(hooks, list) else []
+
+    async def set_hooks_for_type(
+        self,
+        type_id: str,
+        pre_hooks: Optional[List[str]] = None,
+        post_hooks: Optional[List[str]] = None
+    ) -> bool:
+        """Set pre and/or post hooks for a task type"""
+        updates = {}
+        
+        if pre_hooks is not None:
+            updates["pre_hooks"] = pre_hooks
+        if post_hooks is not None:
+            updates["post_hooks"] = post_hooks
+        
+        if not updates:
+            logger.warning(f"No hooks provided for task type '{type_id}'")
+            return False
+        
+        # Convert to JSON for storage
+        if "pre_hooks" in updates:
+            updates["pre_hooks"] = json.dumps(updates["pre_hooks"])
+        if "post_hooks" in updates:
+            updates["post_hooks"] = json.dumps(updates["post_hooks"])
+        
+        await self.initialize()
+        existing = await self.get_task_type(type_id)
+        if not existing:
+            logger.error(f"Task type '{type_id}' not found")
+            return False
+        
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                update_parts = []
+                params = []
+                
+                if "pre_hooks" in updates:
+                    update_parts.append("pre_hooks = ?")
+                    params.append(updates["pre_hooks"])
+                if "post_hooks" in updates:
+                    update_parts.append("post_hooks = ?")
+                    params.append(updates["post_hooks"])
+                
+                update_parts.append("updated_at = CURRENT_TIMESTAMP")
+                params.append(type_id)
+                
+                await db.execute(
+                    f"UPDATE task_types SET {', '.join(update_parts)} WHERE id = ?",
+                    params,
+                )
+                await db.commit()
+                logger.info(f"Updated hooks for task type: {type_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating hooks for task type '{type_id}': {e}")
+            return False

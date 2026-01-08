@@ -28,6 +28,7 @@ try:
     from claude_agent_sdk.types import (
         AssistantMessage,
         TextBlock,
+        ThinkingBlock,
         ToolUseBlock,
         ToolResultBlock,
         ResultMessage,
@@ -39,6 +40,7 @@ except ImportError:
     # SDK returns plain dicts, define helper types
     AssistantMessage = dict
     TextBlock = dict
+    ThinkingBlock = dict
     ToolUseBlock = dict
     ToolResultBlock = dict
     ResultMessage = dict
@@ -122,6 +124,9 @@ class SugarAgentConfig:
     # Allowed tools (empty = all tools)
     allowed_tools: List[str] = field(default_factory=list)
 
+    # Disallowed tools (empty = no restrictions)
+    disallowed_tools: List[str] = field(default_factory=list)
+
     # MCP servers configuration
     mcp_servers: Dict[str, Any] = field(default_factory=dict)
 
@@ -178,12 +183,15 @@ class SugarAgent:
     - MCP server integration
     - Observable execution
     - Streaming responses
+    - Thinking capture for visibility into Claude's reasoning
     """
 
     def __init__(
         self,
         config: SugarAgentConfig,
         quality_gates_config: Optional[Dict[str, Any]] = None,
+        thinking_capture_enabled: bool = True,
+        bash_permissions: Optional[List[str]] = None,
     ):
         """
         Initialize the Sugar agent.
@@ -191,15 +199,22 @@ class SugarAgent:
         Args:
             config: Agent configuration
             quality_gates_config: Optional quality gates configuration
+            thinking_capture_enabled: Whether to capture thinking blocks (default: True)
+            bash_permissions: List of allowed bash command patterns (e.g., ["pytest *"])
         """
         self.config = config
         self.quality_gates_config = quality_gates_config or {}
-        self.hooks = QualityGateHooks(self.quality_gates_config)
+        self.bash_permissions = bash_permissions
+        self.hooks = QualityGateHooks(self.quality_gates_config, bash_permissions=bash_permissions)
         self._session_active = False
         self._execution_history: List[Dict[str, Any]] = []
         self._current_options: Optional[ClaudeAgentOptions] = None
+        self._thinking_capture_enabled = thinking_capture_enabled
+        self._thinking_capture: Optional[Any] = None  # ThinkingCapture instance
 
         logger.debug(f"SugarAgent initialized with model: {config.model}")
+        if bash_permissions:
+            logger.debug(f"Bash permissions configured: {bash_permissions}")
 
     def _build_system_prompt(self, task_context: Optional[str] = None) -> str:
         """Build the system prompt for the agent"""
@@ -251,9 +266,15 @@ Guidelines:
                 "PostToolUse": post_tool_hooks,
             }
 
+        # Build tool restrictions for the SDK
+        # Only include if specified (None/empty list = no restriction)
+        allowed = self.config.allowed_tools if self.config.allowed_tools else None
+        disallowed = self.config.disallowed_tools if self.config.disallowed_tools else None
+
         options = ClaudeAgentOptions(
             system_prompt=self._build_system_prompt(task_context),
-            allowed_tools=self.config.allowed_tools or None,
+            allowed_tools=allowed,
+            disallowed_tools=disallowed,
             permission_mode=self.config.permission_mode,
             mcp_servers=self.config.mcp_servers or None,
             hooks=hooks_config if hooks_config else None,
@@ -291,12 +312,13 @@ Guidelines:
         """
         Internal method to execute query with streaming.
 
-        Returns tuple of (content_parts, tool_uses, files_modified).
+        Returns tuple of (content_parts, tool_uses, files_modified, thinking_blocks).
         Separated for retry logic.
         """
         content_parts = []
         tool_uses = []
         files_modified = []
+        thinking_blocks = []
 
         # Use the SDK's query() function which returns an async generator
         # Wrap with timeout to prevent hanging if generator doesn't signal completion
@@ -310,6 +332,32 @@ Guidelines:
                         for block in message.content:
                             if isinstance(block, TextBlock):
                                 content_parts.append(block.text)
+                            elif isinstance(block, ThinkingBlock):
+                                # Capture thinking block
+                                thinking_content = (
+                                    block.thinking if hasattr(block, "thinking") else ""
+                                )
+                                signature = (
+                                    block.signature if hasattr(block, "signature") else None
+                                )
+                                thinking_blocks.append(
+                                    {"content": thinking_content, "signature": signature}
+                                )
+
+                                # Pass to thinking capture if enabled
+                                if self._thinking_capture:
+                                    # Determine what tool might be next
+                                    next_tool = None
+                                    if len(message.content) > message.content.index(block) + 1:
+                                        next_block = message.content[message.content.index(block) + 1]
+                                        if isinstance(next_block, ToolUseBlock):
+                                            next_tool = next_block.name
+
+                                    self._thinking_capture.capture(
+                                        thinking_content=thinking_content,
+                                        tool_use=next_tool,
+                                        signature=signature,
+                                    )
                             elif isinstance(block, ToolUseBlock):
                                 tool_use = {
                                     "tool": block.name,
@@ -330,10 +378,30 @@ Guidelines:
                         if msg_type == "assistant":
                             # Process content blocks
                             content = message.get("content", [])
-                            for block in content:
+                            for i, block in enumerate(content):
                                 block_type = block.get("type", "")
                                 if block_type == "text":
                                     content_parts.append(block.get("text", ""))
+                                elif block_type == "thinking":
+                                    # Capture thinking block (dict format)
+                                    thinking_content = block.get("thinking", "")
+                                    signature = block.get("signature")
+                                    thinking_blocks.append(
+                                        {"content": thinking_content, "signature": signature}
+                                    )
+
+                                    # Pass to thinking capture if enabled
+                                    if self._thinking_capture:
+                                        # Check if next block is a tool_use
+                                        next_tool = None
+                                        if i + 1 < len(content) and content[i + 1].get("type") == "tool_use":
+                                            next_tool = content[i + 1].get("name")
+
+                                        self._thinking_capture.capture(
+                                            thinking_content=thinking_content,
+                                            tool_use=next_tool,
+                                            signature=signature,
+                                        )
                                 elif block_type == "tool_use":
                                     tool_use = {
                                         "tool": block.get("name", ""),
@@ -366,11 +434,21 @@ Guidelines:
             logger.warning(
                 f"Query timed out after {self.config.timeout}s. "
                 f"Returning partial results: {len(tool_uses)} tool uses, "
-                f"{len(files_modified)} files modified"
+                f"{len(files_modified)} files modified, "
+                f"{len(thinking_blocks)} thinking blocks"
             )
             # Return partial results - the work done so far is still valid
 
-        return content_parts, tool_uses, files_modified
+        return content_parts, tool_uses, files_modified, thinking_blocks
+
+    def set_thinking_capture(self, thinking_capture: Any) -> None:
+        """
+        Set the thinking capture instance for this agent.
+
+        Args:
+            thinking_capture: ThinkingCapture instance to use
+        """
+        self._thinking_capture = thinking_capture
 
     async def execute(
         self,
@@ -403,7 +481,7 @@ Guidelines:
             async def do_query():
                 return await self._execute_with_streaming(prompt, options)
 
-            content_parts, tool_uses, files_modified = await retry_with_backoff(
+            content_parts, tool_uses, files_modified, thinking_blocks = await retry_with_backoff(
                 do_query,
                 max_retries=self.config.max_retries,
                 base_delay=self.config.retry_base_delay,
@@ -414,6 +492,10 @@ Guidelines:
 
             # Get quality gate results from hooks
             quality_gate_results = self.hooks.get_execution_summary()
+
+            # Finalize thinking capture if enabled
+            if self._thinking_capture:
+                self._thinking_capture.finalize()
 
             response = AgentResponse(
                 success=True,
@@ -429,6 +511,7 @@ Guidelines:
                 {
                     "prompt": prompt,
                     "response": response.to_dict(),
+                    "thinking_blocks": len(thinking_blocks),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -436,7 +519,8 @@ Guidelines:
             logger.info(
                 f"Task completed in {execution_time:.2f}s, "
                 f"{len(tool_uses)} tool uses, "
-                f"{len(files_modified)} files modified"
+                f"{len(files_modified)} files modified, "
+                f"{len(thinking_blocks)} thinking blocks"
             )
 
             return response
@@ -444,6 +528,10 @@ Guidelines:
         except Exception as e:
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.error(f"Agent execution error: {e}")
+
+            # Finalize thinking capture even on error
+            if self._thinking_capture:
+                self._thinking_capture.finalize()
 
             return AgentResponse(
                 success=False,

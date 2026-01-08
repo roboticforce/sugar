@@ -5,6 +5,7 @@ These hooks integrate Sugar's quality gates system with the Agent SDK's
 PreToolUse and PostToolUse hook points.
 """
 
+import fnmatch
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -26,12 +27,14 @@ class QualityGateHooks:
     quality gates during agent execution.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, bash_permissions: Optional[List[str]] = None):
         """
         Initialize quality gate hooks.
 
         Args:
             config: Quality gates configuration
+            bash_permissions: List of allowed bash command patterns (e.g., ["pytest *", "git status*"])
+                            Empty list means all commands allowed, None means use default restrictions
         """
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
@@ -64,6 +67,10 @@ class QualityGateHooks:
                 "chmod -R 777 /",
             ],
         )
+
+        # Bash command permissions (wildcard patterns)
+        # Empty list = all allowed, None = use dangerous commands check only
+        self._bash_permissions = bash_permissions
 
     async def pre_tool_security_check(
         self,
@@ -121,9 +128,11 @@ class QualityGateHooks:
                     }
                 }
 
-        # Check for dangerous bash commands
+        # Check for bash command permissions (dangerous commands + whitelist)
         if tool_name == "Bash":
             command = tool_input.get("command", "")
+
+            # First check dangerous commands (always blocked)
             if self._is_dangerous_command(command):
                 violation = {
                     "tool": tool_name,
@@ -148,6 +157,35 @@ class QualityGateHooks:
                         ),
                     }
                 }
+
+            # Then check bash permissions whitelist if configured
+            if self._bash_permissions is not None and len(self._bash_permissions) > 0:
+                if not self._is_bash_command_allowed(command):
+                    violation = {
+                        "tool": tool_name,
+                        "command": command,
+                        "reason": "Command not in allowed bash permissions",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    self._security_violations.append(violation)
+                    self._blocked_operations.append(violation)
+
+                    logger.warning(
+                        f"Blocked bash command not in allowed permissions: {command}"
+                    )
+
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": input_data.get(
+                                "hook_event_name", "PreToolUse"
+                            ),
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                f"This command is not in the allowed bash permissions for this task type. "
+                                f"Allowed patterns: {', '.join(self._bash_permissions)}"
+                            ),
+                        }
+                    }
 
         # Track the tool execution (will be completed in post hook)
         self._tool_executions.append(
@@ -238,6 +276,36 @@ class QualityGateHooks:
 
         for dangerous in self._dangerous_commands:
             if dangerous.lower() in command_lower:
+                return True
+
+        return False
+
+    def _is_bash_command_allowed(self, command: str) -> bool:
+        """
+        Check if a bash command matches any of the allowed permission patterns.
+
+        Uses fnmatch for wildcard matching. Patterns like "pytest *" will match
+        "pytest tests/" and "pytest -v".
+
+        Args:
+            command: The bash command to check
+
+        Returns:
+            True if command matches any allowed pattern, False otherwise
+        """
+        if not command:
+            return False
+
+        # None or empty list means no whitelist restrictions
+        if self._bash_permissions is None or len(self._bash_permissions) == 0:
+            return True
+
+        command = command.strip()
+
+        # Check against each allowed pattern
+        for pattern in self._bash_permissions:
+            if fnmatch.fnmatch(command, pattern):
+                logger.debug(f"Bash command '{command}' matched pattern '{pattern}'")
                 return True
 
         return False

@@ -74,6 +74,7 @@ class WorkQueue:
             await self._migrate_orchestration_columns(db)
             await self._migrate_acceptance_criteria_column(db)
             await self._migrate_verification_columns(db)
+            await self._migrate_thinking_columns(db)
 
             await db.commit()
 
@@ -329,6 +330,40 @@ class WorkQueue:
                 f"Verification columns migration warning (non-critical): {e}"
             )
 
+    async def _migrate_thinking_columns(self, db):
+        """Add thinking columns to work_items table for capturing Claude's reasoning"""
+        try:
+            # Check existing columns
+            cursor = await db.execute("PRAGMA table_info(work_items)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            # Add thinking_log_path column (path to thinking markdown file)
+            if "thinking_log_path" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN thinking_log_path TEXT"
+                )
+                logger.info("Added thinking_log_path column to existing database")
+
+            # Add thinking_summary column (summary of thinking captured)
+            if "thinking_summary" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN thinking_summary TEXT"
+                )
+                logger.info("Added thinking_summary column to existing database")
+
+            # Add thinking_stats column (JSON field with thinking statistics)
+            if "thinking_stats" not in column_names:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN thinking_stats TEXT"
+                )
+                logger.info("Added thinking_stats column to existing database")
+
+        except Exception as e:
+            logger.warning(
+                f"Thinking columns migration warning (non-critical): {e}"
+            )
+
     async def close(self):
         """Close the work queue (for testing)"""
         # SQLite connections are closed automatically, but this method
@@ -487,24 +522,33 @@ class WorkQueue:
             except (TypeError, AttributeError):
                 execution_time = 0.0
 
+            # Extract thinking data from result
+            thinking_log_path = result.get("thinking_log_path")
+            thinking_summary = result.get("thinking_summary")
+            thinking_stats = result.get("thinking_stats")
+            thinking_stats_json = json.dumps(thinking_stats) if thinking_stats else None
+
             await db.execute(
                 """
-                UPDATE work_items 
+                UPDATE work_items
                 SET status = 'completed',
                     result = ?,
                     completed_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP,
                     total_execution_time = total_execution_time + ?,
                     total_elapsed_time = (
-                        CASE 
-                            WHEN started_at IS NOT NULL 
+                        CASE
+                            WHEN started_at IS NOT NULL
                             THEN (julianday(CURRENT_TIMESTAMP) - julianday(started_at)) * 86400.0
                             ELSE (julianday(CURRENT_TIMESTAMP) - julianday(created_at)) * 86400.0
                         END
-                    )
+                    ),
+                    thinking_log_path = ?,
+                    thinking_summary = ?,
+                    thinking_stats = ?
                 WHERE id = ?
             """,
-                (json.dumps(result), execution_time, work_id),
+                (json.dumps(result), execution_time, thinking_log_path, thinking_summary, thinking_stats_json, work_id),
             )
 
             await db.commit()
