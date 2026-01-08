@@ -4,6 +4,7 @@ Tests for task execution hooks
 Tests the HookExecutor and integration with task type system.
 """
 
+import sys
 import pytest
 import pytest_asyncio
 from pathlib import Path
@@ -275,6 +276,10 @@ class TestHookErrorHandling:
         assert "failed_hook" in result
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows shell handles quotes differently - not a syntax error",
+    )
     async def test_syntax_error_in_command(self, hook_executor, sample_task):
         """Shell syntax errors should be caught"""
         hooks = ["echo 'unclosed quote"]
