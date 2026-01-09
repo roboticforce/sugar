@@ -201,3 +201,6 @@ site/
 # Research (local only)
 research/.mcpregistry_github_token
 .mcpregistry_registry_token
+
+# External plugin clones
+claude-plugins-official/
