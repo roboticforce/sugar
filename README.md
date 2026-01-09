@@ -597,7 +597,7 @@ black .
 **Dual License: AGPL-3.0 + Commercial**
 
 - **Open Source (AGPL-3.0)**: Free for open source projects and personal use
-- **Commercial License**: For proprietary use or SaaS offerings - email contact@roboticforce.io
+- **Commercial License**: For proprietary use or SaaS offerings - [sugar.roboticforce.io/licensing](https://sugar.roboticforce.io/licensing)
 
 See [LICENSE](LICENSE) and [TERMS.md](TERMS.md) for details.
 
