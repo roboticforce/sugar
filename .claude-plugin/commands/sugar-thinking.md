@@ -1,3 +1,13 @@
+---
+name: sugar-thinking
+description: View Claude's thinking logs for task execution
+usage: /sugar-thinking [TASK_ID] [OPTIONS]
+examples:
+  - /sugar-thinking task-abc123
+  - /sugar-thinking --list
+  - /sugar-thinking task-abc123 --stats
+---
+
 # Sugar Thinking Command
 
 View Claude's thinking logs for task execution, providing visibility into Claude's reasoning process during autonomous task execution.
