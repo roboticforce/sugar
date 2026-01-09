@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sugarai"
-version = "3.4.3.dev0"
+version = "3.4.3.dev1"
 description = "Sugar 🍰 - The dev team that never stops. Autonomous AI development for Claude Code."
 
 readme = "README.md"
