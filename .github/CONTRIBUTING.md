@@ -2,6 +2,22 @@
 
 First off, thank you for considering contributing to Sugar! It's people like you that make Sugar such a great tool.
 
+## Contributor License Agreement (CLA)
+
+Before we can accept your contributions, you must sign our [Contributor License Agreement (CLA)](../CLA.md).
+
+**Why a CLA?**
+The CLA ensures that RoboticForce, Inc. has the rights to distribute your contributions under our license terms, including offering commercial licenses. This protects both you and the project.
+
+**How to sign:**
+When you open your first pull request, the CLA Assistant bot will comment with instructions. Simply reply with:
+
+```
+I have read the CLA Document and I hereby sign the CLA
+```
+
+This is a one-time requirement. Once signed, all your future contributions are automatically covered.
+
 ## Code of Conduct
 
 This project and everyone participating in it is governed by our commitment to providing a welcoming and inspiring community for all.
@@ -123,6 +139,11 @@ Feel free to ask questions in [GitHub Discussions](https://github.com/roboticfor
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing to Sugar, you agree to:
+
+1. Sign the [Contributor License Agreement (CLA)](../CLA.md)
+2. License your contributions under the project's license (see [LICENSE](../LICENSE))
+
+The CLA grants RoboticForce, Inc. the rights to use, modify, and distribute your contributions, including under commercial licenses.
 
 Thank you for contributing to Sugar! 🍰

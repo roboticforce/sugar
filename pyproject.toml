@@ -9,7 +9,7 @@ description = "Sugar 🍰 - The dev team that never stops. Autonomous AI develop
 
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0-or-later"}
 authors = [
     {name = "Steven Leggett", email = "contact@roboticforce.io"}
 ]
@@ -17,7 +17,7 @@ keywords = ["claude", "autonomous", "development", "ai", "automation"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers", 
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

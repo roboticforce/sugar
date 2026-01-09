@@ -199,4 +199,5 @@ docs/build/
 site/
 
 # Research (local only)
-research/
+research/.mcpregistry_github_token
+.mcpregistry_registry_token
