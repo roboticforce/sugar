@@ -1,7 +1,7 @@
 {
   "name": "sugar",
   "version": "3.4.0",
-  "description": "Sugar 🍰 - AI-powered autonomous development system for complex, multi-step development tasks",
+  "description": "🍰 Sugar - The autonomous layer for AI coding agents",
   "author": {
     "name": "Steven Leggett",
     "email": "contact@roboticforce.io"

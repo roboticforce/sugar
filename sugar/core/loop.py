@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class SugarLoop:
-    """Sugar - AI-powered autonomous development system - Main orchestrator"""
+    """🍰 Sugar - The autonomous layer for AI coding agents - Main orchestrator"""
 
     def __init__(self, config_path: str = ".sugar/config.yaml"):
         self.config = self._load_config(config_path)

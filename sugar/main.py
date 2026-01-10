@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sugar Main Entry Point - Start the AI-powered autonomous development system
+🍰 Sugar - The autonomous layer for AI coding agents
 """
 import asyncio
 import json
@@ -213,9 +213,9 @@ def signal_handler(signum, frame):
 @click.option("--version", is_flag=True, help="Show version information")
 @click.pass_context
 def cli(ctx, config, debug, version):
-    """Sugar 🍰 - AI-powered autonomous development system
+    """🍰 Sugar - The autonomous layer for AI coding agents
 
-    A lightweight autonomous development system that works with Claude Code CLI
+    Manages task queues, runs 24/7, and ships working code with any AI coding CLI.
     """
     # Handle version request
     if version:
@@ -1875,10 +1875,10 @@ def help():
 
     click.echo(
         """
-🍰 Sugar - AI-Powered Autonomous Development System
-================================================
+🍰 Sugar - The Autonomous Layer for AI Coding Agents
+=====================================================
 
-Sugar 🍰 is an autonomous development system that works with Claude Code CLI to
+Sugar is an autonomous development system that works with any AI coding CLI to
 provide 24/7 development assistance through task discovery and execution.
 
 📋 QUICK START
@@ -1949,10 +1949,10 @@ your-project/
 
 ⚠️  EXECUTION CONTEXT
 ---------------------
-• Run Sugar OUTSIDE of Claude Code sessions (in regular terminal)
-• Sugar calls Claude Code CLI as needed for task execution
-• Architecture: Terminal → Sugar → Claude Code CLI
-• Avoid: Claude Code → Sugar (recursive execution)
+• Run Sugar in a regular terminal (outside AI coding sessions)
+• Sugar calls your configured AI agent CLI for task execution
+• Architecture: Terminal → Sugar → AI Agent CLI
+• Avoid running Sugar from within an AI coding session (recursive execution)
 
 📖 DOCUMENTATION
 ----------------
@@ -1998,11 +1998,11 @@ Ready to supercharge your development workflow? 🚀
 @click.pass_context
 def run(ctx, dry_run, once, validate):
     """
-    Start Sugar - AI-powered autonomous development system
+    Start Sugar - The autonomous layer for AI coding agents
 
-    A lightweight autonomous development system that:
+    An autonomous development system that:
     - Discovers work from error logs and feedback
-    - Executes tasks using Claude Code CLI
+    - Executes tasks using your configured AI agent
     - Learns and adapts from results
     """
     global sugar_loop

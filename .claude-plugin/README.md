@@ -1,12 +1,12 @@
-# Sugar 🍰 - Claude Code Plugin
+# 🍰 Sugar - Claude Code Plugin
 
-The dev team that never stops.
+The autonomous layer for AI coding agents.
 
-Autonomous AI development for Claude Code with background task execution.
+Autonomous task execution with background processing for any AI coding CLI.
 
 ## What is Sugar?
 
-Sugar is a premier Claude Code plugin that brings true autonomous development to your projects. Unlike simple automation plugins, Sugar provides:
+Sugar is a Claude Code plugin that brings autonomous development to your projects. Sugar provides:
 
 - **🤖 Autonomous Task Execution** - Let AI handle complex, multi-step development work
 - **📋 Enterprise Task Management** - Persistent SQLite-backed task tracking with rich metadata
@@ -173,6 +173,6 @@ MIT License - see [LICENSE](https://github.com/roboticforce/sugar/blob/main/LICE
 
 ---
 
-**Sugar 🍰** - Transform any project into an autonomous development environment.
+**🍰 Sugar** - The autonomous layer for AI coding agents.
 
 ⚠️ **Disclaimer**: Sugar is an independent third-party tool. "Claude," "Claude Code," and related marks are trademarks of Anthropic, Inc. Sugar is not affiliated with, endorsed by, or sponsored by Anthropic, Inc.

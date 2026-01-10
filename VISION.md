@@ -196,4 +196,4 @@ Built by [RoboticForce, Inc.](https://roboticforce.io)
 
 ---
 
-*Sugar — The dev team that never stops.* 🍰
+*Sugar — The autonomous layer for AI coding agents.* 🍰
