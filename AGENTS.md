@@ -1,92 +1,8 @@
 # Sugar - AGENTS.md
 
-This file provides context and instructions to help AI coding agents work effectively with the Sugar project.
+Instructions for AI coding agents working with the Sugar project.
 
-## Dev Environment Tips
-
-### Project Structure Navigation
-```bash
-# Core project structure
-sugar/                    # Main source code
-├── core/                # Core loop and orchestration
-├── discovery/           # Work discovery modules
-├── executor/            # Claude Code CLI wrapper
-├── learning/            # Adaptive learning system
-├── storage/             # Database and work queue
-├── utils/               # Utility functions
-└── workflow/            # Workflow orchestration
-
-tests/                   # Test suite
-docs/                    # Documentation
-config/                  # Configuration templates
-```
-
-### Development Setup
-```bash
-# Install in development mode
-pip install -e .
-
-# Install with optional dependencies
-pip install -e ".[dev,test,github]"
-
-# Verify installation
-sugar --help
-```
-
-### Python Environment
-- **Required Python**: 3.11+ (supports 3.11, 3.12, 3.13)
-- **Dependencies**: See `pyproject.toml` for complete list
-- **Key libraries**: Click, PyYAML, SQLAlchemy, aiosqlite
-
-## Testing Instructions
-
-### Test Commands
-```bash
-# Run full test suite
-pytest
-
-# Run with coverage
-pytest --cov=sugar --cov-report=term-missing
-
-# Run specific test categories
-pytest -m unit          # Unit tests only
-pytest -m integration   # Integration tests only
-pytest -m slow          # Slow tests only
-
-# Run specific test files
-pytest tests/test_cli.py
-pytest tests/test_core_loop.py
-```
-
-### CI Configuration Location
-- **GitHub Actions**: `.github/workflows/ci.yml`
-- **Test matrix**: Ubuntu, Windows, macOS with Python 3.11-3.13
-- **Coverage**: Uploads to Codecov
-
-### Code Quality Checks
-```bash
-# Linting
-flake8 sugar --max-line-length=88
-
-# Code formatting
-black sugar tests
-
-# Type checking (currently relaxed due to extensive work needed)
-mypy sugar  # May have many warnings - type annotations in progress
-
-# Security scanning
-bandit -r sugar/
-safety check
-```
-
-### Error Handling During Testing
-- Tests use relaxed failure handling in CI to unblock pipeline
-- Focus on core functionality tests first
-- Integration tests mock Claude CLI with `/tmp/mock-claude/claude`
-
-## PR Instructions
-
-### Branching Model (Gitflow) - STRICT
+## Git Branching Rules (STRICT)
 
 **NEVER push directly to `develop` or `main` branches.**
 
@@ -94,7 +10,7 @@ All changes MUST go through feature/bugfix branches and PRs:
 
 | Branch | Purpose |
 |--------|---------|
-| `main` | Production releases only |
+| `main` | Production releases only (PyPI) |
 | `develop` | Integration branch (target for all PRs) |
 | `feature/*` | New features |
 | `bugfix/*` | Bug fixes |
@@ -112,66 +28,146 @@ git push -u origin feature/your-feature
 # Then create PR targeting develop
 ```
 
-### Version Bumps
+## Changelog Requirements
 
-After PRs are merged to develop, bump the dev version:
-- Format: `X.Y.Z.devN` in `pyproject.toml`
-- Example: `3.4.4.dev3` → `3.4.4.dev4`
-- Version bumps also go through PRs
+**CHANGELOG.md must be updated for every release.**
 
-### PR Title Format
-Follow conventional commit style:
-- `feat: description` - New features
-- `fix: description` - Bug fixes
-- `refactor: description` - Code refactoring
-- `test: description` - Test additions/modifications
-- `docs: description` - Documentation updates
-- `ci: description` - CI/CD changes
+When preparing a release (merging to develop or main):
 
-### Pre-commit Requirements
-1. **Code formatting**: `black sugar tests`
-2. **Linting**: `flake8 sugar --max-line-length=88`
-3. **Basic tests**: `pytest tests/` (relaxed failures acceptable)
-4. **Security check**: `bandit -r sugar/` (review results)
+1. Add new section at top of CHANGELOG.md:
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
 
-### Testing Requirements
-- All new features must include basic tests
-- Integration tests should mock external dependencies
-- Focus on core functionality over edge cases initially
-- Coverage reports help identify untested areas
+### Added
+- New features
 
-## Key Project Context
+### Changed
+- Changes to existing functionality
 
-### Sugar's Purpose
-Sugar is an autonomous development system that integrates with Claude Code CLI to:
-- Continuously discover work from GitHub issues, error logs, code analysis
-- Execute development tasks using Claude agents
-- Learn and adapt from execution results
-- Provide 24/7 autonomous development capabilities
+### Fixed
+- Bug fixes
 
-### Architecture Patterns
-- **Modular design**: Each component in separate modules
-- **Async/await**: Heavy use of asyncio for concurrent operations
-- **Database-backed**: SQLite with SQLAlchemy for work persistence
-- **CLI-first**: Click-based command interface
-- **Configuration-driven**: YAML configuration in `.sugar/config.yaml`
+### Removed
+- Removed features
+```
 
-### Integration Points
-- **Claude Code CLI**: External process execution via subprocess
-- **GitHub API**: Optional GitHub integration for issue discovery
-- **File system**: Error log monitoring and code analysis
-- **Git operations**: Branch creation, commits, PR management
+2. Follow [Keep a Changelog](https://keepachangelog.com/) format
+3. Reference PR numbers where applicable: `(#123)`
+4. Group changes by category: Added, Changed, Fixed, Removed, Security
 
-### Common Patterns
-- Use `click.echo()` for user output, not `print()`
-- Async functions for I/O operations (database, file system)
-- Configuration validation with meaningful error messages
+## Version Numbering
+
+Sugar uses [PEP 440](https://peps.python.org/pep-0440/):
+
+| Branch | Format | Example |
+|--------|--------|---------|
+| `develop` | `X.Y.Z.devN` | `3.4.4.dev3` |
+| `main` | `X.Y.Z` | `3.4.4` |
+
+Version is in `pyproject.toml` only. Bump dev number after merging PRs.
+
+## Project Structure
+
+```
+sugar/
+├── agent/           # Claude Agent SDK integration
+│   ├── base.py      # SugarAgent class
+│   ├── hooks.py     # Quality gate hooks
+│   ├── subagent_manager.py  # Sub-agent spawning
+│   └── tools.py     # Custom tools
+├── billing/         # SaaS billing (usage, API keys, tiers)
+├── config/          # Configuration management
+├── core/            # Main loop and orchestration
+│   └── loop.py      # Primary execution loop
+├── discovery/       # Work discovery (GitHub, error logs, code quality)
+├── executor/        # Task execution
+│   ├── agent_sdk.py # Agent SDK executor
+│   └── wrapper.py   # Legacy CLI wrapper
+├── integrations/    # External integrations (GitHub)
+├── learning/        # Adaptive learning system
+├── mcp/             # MCP server implementation
+├── orchestration/   # Task orchestration and decomposition
+├── profiles/        # Workflow profiles (default, issue_responder)
+├── quality_gates/   # Security and quality checks
+├── ralph/           # Ralph Wiggum iterative execution
+├── storage/         # Database and work queue (SQLite/SQLAlchemy)
+├── triage/          # Task triage and prioritization
+├── utils/           # Utility functions
+├── workflow/        # Workflow management
+└── main.py          # CLI entry point (Click-based)
+
+tests/               # Test suite (pytest)
+docs/                # Documentation
+.claude-plugin/      # Claude Code plugin
+packages/mcp-server/ # npm MCP server package
+```
+
+## Key Concepts
+
+### Agent-Agnostic
+Sugar works with multiple AI coding agents:
+- Claude Code (default)
+- OpenCode
+- Aider
+- Any CLI-based AI agent
+
+### Core Components
+- **SugarAgent**: Native Claude Agent SDK integration
+- **Task Queue**: SQLite-backed priority queue
+- **Discovery**: Finds work from GitHub issues, error logs, code analysis
+- **Quality Gates**: Security hooks for file protection and command blocking
+- **Ralph Wiggum**: Iterative execution until tests pass
+- **Orchestration**: Decomposes complex tasks into subtasks
+
+## Development Setup
+
+```bash
+# Clone and checkout develop
+git clone https://github.com/roboticforce/sugar.git
+cd sugar
+git checkout develop
+
+# Create venv and install
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev,test,github]"
+
+# Verify
+sugar --version
+```
+
+## Testing
+
+```bash
+# Run all tests
+pytest
+
+# With coverage
+pytest --cov=sugar --cov-report=term-missing
+
+# Specific categories
+pytest -m unit
+pytest -m integration
+
+# Code quality
+black sugar/
+isort sugar/
+flake8 sugar/
+mypy sugar/
+```
+
+## PR Checklist
+
+1. Branch from `develop`
+2. Code formatted (`black`, `isort`)
+3. Tests pass (`pytest`)
+4. Update CHANGELOG.md if releasing
+5. PR targets `develop` (not `main`)
+
+## Common Patterns
+
+- Use `click.echo()` for output, not `print()`
+- Async functions for I/O (database, filesystem)
+- `pathlib.Path` for path operations
+- Configuration in `.sugar/config.yaml`
 - Graceful error handling with user-friendly messages
-- Path operations using `pathlib.Path`
-
-### Testing Conventions
-- Test files: `test_*.py` pattern
-- Use `pytest` fixtures from `conftest.py`
-- Mock external dependencies (Claude CLI, GitHub API)
-- Prefer integration tests that test actual workflows
-- Use temporary directories for file system tests
