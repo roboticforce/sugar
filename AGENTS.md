@@ -66,6 +66,55 @@ Sugar uses [PEP 440](https://peps.python.org/pep-0440/):
 
 Version is in `pyproject.toml` only. Bump dev number after merging PRs.
 
+## Release Process (IMPORTANT)
+
+Follow these steps exactly when releasing a new version:
+
+### 1. Create Release Branch (from develop)
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b release/X.Y.Z
+```
+
+### 2. Prepare Release
+- Update `pyproject.toml`: change `X.Y.Z.devN` → `X.Y.Z`
+- Add CHANGELOG.md entry for the release
+- Commit: `git commit -am "Prepare release vX.Y.Z"`
+
+### 3. Create PR to main
+```bash
+git push -u origin release/X.Y.Z
+gh pr create --base main --title "Release vX.Y.Z"
+```
+
+### 4. After PR Merge - IMMEDIATELY Tag
+```bash
+git checkout main
+git pull origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+**The tag triggers the release workflow (GitHub Release + PyPI publish).**
+
+### 5. Sync develop with main
+```bash
+git checkout develop
+git pull origin develop
+git merge origin/main -m "Merge main vX.Y.Z into develop"
+```
+
+### 6. Bump develop to next dev version (via PR!)
+```bash
+git checkout -b chore/bump-version-X.Y.Z+1.dev0
+# Edit pyproject.toml: X.Y.Z → X.Y.Z+1.dev0
+git commit -am "Bump version to X.Y.Z+1.dev0 for development"
+git push -u origin chore/bump-version-X.Y.Z+1.dev0
+gh pr create --base develop --title "Bump version to X.Y.Z+1.dev0"
+```
+
+**NEVER push directly to develop or main - always use PRs!**
+
 ## Project Structure
 
 ```
