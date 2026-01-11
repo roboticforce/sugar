@@ -153,17 +153,18 @@ class TestHoldFunctionality:
     async def test_hold_release_preserves_priority_order(self, mock_work_queue):
         """Test that released tasks maintain their priority in the queue"""
         # Add multiple tasks with different priorities
+        # Priority scale: 1=urgent, 2=high, 3=normal, 4=low, 5=minimal
         tasks = [
             {
                 "type": "bug_fix",
                 "title": "Low priority",
-                "priority": 2,
+                "priority": 5,
                 "source": "manual",
             },
             {
                 "type": "feature",
                 "title": "High priority",
-                "priority": 5,
+                "priority": 1,
                 "source": "manual",
             },
             {
@@ -179,19 +180,19 @@ class TestHoldFunctionality:
             task_id = await mock_work_queue.add_work(task)
             task_ids.append(task_id)
 
-        # Put high priority task on hold
+        # Put high priority (1) task on hold
         await mock_work_queue.hold_work(task_ids[1], "On hold")
 
-        # Get next work - should be medium priority (3)
+        # Get next work - should be medium priority (3) since high priority is on hold
         next_work = await mock_work_queue.get_next_work()
         assert next_work["priority"] == 3
 
         # Release high priority task
         await mock_work_queue.release_work(task_ids[1])
 
-        # Get next work - should now be high priority (5)
+        # Get next work - should now be high priority (1)
         next_work = await mock_work_queue.get_next_work()
-        assert next_work["priority"] == 5
+        assert next_work["priority"] == 1
 
     @pytest.mark.asyncio
     async def test_stats_include_hold_count(self, mock_work_queue):

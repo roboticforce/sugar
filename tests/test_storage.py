@@ -53,17 +53,18 @@ class TestWorkQueue:
     async def test_get_pending_work(self, mock_work_queue):
         """Test retrieving pending work items"""
         # Add multiple tasks with different priorities
+        # Priority scale: 1=urgent, 2=high, 3=normal, 4=low, 5=minimal
         high_priority_task = {
             "type": "bug_fix",
             "title": "Critical bug",
-            "priority": 5,
+            "priority": 1,
             "source": "manual",
         }
 
         low_priority_task = {
             "type": "feature",
             "title": "New feature",
-            "priority": 2,
+            "priority": 5,
             "source": "manual",
         }
 
@@ -73,9 +74,9 @@ class TestWorkQueue:
         pending_tasks = await mock_work_queue.get_pending_work(limit=10)
 
         assert len(pending_tasks) == 2
-        # Should be ordered by priority (high to low)
-        assert pending_tasks[0]["priority"] == 5
-        assert pending_tasks[1]["priority"] == 2
+        # Should be ordered by priority (urgent first: 1, then 5)
+        assert pending_tasks[0]["priority"] == 1
+        assert pending_tasks[1]["priority"] == 5
 
     @pytest.mark.asyncio
     async def test_mark_work_status_transitions(self, mock_work_queue):

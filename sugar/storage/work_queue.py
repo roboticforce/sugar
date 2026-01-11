@@ -56,8 +56,8 @@ class WorkQueue:
 
             await db.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_work_items_priority_status 
-                ON work_items (priority DESC, status, created_at)
+                CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
+                ON work_items (priority ASC, status, created_at)
             """
             )
 
@@ -459,7 +459,7 @@ class WorkQueue:
                 """
                 SELECT * FROM work_items
                 WHERE status = 'pending'
-                ORDER BY priority DESC, created_at ASC
+                ORDER BY priority ASC, created_at ASC
                 LIMIT 1
             """
             )
@@ -928,9 +928,9 @@ class WorkQueue:
 
             cursor = await db.execute(
                 """
-                SELECT * FROM work_items 
+                SELECT * FROM work_items
                 WHERE status = 'pending'
-                ORDER BY priority DESC, created_at ASC 
+                ORDER BY priority ASC, created_at ASC
                 LIMIT ?
                 """,
                 (limit,),
