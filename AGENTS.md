@@ -187,6 +187,8 @@ sugar --version
 
 ## Testing
 
+Ensure you have activated the virtual environment (see Development Setup above) before running these commands.
+
 ```bash
 # Run all tests
 pytest
