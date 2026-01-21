@@ -2725,7 +2725,7 @@ wheels = [
 
 [[package]]
 name = "sugarai"
-version = "3.5.1.dev0"
+version = "3.7.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
