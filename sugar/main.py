@@ -4625,14 +4625,22 @@ def opencode_test(ctx, server):
         click.echo(f"🔗 Testing connection to {config.server_url}...")
 
         async def test_connection():
+            import aiohttp
+
             try:
                 async with OpenCodeClient(config) as client:
                     if await client.health_check():
                         click.echo("✅ Connection successful!")
                         return True
                     else:
-                        click.echo("❌ Server responded but health check failed")
+                        click.echo("❌ Server responded but health check failed (non-200 status)")
+                        click.echo("   Check that OpenCode is running correctly")
                         return False
+            except aiohttp.ClientConnectorError:
+                click.echo("❌ Cannot connect to OpenCode server")
+                click.echo(f"   Is OpenCode running at {config.server_url}?")
+                click.echo("   Start OpenCode first, then try again")
+                return False
             except Exception as e:
                 click.echo(f"❌ Connection failed: {e}")
                 return False
@@ -4679,6 +4687,8 @@ def opencode_notify(ctx, message, title, level):
         }
 
         async def send_notification():
+            import aiohttp
+
             try:
                 async with OpenCodeClient(config) as client:
                     success = await client.notify(
@@ -4691,6 +4701,10 @@ def opencode_notify(ctx, message, title, level):
                     else:
                         click.echo("❌ Failed to send notification")
                     return success
+            except aiohttp.ClientConnectorError:
+                click.echo("❌ Cannot connect to OpenCode server")
+                click.echo(f"   Is OpenCode running at {config.server_url}?")
+                return False
             except Exception as e:
                 click.echo(f"❌ Error: {e}")
                 return False
@@ -4701,6 +4715,226 @@ def opencode_notify(ctx, message, title, level):
     except ImportError as e:
         click.echo(f"❌ Import error: {e}", err=True)
         sys.exit(1)
+
+
+@opencode.command("setup")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--dry-run", is_flag=True, help="Show what would be changed without modifying files")
+@click.option("--config", "config_path", type=click.Path(), help="Path to OpenCode config file")
+@click.option("--memory/--no-memory", default=True, help="Include memory MCP server")
+@click.option("--tasks/--no-tasks", default=True, help="Include tasks MCP server")
+@click.pass_context
+def opencode_setup(ctx, yes, dry_run, config_path, memory, tasks):
+    """Configure OpenCode to use Sugar's MCP servers
+
+    Automatically finds and updates your OpenCode config file to add
+    Sugar's MCP servers for memory and task management.
+
+    Examples:
+
+        sugar opencode setup           # Interactive setup
+
+        sugar opencode setup --yes     # Non-interactive, apply changes
+
+        sugar opencode setup --dry-run # Preview changes without applying
+    """
+    import json
+    import os
+    import re
+    from pathlib import Path
+
+    click.echo("🔗 OpenCode Setup for Sugar")
+    click.echo("=" * 40)
+
+    # Find OpenCode config file
+    def find_opencode_config():
+        """Find OpenCode config file in order of precedence."""
+        candidates = []
+
+        # Check explicit config path
+        if config_path:
+            return Path(config_path) if Path(config_path).exists() else None
+
+        # Check environment variable
+        env_config = os.environ.get("OPENCODE_CONFIG")
+        if env_config:
+            candidates.append(Path(env_config))
+
+        env_config_dir = os.environ.get("OPENCODE_CONFIG_DIR")
+        if env_config_dir:
+            candidates.append(Path(env_config_dir) / "opencode.json")
+            candidates.append(Path(env_config_dir) / "opencode.jsonc")
+
+        # Check project-local config
+        candidates.extend([
+            Path(".opencode") / "opencode.json",
+            Path(".opencode") / "opencode.jsonc",
+        ])
+
+        # Check user config directory
+        home = Path.home()
+        candidates.extend([
+            home / ".config" / "opencode" / "opencode.json",
+            home / ".config" / "opencode" / "opencode.jsonc",
+        ])
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        return None
+
+    def parse_jsonc(content):
+        """Parse JSON with comments (JSONC)."""
+        # First try standard JSON - most configs won't have comments
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Fall back to JSONC parsing
+        # Remove single-line comments (but not :// in URLs)
+        # Match // only when preceded by whitespace or start of line
+        content = re.sub(r'(?<![:])\s*//.*$', '', content, flags=re.MULTILINE)
+        # Remove multi-line comments
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+        # Remove trailing commas before } or ]
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        return json.loads(content)
+
+    def format_json(data):
+        """Format JSON with nice indentation."""
+        return json.dumps(data, indent=2)
+
+    # Find config
+    config_file = find_opencode_config()
+
+    if not config_file:
+        click.echo("\n❌ Could not find OpenCode config file")
+        click.echo("\nLooked in:")
+        click.echo("  - .opencode/opencode.json (project)")
+        click.echo("  - ~/.config/opencode/opencode.json (user)")
+        click.echo("\nTo create a config file:")
+        click.echo("  mkdir -p ~/.config/opencode")
+        click.echo('  echo \'{"$schema": "https://opencode.ai/config.json"}\' > ~/.config/opencode/opencode.json')
+        click.echo("\nThen run: sugar opencode setup")
+        sys.exit(1)
+
+    click.echo(f"\n📁 Found config: {config_file}")
+
+    # Read existing config
+    try:
+        content = config_file.read_text()
+        if content.strip():
+            config = parse_jsonc(content)
+        else:
+            config = {}
+    except json.JSONDecodeError as e:
+        click.echo(f"\n❌ Failed to parse config file: {e}")
+        click.echo("Please fix the JSON syntax and try again")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\n❌ Failed to read config file: {e}")
+        sys.exit(1)
+
+    # Build MCP server configs
+    mcp_servers = {}
+
+    if tasks:
+        mcp_servers["sugar-tasks"] = {
+            "type": "local",
+            "command": ["sugar", "mcp", "tasks"]
+        }
+
+    if memory:
+        mcp_servers["sugar-memory"] = {
+            "type": "local",
+            "command": ["sugar", "mcp", "memory"]
+        }
+
+    if not mcp_servers:
+        click.echo("\n⚠️  No servers selected. Use --tasks and/or --memory")
+        sys.exit(1)
+
+    # Check what's already configured
+    existing_mcp = config.get("mcp", {})
+    servers_to_add = {}
+    servers_existing = []
+
+    for name, server_config in mcp_servers.items():
+        if name in existing_mcp:
+            servers_existing.append(name)
+        else:
+            servers_to_add[name] = server_config
+
+    if not servers_to_add:
+        click.echo("\n✅ Sugar MCP servers already configured!")
+        click.echo("\nConfigured servers:")
+        for name in servers_existing:
+            click.echo(f"  • {name}")
+        click.echo("\nRun 'sugar opencode test' to verify connectivity")
+        sys.exit(0)
+
+    # Show what will be added
+    click.echo("\n📦 Sugar MCP servers to add:")
+    for name, server_config in servers_to_add.items():
+        desc = "task queue management" if "tasks" in name else "memory/context system"
+        click.echo(f"  + {name} ({desc})")
+
+    if servers_existing:
+        click.echo("\n✓ Already configured:")
+        for name in servers_existing:
+            click.echo(f"  • {name}")
+
+    # Build new config
+    new_config = config.copy()
+    if "mcp" not in new_config:
+        new_config["mcp"] = {}
+    new_config["mcp"].update(servers_to_add)
+
+    # Show preview
+    click.echo("\n📝 Config changes:")
+    click.echo("-" * 40)
+
+    # Show just the mcp section that will be added
+    preview = {"mcp": servers_to_add}
+    click.echo(format_json(preview))
+    click.echo("-" * 40)
+
+    if dry_run:
+        click.echo("\n🔍 Dry run - no changes made")
+        click.echo("\nFull config would be:")
+        click.echo(format_json(new_config))
+        sys.exit(0)
+
+    # Confirm
+    if not yes:
+        if not click.confirm("\nApply changes?", default=True):
+            click.echo("Cancelled")
+            sys.exit(0)
+
+    # Write config
+    try:
+        config_file.write_text(format_json(new_config) + "\n")
+        click.echo(f"\n✅ Config updated: {config_file}")
+    except Exception as e:
+        click.echo(f"\n❌ Failed to write config: {e}")
+        sys.exit(1)
+
+    # Success message
+    click.echo("\n" + "=" * 40)
+    click.echo("🎉 Setup complete!")
+    click.echo("\nNext steps:")
+    click.echo("  1. Restart OpenCode to load the new MCP servers")
+    click.echo("  2. Run 'sugar opencode test' to verify connectivity")
+    click.echo("\nIn OpenCode, you'll have access to Sugar tools:")
+    if tasks:
+        click.echo("  • sugar_add_task - Add tasks to the queue")
+        click.echo("  • sugar_list_tasks - View queued tasks")
+        click.echo("  • sugar_get_task - Get task details")
+    if memory:
+        click.echo("  • sugar_remember - Store memories")
+        click.echo("  • sugar_recall - Search memories")
 
 
 if __name__ == "__main__":

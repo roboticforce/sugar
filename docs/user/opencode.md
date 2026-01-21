@@ -1,32 +1,36 @@
 # Sugar OpenCode Integration
 
-Sugar integrates with [OpenCode](https://github.com/opencode-ai/opencode) to provide bidirectional communication between Sugar's autonomous task queue and OpenCode sessions.
+Sugar integrates with [OpenCode](https://github.com/opencode-ai/opencode) to provide MCP-based communication between Sugar's autonomous task queue and OpenCode sessions.
 
 ## Overview
 
 The OpenCode integration enables:
-- **Task notifications** - Get notified in OpenCode when Sugar tasks complete or fail
+- **MCP servers** - Task management and memory access directly in OpenCode
 - **Memory injection** - Automatically inject relevant context into OpenCode sessions
 - **Learning capture** - Capture learnings from OpenCode sessions back to Sugar memory
-- **Event subscription** - React to OpenCode events in Sugar
 
 ## Quick Start
 
 ```bash
-# Install with OpenCode support
-pipx install 'sugarai[opencode]'
-# Or add to existing installation
-pipx inject sugarai aiohttp
+# One-command setup - configures OpenCode automatically
+sugar opencode setup
 
-# Check OpenCode connection
+# Restart OpenCode to load the new MCP servers
+
+# Verify setup
 sugar opencode status
-
-# Test notification
-sugar opencode test
-
-# Send manual notification
-sugar opencode notify "Build completed" --level success
 ```
+
+The setup command:
+- Finds your OpenCode config file (`~/.config/opencode/opencode.json` or `.opencode/opencode.json`)
+- Adds `sugar-tasks` and `sugar-memory` MCP servers
+- Preserves your existing configuration
+
+After setup, OpenCode will have access to Sugar's tools:
+- `sugar_add_task` - Add tasks to the queue
+- `sugar_list_tasks` - View queued tasks
+- `sugar_remember` - Store memories
+- `sugar_recall` - Search memories
 
 ## Configuration
 
@@ -69,9 +73,46 @@ integrations:
 
 ## CLI Commands
 
+### `sugar opencode setup`
+
+Automatically configure OpenCode to use Sugar's MCP servers.
+
+```bash
+sugar opencode setup [options]
+
+Options:
+  --yes, -y        Skip confirmation prompts
+  --dry-run        Show what would be changed without modifying files
+  --config PATH    Path to OpenCode config file (auto-detected if not specified)
+  --no-memory      Don't add the memory MCP server
+  --no-tasks       Don't add the tasks MCP server
+```
+
+**Examples:**
+
+```bash
+# Interactive setup (recommended)
+sugar opencode setup
+
+# Non-interactive for scripts/CI
+sugar opencode setup --yes
+
+# Preview changes without applying
+sugar opencode setup --dry-run
+
+# Only add task management (no memory)
+sugar opencode setup --no-memory
+```
+
+The command searches for OpenCode config in this order:
+1. `OPENCODE_CONFIG` environment variable
+2. `OPENCODE_CONFIG_DIR` environment variable
+3. `.opencode/opencode.json` (project-local)
+4. `~/.config/opencode/opencode.json` (user config)
+
 ### `sugar opencode status`
 
-Check OpenCode server connectivity and configuration.
+Check OpenCode integration status and configuration.
 
 ```bash
 sugar opencode status
@@ -80,14 +121,15 @@ sugar opencode status
 Output:
 ```
 OpenCode Integration Status
+  Enabled: Yes
+  aiohttp: Installed
   Server URL: http://localhost:4096
-  Status: Connected
-  Active Sessions: 2
+  Auto-inject: Yes
 ```
 
 ### `sugar opencode test`
 
-Send a test notification to verify the integration works.
+Test connection to the OpenCode HTTP server (if enabled).
 
 ```bash
 sugar opencode test

@@ -37,13 +37,10 @@ Sugar has **first-class integrations** with leading AI coding agents:
 claude mcp add sugar -- sugar mcp memory
 ```
 
-**OpenCode** - Native plugin with real-time notifications:
+**OpenCode** - One-command setup with MCP integration:
 ```bash
-# Check integration status
-sugar opencode status
-
-# Test connection
-sugar opencode test
+sugar opencode setup  # Automatically configures OpenCode
+# Then restart OpenCode
 ```
 
 Both integrations support **automatic memory injection** - Sugar injects relevant context (decisions, preferences, error patterns) into your AI sessions automatically.
@@ -328,36 +325,34 @@ Claude: "I'll create a Sugar task for the test fixes."
 
 ### OpenCode Integration
 
-Sugar has native bidirectional integration with [OpenCode](https://github.com/opencode-ai/opencode):
+Sugar has native MCP integration with [OpenCode](https://github.com/opencode-ai/opencode):
 
 **Features:**
-- Real-time task notifications (start, complete, fail)
+- MCP servers for task management and memory access
 - Automatic memory injection into OpenCode sessions
 - Context-aware memory retrieval based on current work
-- Learning capture from session outcomes
 
 **Quick Setup:**
 ```bash
-# Install OpenCode integration dependencies
-pipx inject sugarai aiohttp
+# One-command setup - adds Sugar MCP servers to OpenCode config
+sugar opencode setup
 
-# Check integration status
+# Restart OpenCode to load the new servers
+# Then verify:
 sugar opencode status
-
-# Test connection (requires OpenCode server running)
-sugar opencode test
-
-# Send a test notification
-sugar opencode notify "Hello from Sugar!" --title "Test" --level success
 ```
 
-**Environment Variables:**
+The setup command automatically:
+- Finds your OpenCode config file
+- Adds `sugar-tasks` and `sugar-memory` MCP servers
+- Preserves your existing configuration
+
+**Options:**
 ```bash
-OPENCODE_SERVER_URL=http://localhost:4096  # OpenCode server URL
-SUGAR_OPENCODE_ENABLED=true                # Enable/disable integration
+sugar opencode setup --dry-run  # Preview changes without applying
+sugar opencode setup --yes      # Non-interactive mode
+sugar opencode setup --no-memory  # Only add task server
 ```
-
-When Sugar executes tasks, it automatically sends notifications to OpenCode so you can track progress in real-time.
 
 ### MCP Server Integration
 

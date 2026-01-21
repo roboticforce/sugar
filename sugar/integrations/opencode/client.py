@@ -80,16 +80,24 @@ class OpenCodeClient:
             self._connected = False
 
     async def health_check(self) -> bool:
-        """Check if OpenCode server is reachable."""
+        """
+        Check if OpenCode server is reachable.
+
+        Returns:
+            True if server is healthy
+
+        Raises:
+            aiohttp.ClientConnectorError: If server is unreachable
+        """
         if not self._session:
             return False
 
-        try:
-            async with self._session.get("/health") as resp:
-                return resp.status == 200
-        except Exception as e:
-            logger.debug(f"Health check failed: {e}")
-            return False
+        # Let connection errors propagate so callers can distinguish
+        # between "server not running" vs "server returned non-200"
+        async with self._session.get("/health") as resp:
+            if resp.status != 200:
+                logger.debug(f"Health check returned status {resp.status}")
+            return resp.status == 200
 
     # =========================================================================
     # Session Management
@@ -245,6 +253,9 @@ class OpenCodeClient:
 
         Returns:
             True if notification was sent
+
+        Raises:
+            aiohttp.ClientConnectorError: If server is unreachable
         """
         if not self._session:
             raise RuntimeError("Client not connected. Use async with context.")
@@ -255,12 +266,11 @@ class OpenCodeClient:
             "level": level.value,
         }
 
-        try:
-            async with self._session.post("/tui/notify", json=payload) as resp:
-                return resp.status == 200
-        except Exception as e:
-            logger.debug(f"Notification failed: {e}")
-            return False
+        # Let connection errors propagate so callers can handle appropriately
+        async with self._session.post("/tui/notify", json=payload) as resp:
+            if resp.status != 200:
+                logger.debug(f"Notification failed with status {resp.status}")
+            return resp.status == 200
 
     async def notify_task_completed(
         self,
