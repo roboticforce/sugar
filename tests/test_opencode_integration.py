@@ -755,9 +755,7 @@ class TestOpenCodeClientMocked:
             client._session = mock_session
 
             result = await client.notify(
-                title="Test",
-                message="Test message",
-                level=NotificationLevel.INFO
+                title="Test", message="Test message", level=NotificationLevel.INFO
             )
             assert result is True
             mock_session.post.assert_called_once()
@@ -796,9 +794,7 @@ class TestOpenCodeClientMocked:
             # Should raise the connection error (not catch it)
             with pytest.raises(aiohttp.ClientConnectorError):
                 await client.notify(
-                    title="Test",
-                    message="Test message",
-                    level=NotificationLevel.INFO
+                    title="Test", message="Test message", level=NotificationLevel.INFO
                 )
 
         except ImportError:
@@ -987,7 +983,11 @@ class TestOpenCodeSetupCommand:
         assert "mcp" in updated_config
         assert "sugar-tasks" in updated_config["mcp"]
         assert "sugar-memory" in updated_config["mcp"]
-        assert updated_config["mcp"]["sugar-tasks"]["command"] == ["sugar", "mcp", "tasks"]
+        assert updated_config["mcp"]["sugar-tasks"]["command"] == [
+            "sugar",
+            "mcp",
+            "tasks",
+        ]
 
     def test_setup_preserves_existing_config(self, tmp_path):
         """Test that setup preserves existing configuration"""
@@ -999,11 +999,15 @@ class TestOpenCodeSetupCommand:
         config_dir = tmp_path / ".config" / "opencode"
         config_dir.mkdir(parents=True)
         config_file = config_dir / "opencode.json"
-        config_file.write_text(json.dumps({
-            "$schema": "https://opencode.ai/config.json",
-            "plugin": ["existing-plugin"],
-            "mcp": {"existing-server": {"type": "local", "command": ["test"]}}
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "$schema": "https://opencode.ai/config.json",
+                    "plugin": ["existing-plugin"],
+                    "mcp": {"existing-server": {"type": "local", "command": ["test"]}},
+                }
+            )
+        )
 
         runner = CliRunner()
         with patch.dict(os.environ, {"HOME": str(tmp_path)}):
@@ -1107,7 +1111,7 @@ class TestOpenCodeSetupCommand:
         config_dir = tmp_path / ".config" / "opencode"
         config_dir.mkdir(parents=True)
         config_file = config_dir / "opencode.json"
-        config_file.write_text('{ invalid json }')
+        config_file.write_text("{ invalid json }")
 
         runner = CliRunner()
         with patch.dict(os.environ, {"HOME": str(tmp_path)}):
@@ -1126,11 +1130,11 @@ class TestOpenCodeSetupCommand:
         config_dir = tmp_path / ".config" / "opencode"
         config_dir.mkdir(parents=True)
         config_file = config_dir / "opencode.json"
-        jsonc_content = '''{
+        jsonc_content = """{
   // This is a comment
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["test"], // trailing comment
-}'''
+}"""
         config_file.write_text(jsonc_content)
 
         runner = CliRunner()
@@ -1151,7 +1155,9 @@ class TestOpenCodeSetupCommand:
         custom_config.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["opencode", "setup", "--yes", "--config", str(custom_config)])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(custom_config)]
+        )
 
         assert result.exit_code == 0
 
