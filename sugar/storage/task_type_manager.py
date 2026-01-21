@@ -35,7 +35,8 @@ class TaskTypeManager:
 
             if not table_exists:
                 # Create task_types table
-                await db.execute("""
+                await db.execute(
+                    """
                     CREATE TABLE task_types (
                         id TEXT PRIMARY KEY,
                         name TEXT NOT NULL,
@@ -56,7 +57,8 @@ class TaskTypeManager:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                    """)
+                    """
+                )
 
                 # Populate with default types
                 default_types = self._get_default_task_types()

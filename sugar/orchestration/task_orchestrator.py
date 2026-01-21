@@ -721,7 +721,9 @@ class TaskOrchestrator:
 """
 
         if stage == OrchestrationStage.RESEARCH:
-            return base_prompt + """
+            return (
+                base_prompt
+                + """
 ## Your Role
 You are conducting research for this task. Your goals:
 1. Search for relevant best practices and documentation
@@ -736,6 +738,7 @@ Provide a research summary covering:
 - Technical requirements
 - Recommendations for implementation
 """
+            )
 
         elif stage == OrchestrationStage.PLANNING:
             research_context = ""
@@ -744,7 +747,10 @@ Provide a research summary covering:
                     f"\n## Research Findings\n{context['research_output']}\n"
                 )
 
-            return base_prompt + research_context + """
+            return (
+                base_prompt
+                + research_context
+                + """
 ## Your Role
 You are creating an implementation plan for this task. Your goals:
 1. Break down the task into manageable subtasks
@@ -769,12 +775,15 @@ Create a plan with subtasks in this format:
 ## Dependencies
 Explain the order of execution and why.
 """
+            )
 
         elif stage == OrchestrationStage.REVIEW:
             impl_results = context.get("subtask_results", [])
             files_modified = context.get("files_modified", [])
 
-            return base_prompt + f"""
+            return (
+                base_prompt
+                + f"""
 ## Implementation Complete
 The following subtasks have been completed:
 {json.dumps(impl_results, indent=2)}
@@ -797,6 +806,7 @@ Provide a review covering:
 - Recommendations for improvement
 - Overall assessment (pass/fail)
 """
+            )
 
         else:
             return base_prompt
