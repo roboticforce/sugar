@@ -97,7 +97,8 @@ class MemoryStore:
         cursor = conn.cursor()
 
         # Main memory entries table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS memory_entries (
                 id TEXT PRIMARY KEY,
                 memory_type TEXT NOT NULL,
@@ -111,24 +112,32 @@ class MemoryStore:
                 access_count INTEGER DEFAULT 0,
                 expires_at TIMESTAMP
             )
-        """)
+        """
+        )
 
         # Indexes
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_memory_type
             ON memory_entries(memory_type)
-        """)
-        cursor.execute("""
+        """
+        )
+        cursor.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_memory_importance
             ON memory_entries(importance DESC)
-        """)
-        cursor.execute("""
+        """
+        )
+        cursor.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_memory_created
             ON memory_entries(created_at DESC)
-        """)
+        """
+        )
 
         # FTS5 for keyword search (always available)
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
                 id,
                 content,
@@ -136,39 +145,48 @@ class MemoryStore:
                 content='memory_entries',
                 content_rowid='rowid'
             )
-        """)
+        """
+        )
 
         # Triggers to keep FTS in sync
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory_entries BEGIN
                 INSERT INTO memory_fts(rowid, id, content, summary)
                 VALUES (new.rowid, new.id, new.content, new.summary);
             END
-        """)
-        cursor.execute("""
+        """
+        )
+        cursor.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory_entries BEGIN
                 INSERT INTO memory_fts(memory_fts, rowid, id, content, summary)
                 VALUES ('delete', old.rowid, old.id, old.content, old.summary);
             END
-        """)
-        cursor.execute("""
+        """
+        )
+        cursor.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memory_entries BEGIN
                 INSERT INTO memory_fts(memory_fts, rowid, id, content, summary)
                 VALUES ('delete', old.rowid, old.id, old.content, old.summary);
                 INSERT INTO memory_fts(rowid, id, content, summary)
                 VALUES (new.rowid, new.id, new.content, new.summary);
             END
-        """)
+        """
+        )
 
         # Vector storage table (if sqlite-vec available)
         if self._has_vec:
             try:
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
                         id TEXT PRIMARY KEY,
                         embedding float[{EMBEDDING_DIM}]
                     )
-                """)
+                """
+                )
             except Exception as e:
                 logger.warning(f"Failed to create vector table: {e}")
                 self._has_vec = False
@@ -584,20 +602,24 @@ class MemoryStore:
         cursor = conn.cursor()
 
         # Get IDs to delete (for vector cleanup)
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id FROM memory_entries
             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
-        """)
+        """
+        )
         expired_ids = [row["id"] for row in cursor.fetchall()]
 
         if not expired_ids:
             return 0
 
         # Delete from main table
-        cursor.execute("""
+        cursor.execute(
+            """
             DELETE FROM memory_entries
             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
-        """)
+        """
+        )
         deleted = cursor.rowcount
 
         # Clean up vectors

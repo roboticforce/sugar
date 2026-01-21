@@ -470,7 +470,8 @@ class TestTimingTracking:
         import aiosqlite
 
         async with aiosqlite.connect(str(db_path)) as db:
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE work_items (
                     id TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
@@ -489,7 +490,8 @@ class TestTimingTracking:
                     result TEXT,
                     error_message TEXT
                 )
-            """)
+            """
+            )
             await db.commit()
 
         # Initialize WorkQueue (should trigger migration)

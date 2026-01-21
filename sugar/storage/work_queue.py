@@ -28,7 +28,8 @@ class WorkQueue:
             return
 
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS work_items (
                     id TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
@@ -51,17 +52,22 @@ class WorkQueue:
                     total_elapsed_time REAL DEFAULT 0.0,
                     commit_sha TEXT
                 )
-            """)
+            """
+            )
 
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
                 ON work_items (priority ASC, status, created_at)
-            """)
+            """
+            )
 
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_work_items_status 
                 ON work_items (status)
-            """)
+            """
+            )
 
             # Migrate existing databases to add timing columns and task types table
             await self._migrate_timing_columns(db)
@@ -120,7 +126,8 @@ class WorkQueue:
 
             if not table_exists:
                 # Create task_types table
-                await db.execute("""
+                await db.execute(
+                    """
                     CREATE TABLE task_types (
                         id TEXT PRIMARY KEY,
                         name TEXT NOT NULL,
@@ -133,7 +140,8 @@ class WorkQueue:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
-                """)
+                """
+                )
 
                 # Insert default task types
                 default_types = [
@@ -261,10 +269,12 @@ class WorkQueue:
                 logger.info("Added assigned_agent column to existing database")
 
             # Create index for parent_task_id queries
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_work_items_parent_task_id
                 ON work_items (parent_task_id)
-            """)
+            """
+            )
 
         except Exception as e:
             logger.warning(f"Orchestration migration warning (non-critical): {e}")
@@ -446,12 +456,14 @@ class WorkQueue:
             db.row_factory = aiosqlite.Row
 
             # Get highest priority pending work item (exclude hold status)
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 SELECT * FROM work_items
                 WHERE status = 'pending'
                 ORDER BY priority ASC, created_at ASC
                 LIMIT 1
-            """)
+            """
+            )
 
             row = await cursor.fetchone()
 
@@ -694,11 +706,13 @@ class WorkQueue:
             stats = {}
 
             # Count by status
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 SELECT status, COUNT(*) as count 
                 FROM work_items 
                 GROUP BY status
-            """)
+            """
+            )
 
             rows = await cursor.fetchall()
             for row in rows:
@@ -712,10 +726,12 @@ class WorkQueue:
             stats["total"] = sum(stats.values())
 
             # Recent activity (last 24 hours)
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 SELECT COUNT(*) FROM work_items 
                 WHERE created_at > datetime('now', '-1 day')
-            """)
+            """
+            )
             stats["recent_24h"] = (await cursor.fetchone())[0]
 
             return stats
@@ -723,11 +739,15 @@ class WorkQueue:
     async def cleanup_old_items(self, days_old: int = 30):
         """Clean up old completed/failed items"""
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 DELETE FROM work_items 
                 WHERE status IN ('completed', 'failed') 
                 AND created_at < datetime('now', '-{} days')
-            """.format(days_old))
+            """.format(
+                    days_old
+                )
+            )
 
             deleted_count = cursor.rowcount
             await db.commit()
