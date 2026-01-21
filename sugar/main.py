@@ -1852,7 +1852,7 @@ def status(ctx):
         # Get statistics
         stats = asyncio.run(_get_status_async(work_queue))
 
-        click.echo("\n🤖 Sugar System Status")
+        click.echo("\n🍰 Sugar System Status")
         click.echo("=" * 40)
         click.echo(f"📊 Total Tasks: {stats['total']}")
         click.echo(f"⏳ Pending: {stats['pending']}")
