@@ -37,7 +37,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-        pip install pytest pytest-asyncio pytest-cov black flake8 mypy
+        pip install pytest pytest-asyncio pytest-cov 'black>=24.0.0,<26.0.0' flake8 mypy
     
     - name: Lint with flake8
       run: |
