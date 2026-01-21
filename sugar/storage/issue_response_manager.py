@@ -26,8 +26,7 @@ class IssueResponseManager:
             return
 
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS issue_responses (
                     id TEXT PRIMARY KEY,
                     repo TEXT NOT NULL,
@@ -41,15 +40,12 @@ class IssueResponseManager:
                     was_auto_posted BOOLEAN DEFAULT 0,
                     UNIQUE(repo, issue_number, response_type)
                 )
-            """
-            )
+            """)
 
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_issue_responses_repo_number
                 ON issue_responses (repo, issue_number)
-            """
-            )
+            """)
 
             await db.commit()
 

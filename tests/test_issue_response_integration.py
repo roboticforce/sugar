@@ -14,7 +14,6 @@ from datetime import datetime
 from sugar.storage.issue_response_manager import IssueResponseManager
 from sugar.config.issue_responder_config import IssueResponderConfig
 
-
 # ============================================================================
 # IssueResponseManager Tests
 # ============================================================================

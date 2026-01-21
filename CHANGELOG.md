@@ -5,6 +5,92 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - Unreleased
+
+### 🧠 MINOR RELEASE: Memory System
+
+Sugar now has persistent semantic memory! Remember decisions, preferences, error patterns, and more across sessions. Integrates with Claude Code via MCP server for seamless context sharing.
+
+### Added
+
+#### Memory System (`sugar/memory/`)
+- **MemoryStore**: SQLite-backed storage with vector search support
+  - Semantic search using sentence-transformers embeddings
+  - FTS5 keyword search fallback when embeddings unavailable
+  - sqlite-vec integration for fast vector similarity
+- **Memory Types**: Six memory categories for different kinds of information
+  - `decision` - Architectural and implementation decisions
+  - `preference` - User coding preferences (permanent)
+  - `file_context` - What files do what
+  - `error_pattern` - Bug patterns and their fixes
+  - `research` - API docs, library findings
+  - `outcome` - Task outcomes and learnings
+- **MemoryRetriever**: Context formatting for prompt injection
+- **Embedder**: SentenceTransformer embeddings with graceful fallback
+
+#### New CLI Commands
+- `sugar remember "content"` - Store a memory with type, tags, TTL, importance
+- `sugar recall "query"` - Search memories with semantic/keyword matching
+- `sugar memories` - List memories with filtering by type, age
+- `sugar forget <id>` - Delete a memory by ID
+- `sugar export-context` - Export memories for Claude Code SessionStart hook
+- `sugar memory-stats` - Show memory system statistics
+- `sugar mcp memory` - Run MCP server for Claude Code integration
+
+#### MCP Server for Claude Code
+- **search_memory** - Semantic search over project memories
+- **store_learning** - Store new observations/decisions from Claude
+- **get_project_context** - Organized project context summary
+- **recall** - Formatted markdown context for prompts
+- **list_recent_memories** - List with type filtering
+- **Resources**: `sugar://project/context`, `sugar://preferences`
+
+#### Claude Code Integration
+- **SessionStart Hook**: Auto-inject context via `sugar export-context`
+- **MCP Server**: Full memory access via `claude mcp add sugar -- sugar mcp memory`
+- **Bidirectional**: Claude can both read and write memories
+
+### Configuration
+
+New optional dependency group:
+```bash
+pip install 'sugarai[memory]'   # Enables semantic search
+pip install 'sugarai[all]'      # All features
+```
+
+Memory works without dependencies (uses FTS5 keyword search), but semantic search requires:
+- `sentence-transformers>=2.2.0`
+- `sqlite-vec>=0.1.0`
+
+### Usage Examples
+
+```bash
+# Store memories
+sugar remember "Always use async/await, never callbacks" --type preference
+sugar remember "Auth tokens expire after 15 minutes" --type research --ttl 90d
+sugar remember "payment_processor.py handles Stripe webhooks" --type file_context
+
+# Search memories
+sugar recall "how do we handle authentication"
+sugar recall "database errors" --type error_pattern --limit 5
+
+# Claude Code integration
+claude mcp add sugar -- sugar mcp memory
+```
+
+### Documentation
+- New [Memory System Guide](docs/user/memory.md)
+- Updated README with memory commands and MCP integration
+- Updated CLI reference with all memory commands
+
+### Technical Details
+- 24 new tests for memory module
+- Full backwards compatibility - memory is opt-in
+- Database stored at `.sugar/memory.db` per project
+- Embeddings use all-MiniLM-L6-v2 (384 dimensions)
+
+---
+
 ## [3.4.4] - 2026-01-10
 
 ### 🔄 MINOR RELEASE: Agent-Agnostic Rebranding

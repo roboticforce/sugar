@@ -2,6 +2,7 @@
 Sugar MCP Server
 
 Model Context Protocol server for Sugar, enabling integration with:
+- Claude Code (via memory server)
 - GitHub Copilot Custom Agents
 - Other MCP-compatible clients
 
@@ -10,7 +11,12 @@ unless the MCP server is actually used. This allows the base Sugar CLI
 to work without installing the optional [mcp] extras.
 """
 
-__all__ = ["SugarMCPServer", "create_server"]
+__all__ = [
+    "SugarMCPServer",
+    "create_server",
+    "create_memory_mcp_server",
+    "run_memory_server",
+]
 
 # Lazy import cache
 _lazy_imports = {}
@@ -21,10 +27,19 @@ def __getattr__(name: str):
     if name in __all__:
         if name not in _lazy_imports:
             try:
-                from .server import SugarMCPServer, create_server
+                if name in ("SugarMCPServer", "create_server"):
+                    from .server import SugarMCPServer, create_server
 
-                _lazy_imports["SugarMCPServer"] = SugarMCPServer
-                _lazy_imports["create_server"] = create_server
+                    _lazy_imports["SugarMCPServer"] = SugarMCPServer
+                    _lazy_imports["create_server"] = create_server
+                elif name in ("create_memory_mcp_server", "run_memory_server"):
+                    from .memory_server import (
+                        create_memory_mcp_server,
+                        run_memory_server,
+                    )
+
+                    _lazy_imports["create_memory_mcp_server"] = create_memory_mcp_server
+                    _lazy_imports["run_memory_server"] = run_memory_server
             except ImportError as e:
                 raise ImportError(
                     f"MCP dependencies not installed. Install with: pip install sugarai[mcp]\n"

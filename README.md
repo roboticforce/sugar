@@ -54,6 +54,16 @@ uv pip install sugarai
 pipx install 'sugarai[github]'
 ```
 
+**With memory system (semantic search):**
+```bash
+pipx install 'sugarai[memory]'
+```
+
+**All features:**
+```bash
+pipx install 'sugarai[all]'
+```
+
 </details>
 
 ## Quick Start
@@ -203,7 +213,13 @@ With pipx, Sugar's dependencies don't conflict with your project's dependencies.
 - Self-correcting loops until tests pass
 - Prevents single-shot failures
 
-**Full docs:** [docs/ralph-wiggum.md](docs/ralph-wiggum.md)
+**Memory System** *(New in 3.5)*
+- Persistent semantic memory across sessions
+- Remember decisions, preferences, error patterns
+- Claude Code integration via MCP server
+- `sugar remember` / `sugar recall` commands
+
+**Full docs:** [docs/ralph-wiggum.md](docs/ralph-wiggum.md) | [Memory System](docs/user/memory.md)
 
 ## Configuration
 
@@ -254,7 +270,28 @@ Claude: "I'll create a Sugar task for the test fixes."
 
 ### MCP Server Integration
 
-Sugar provides an MCP server for Goose, Claude Desktop, and other MCP clients.
+Sugar provides MCP servers for Goose, Claude Code, Claude Desktop, and other MCP clients.
+
+**Using with Claude Code (Memory):**
+```bash
+# Add Sugar memory to Claude Code
+claude mcp add sugar -- sugar mcp memory
+```
+
+Or add to `~/.claude.json`:
+```json
+{
+  "mcpServers": {
+    "sugar": {
+      "type": "stdio",
+      "command": "sugar",
+      "args": ["mcp", "memory"]
+    }
+  }
+}
+```
+
+This gives Claude Code access to your project's memory - decisions, preferences, error patterns, and more.
 
 **Using with Goose:**
 ```bash
@@ -278,6 +315,32 @@ goose configure
   }
 }
 ```
+
+### Memory System
+
+Sugar's memory system provides persistent context across sessions:
+
+```bash
+# Store memories
+sugar remember "Always use async/await, never callbacks" --type preference
+sugar remember "Auth tokens expire after 15 minutes" --type research --ttl 90d
+
+# Search memories
+sugar recall "how do we handle authentication"
+sugar recall "error patterns" --type error_pattern
+
+# List and manage
+sugar memories --type decision --since 7d
+sugar forget abc123 --force
+sugar memory-stats
+
+# Export for Claude Code SessionStart hook
+sugar export-context
+```
+
+**Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`
+
+**Full docs:** [Memory System Guide](docs/user/memory.md)
 
 ## Advanced Usage
 
@@ -342,6 +405,7 @@ sugar run --once                        # Test single cycle
 
 - [Quick Start](docs/user/quick-start.md)
 - [CLI Reference](docs/user/cli-reference.md)
+- [Memory System](docs/user/memory.md) *(New)*
 - [Task Orchestration](docs/task_orchestration.md)
 - [Ralph Wiggum](docs/ralph-wiggum.md)
 - [GitHub Integration](docs/user/github-integration.md)
@@ -376,6 +440,6 @@ pytest tests/ -v
 
 ---
 
-**Sugar v3.4** - The autonomous layer for AI coding agents
+**Sugar v3.5** - The autonomous layer for AI coding agents
 
 > ⚠️ Sugar is provided "AS IS" without warranty. Review all AI-generated code before use.

@@ -2,18 +2,35 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cdnsteve/sugar",
   "title": "Sugar",
-  "description": "Autonomous AI development system with persistent task queue and background execution",
+  "description": "Autonomous AI development system with persistent task queue, background execution, and semantic memory",
   "repository": {
     "url": "https://github.com/roboticforce/sugar",
     "source": "github"
   },
-  "version": "3.4.3.dev0",
+  "version": "3.5.0.dev0",
   "websiteUrl": "https://github.com/roboticforce/sugar",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "sugarai",
-      "version": "3.4.3.dev0",
+      "version": "3.5.0.dev0",
+      "name": "sugar-memory",
+      "description": "Sugar Memory MCP Server - semantic memory for AI coding sessions",
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"},
+        {"type": "positional", "value": "memory"}
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": []
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "sugarai",
+      "version": "3.5.0.dev0",
+      "name": "sugar-tasks",
+      "description": "Sugar Task Queue MCP Server - autonomous task management",
       "packageArguments": [
         {"type": "positional", "value": "mcp"},
         {"type": "positional", "value": "serve"}

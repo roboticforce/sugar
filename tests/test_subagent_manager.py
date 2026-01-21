@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from sugar.agent.base import SugarAgentConfig, AgentResponse
 from sugar.agent.subagent_manager import SubAgentManager, SubAgentResult
 
-
 # ============================================================================
 # Test Fixtures
 # ============================================================================
@@ -325,7 +324,7 @@ class TestSpawnSubAgent:
         assert result.success is True
         assert result.summary  # Should have extracted summary
         assert len(result.files_modified) == 2
-        assert result.execution_time > 0
+        assert result.execution_time >= 0  # May be 0 on fast systems (Windows)
         assert result.error is None
 
     @pytest.mark.asyncio

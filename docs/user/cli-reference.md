@@ -731,6 +731,205 @@ See [Thinking Capture Guide](../thinking-capture.md) for full documentation.
 
 ---
 
+## Memory Commands
+
+Sugar's memory system provides persistent semantic memory across coding sessions.
+
+### `sugar remember`
+
+Store a memory for future reference.
+
+```bash
+sugar remember "CONTENT" [OPTIONS]
+```
+
+**Options:**
+- `--type TYPE` - Memory type: `decision`, `preference`, `research`, `file_context`, `error_pattern`, `outcome` (default: `decision`)
+- `--tags TEXT` - Comma-separated tags for organization
+- `--file PATH` - Associate with a specific file
+- `--ttl TEXT` - Time to live: `30d`, `90d`, `1y`, `never` (default: `never`)
+- `--importance FLOAT` - Importance score 0.0-2.0 (default: 1.0)
+
+**Examples:**
+```bash
+# Store a preference
+sugar remember "Always use async/await, never callbacks" --type preference
+
+# Decision with tags
+sugar remember "Chose JWT with RS256 for auth" --type decision --tags "auth,security"
+
+# Research with expiration
+sugar remember "Stripe API rate limit: 100/sec" --type research --ttl 90d
+
+# File context
+sugar remember "Handles OAuth callbacks" --type file_context --file src/auth/callback.py
+```
+
+---
+
+### `sugar recall`
+
+Search memories for relevant context.
+
+```bash
+sugar recall "QUERY" [OPTIONS]
+```
+
+**Options:**
+- `--type TYPE` - Filter by memory type (or `all`)
+- `--limit INTEGER` - Maximum results (default: 10)
+- `--format FORMAT` - Output format: `table`, `json`, `full` (default: `table`)
+
+**Examples:**
+```bash
+# Basic search
+sugar recall "authentication"
+
+# Filter by type
+sugar recall "database errors" --type error_pattern
+
+# JSON output
+sugar recall "stripe" --format json
+
+# Full details
+sugar recall "architecture" --format full --limit 5
+```
+
+---
+
+### `sugar memories`
+
+List all stored memories.
+
+```bash
+sugar memories [OPTIONS]
+```
+
+**Options:**
+- `--type TYPE` - Filter by memory type (or `all`)
+- `--since TEXT` - Filter by age (e.g., `7d`, `30d`, `2w`)
+- `--limit INTEGER` - Maximum results (default: 50)
+- `--format FORMAT` - Output format: `table`, `json`
+
+**Examples:**
+```bash
+# List all
+sugar memories
+
+# Recent decisions
+sugar memories --type decision --since 7d
+
+# Export to JSON
+sugar memories --format json > backup.json
+```
+
+---
+
+### `sugar forget`
+
+Delete a memory by ID.
+
+```bash
+sugar forget MEMORY_ID [OPTIONS]
+```
+
+**Options:**
+- `--force` - Skip confirmation prompt
+
+**Examples:**
+```bash
+# Interactive deletion
+sugar forget abc123
+
+# Force delete
+sugar forget abc123 --force
+```
+
+---
+
+### `sugar export-context`
+
+Export memories for Claude Code integration.
+
+```bash
+sugar export-context [OPTIONS]
+```
+
+**Options:**
+- `--format FORMAT` - Output format: `markdown`, `json`, `claude` (default: `markdown`)
+- `--limit INTEGER` - Max memories per type (default: 10)
+- `--types TEXT` - Comma-separated types to include (default: `decision,preference,error_pattern`)
+
+**Use Cases:**
+- **SessionStart Hook**: Auto-inject context into Claude Code sessions
+- **Backup**: Export memories for external storage
+- **Sharing**: Share context across team members
+
+**Claude Code Hook Configuration:**
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "sugar export-context"
+      }]
+    }]
+  }
+}
+```
+
+---
+
+### `sugar memory-stats`
+
+Show memory system statistics.
+
+```bash
+sugar memory-stats
+```
+
+**Output includes:**
+- Semantic search availability
+- Database path and size
+- Total memory count
+- Count by memory type
+
+---
+
+### `sugar mcp memory`
+
+Start the Sugar Memory MCP server for Claude Code integration.
+
+```bash
+sugar mcp memory [OPTIONS]
+```
+
+**Options:**
+- `--transport TEXT` - Transport protocol: `stdio` (default: `stdio`)
+
+**Claude Code Integration:**
+```bash
+# Add Sugar memory to Claude Code
+claude mcp add sugar -- sugar mcp memory
+```
+
+**MCP Tools Exposed:**
+- `search_memory` - Semantic search over memories
+- `store_learning` - Store new observations/decisions
+- `get_project_context` - Get organized project summary
+- `recall` - Get formatted markdown context
+- `list_recent_memories` - List with type filtering
+
+**MCP Resources:**
+- `sugar://project/context` - Full project context
+- `sugar://preferences` - User coding preferences
+
+See [Memory System Guide](memory.md) for full documentation.
+
+---
+
 ### `sugar task-type`
 
 Manage custom task types for your project.

@@ -65,6 +65,13 @@ mcp = [
     "starlette>=0.27.0",
     "uvicorn>=0.22.0",
 ]
+memory = [
+    "sentence-transformers>=2.2.0",
+    "sqlite-vec>=0.1.0",
+]
+all = [
+    "sugarai[github,mcp,memory]",
+]
 
 [project.scripts]
 sugar = "sugar.main:cli"

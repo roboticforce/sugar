@@ -223,7 +223,7 @@ class TestSugarStatus:
             result = cli_runner.invoke(cli, ["status"])
 
             assert result.exit_code == 0
-            assert "🤖 Sugar System Status" in result.output
+            assert "🍰 Sugar System Status" in result.output
             assert "📊 Total Tasks: 10" in result.output
             assert "⏳ Pending: 3" in result.output
             assert "⏸️ On Hold: 0" in result.output

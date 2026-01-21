@@ -24,7 +24,6 @@ from sugar.agent.base import (
 )
 from sugar.agent.hooks import QualityGateHooks, HookContext
 
-
 # ============================================================================
 # Test Fixtures
 # ============================================================================

@@ -2,17 +2,19 @@
 """
 🍰 Sugar - The autonomous layer for AI coding agents
 """
+
 import asyncio
 import json
 import logging
 import signal
 import sys
-from pathlib import Path
-import click
 from datetime import datetime, timezone
+from pathlib import Path
 
+import click
+
+from .__version__ import __version__, get_version_info
 from .core.loop import SugarLoop
-from .__version__ import get_version_info, __version__
 
 
 def validate_task_type(ctx, param, value):
@@ -21,9 +23,11 @@ def validate_task_type(ctx, param, value):
         return value
 
     try:
-        import yaml
-        from .storage.task_type_manager import TaskTypeManager
         import asyncio
+
+        import yaml
+
+        from .storage.task_type_manager import TaskTypeManager
 
         # Get config file path from context
         config_file = (
@@ -137,8 +141,9 @@ def _require_sugar_project(config_file: str) -> dict:
     Raises:
         SystemExit: If config file not found or invalid
     """
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     config_path = Path(config_file)
 
@@ -258,8 +263,8 @@ def cli(ctx, config, debug, version):
 )
 def init(project_dir):
     """Initialize Sugar in a project directory"""
-    import shutil
     import json
+    import shutil
 
     project_path = Path(project_dir).resolve()
     sugar_dir = project_path / ".sugar"
@@ -467,8 +472,9 @@ def add(
         description = f"Task: {title}"
 
     # Import here to avoid circular imports
-    from .storage.work_queue import WorkQueue
     import uuid
+
+    from .storage.work_queue import WorkQueue
 
     # Load config (exits with friendly error if not a Sugar project)
     config_file = ctx.obj["config"]
@@ -1072,8 +1078,9 @@ def update(ctx, task_id, title, description, priority, task_type, status):
 def priority(ctx, task_id, priority, urgent, high, normal, low, minimal):
     """Change the priority of a task"""
 
-    from .storage.work_queue import WorkQueue
     import yaml
+
+    from .storage.work_queue import WorkQueue
 
     # Count how many priority options were specified
     priority_flags = [urgent, high, normal, low, minimal]
@@ -1336,8 +1343,9 @@ def orchestrate(ctx, task_id, stages):
 @click.pass_context
 def context(ctx, task_id):
     """View accumulated context for an orchestrated task."""
-    from .storage.work_queue import WorkQueue
     from pathlib import Path
+
+    from .storage.work_queue import WorkQueue
 
     config_file = ctx.obj["config"]
     config = _require_sugar_project(config_file)
@@ -1476,9 +1484,10 @@ def thinking(ctx, task_id, list_logs, stats):
         sugar thinking TASK_ID --stats   # View thinking statistics
         sugar thinking --list            # List all thinking logs
     """
-    from .executor.thinking_display import read_thinking_log, list_thinking_logs
-    from .storage.work_queue import WorkQueue
     import yaml
+
+    from .executor.thinking_display import list_thinking_logs, read_thinking_log
+    from .storage.work_queue import WorkQueue
 
     if list_logs:
         # List all available thinking logs
@@ -1631,8 +1640,8 @@ def learnings(ctx, lines, sessions, clear, refresh):
         sugar learnings --refresh    # Generate new insights and save
         sugar learnings --clear      # Clear log (creates backup)
     """
-    from .learning.learnings_writer import LearningsWriter
     from .learning.feedback_processor import FeedbackProcessor
+    from .learning.learnings_writer import LearningsWriter
     from .storage.work_queue import WorkQueue
 
     config_file = ctx.obj["config"]
@@ -1843,7 +1852,7 @@ def status(ctx):
         # Get statistics
         stats = asyncio.run(_get_status_async(work_queue))
 
-        click.echo("\n🤖 Sugar System Status")
+        click.echo("\n🍰 Sugar System Status")
         click.echo("=" * 40)
         click.echo(f"📊 Total Tasks: {stats['total']}")
         click.echo(f"⏳ Pending: {stats['pending']}")
@@ -1873,8 +1882,7 @@ def status(ctx):
 def help():
     """Show comprehensive Sugar help and getting started guide"""
 
-    click.echo(
-        """
+    click.echo("""
 🍰 Sugar - The Autonomous Layer for AI Coding Agents
 =====================================================
 
@@ -1985,8 +1993,7 @@ Complete documentation: docs/README.md
 • By using Sugar, you agree to these terms and conditions
 
 Ready to supercharge your development workflow? 🚀
-"""
-    )
+""")
 
 
 @cli.command()
@@ -2112,8 +2119,8 @@ async def run_continuous(sugar_loop):
     shutdown_event = asyncio.Event()
 
     # Create PID file for stop command
-    import pathlib
     import os
+    import pathlib
 
     config_dir = pathlib.Path(
         sugar_loop.config.get("sugar", {})
@@ -2211,8 +2218,8 @@ async def _update_task_async(work_queue, task_id, updates):
 
 def _detect_github_config(project_path: Path) -> dict:
     """Detect GitHub CLI availability and current repository configuration"""
-    import subprocess
     import os
+    import subprocess
 
     github_config = {
         "detected": True,  # Mark that detection was attempted
@@ -2689,12 +2696,13 @@ def debug(ctx, format, output, include_sensitive):
     This command outputs system state, configuration, and recent activity
     to help diagnose issues. Safe by default - excludes sensitive information.
     """
-    import yaml
+    import json
     import platform
     import subprocess
-    import json
     from datetime import datetime, timedelta
     from pathlib import Path
+
+    import yaml
 
     config_file = ctx.obj["config"]
     config = _require_sugar_project(config_file)
@@ -2974,6 +2982,7 @@ Status Breakdown: {diagnostic_data['work_queue_status'].get('status_breakdown', 
 def dedupe(ctx, dry_run):
     """Remove duplicate work items based on source_file"""
     import aiosqlite
+
     from .storage.work_queue import WorkQueue
 
     config_file = ctx.obj["config"]
@@ -2985,8 +2994,7 @@ def dedupe(ctx, dry_run):
 
         async with aiosqlite.connect(work_queue.db_path) as db:
             # Find duplicates - keep the earliest created one for each source_file
-            cursor = await db.execute(
-                """
+            cursor = await db.execute("""
                 WITH ranked_items AS (
                     SELECT id, source_file, title, created_at,
                            ROW_NUMBER() OVER (PARTITION BY source_file ORDER BY created_at ASC) as rn
@@ -2997,8 +3005,7 @@ def dedupe(ctx, dry_run):
                 FROM ranked_items 
                 WHERE rn > 1
                 ORDER BY source_file, created_at
-            """
-            )
+            """)
 
             duplicates = await cursor.fetchall()
 
@@ -3048,6 +3055,7 @@ def dedupe(ctx, dry_run):
 def cleanup(ctx, dry_run):
     """Remove bogus work items (Sugar initialization tests, venv files, etc.)"""
     import aiosqlite
+
     from .storage.work_queue import WorkQueue
 
     config_file = ctx.obj["config"]
@@ -3644,9 +3652,9 @@ def issue_respond(
     Use --post to actually post if confidence is high enough.
     Use --force-post to post regardless of confidence.
     """
+    from .agent import SugarAgent, SugarAgentConfig
     from .integrations.github import GitHubClient
     from .profiles import IssueResponderProfile
-    from .agent import SugarAgent, SugarAgentConfig
 
     async def _respond():
         client = GitHubClient(repo=repo)
@@ -3790,6 +3798,615 @@ def issue_search(ctx, query, repo, limit):
 
 
 # =============================================================================
+# Memory Commands
+# =============================================================================
+
+
+def _parse_ttl(ttl_str: str) -> datetime:
+    """Parse TTL string (30d, 90d, 1y, never) to expiration datetime."""
+    from datetime import timedelta
+
+    if ttl_str.lower() == "never":
+        return None
+
+    value = int(ttl_str[:-1])
+    unit = ttl_str[-1].lower()
+
+    if unit == "d":
+        delta = timedelta(days=value)
+    elif unit == "w":
+        delta = timedelta(weeks=value)
+    elif unit == "m":
+        delta = timedelta(days=value * 30)
+    elif unit == "y":
+        delta = timedelta(days=value * 365)
+    else:
+        raise ValueError(f"Invalid TTL unit: {unit}. Use d, w, m, or y.")
+
+    return datetime.now(timezone.utc) + delta
+
+
+def _get_memory_store(config: dict):
+    """Get memory store from config, initializing if needed."""
+    from .memory import MemoryStore
+
+    sugar_dir = Path(config["sugar"]["storage"]["database"]).parent
+    memory_db = sugar_dir / "memory.db"
+    return MemoryStore(str(memory_db))
+
+
+@cli.command()
+@click.argument("content")
+@click.option(
+    "--type",
+    "memory_type",
+    type=click.Choice(
+        [
+            "decision",
+            "preference",
+            "research",
+            "file_context",
+            "error_pattern",
+            "outcome",
+        ]
+    ),
+    default="decision",
+    help="Type of memory",
+)
+@click.option("--tags", help="Comma-separated tags")
+@click.option("--file", "file_path", help="Associate with a specific file")
+@click.option(
+    "--ttl",
+    default="never",
+    help="Time to live: 30d, 90d, 1y, never (default: never)",
+)
+@click.option(
+    "--importance", type=float, default=1.0, help="Importance score (0.0-2.0)"
+)
+@click.pass_context
+def remember(ctx, content, memory_type, tags, file_path, ttl, importance):
+    """Store a memory for future reference
+
+    Examples:
+        sugar remember "Always use async/await, never callbacks"
+        sugar remember "Auth tokens expire after 15 minutes" --type research --ttl 90d
+        sugar remember "payment_processor.rb handles Stripe webhooks" --type file_context --file src/payment_processor.rb
+    """
+    import uuid
+
+    from .memory import MemoryEntry, MemoryStore, MemoryType
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+
+        # Parse TTL
+        expires_at = None
+        if ttl.lower() != "never":
+            try:
+                expires_at = _parse_ttl(ttl)
+            except ValueError as e:
+                click.echo(f"❌ Invalid TTL: {e}", err=True)
+                sys.exit(1)
+
+        # Build metadata
+        metadata = {}
+        if tags:
+            metadata["tags"] = [t.strip() for t in tags.split(",")]
+        if file_path:
+            metadata["file_paths"] = [file_path]
+
+        # Create entry
+        entry = MemoryEntry(
+            id=str(uuid.uuid4()),
+            memory_type=MemoryType(memory_type),
+            content=content,
+            summary=content[:100] if len(content) > 100 else None,
+            metadata=metadata,
+            importance=importance,
+            expires_at=expires_at,
+        )
+
+        entry_id = store.store(entry)
+        store.close()
+
+        click.echo(f"✅ Remembered: {content[:60]}{'...' if len(content) > 60 else ''}")
+        click.echo(f"   ID: {entry_id[:8]}...")
+        click.echo(f"   Type: {memory_type}")
+        if expires_at:
+            click.echo(f"   Expires: {expires_at.strftime('%Y-%m-%d')}")
+
+    except ImportError as e:
+        click.echo(
+            "❌ Memory dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error storing memory: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("query")
+@click.option(
+    "--type",
+    "memory_type",
+    type=click.Choice(
+        [
+            "decision",
+            "preference",
+            "research",
+            "file_context",
+            "error_pattern",
+            "outcome",
+            "all",
+        ]
+    ),
+    default="all",
+    help="Filter by memory type",
+)
+@click.option("--limit", default=10, type=int, help="Maximum results")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json", "full"]),
+    default="table",
+    help="Output format",
+)
+@click.pass_context
+def recall(ctx, query, memory_type, limit, output_format):
+    """Search memories for relevant context
+
+    Examples:
+        sugar recall "how do we handle authentication"
+        sugar recall "error handling" --type error_pattern --limit 5
+        sugar recall "database" --format json
+    """
+    from .memory import MemoryQuery, MemoryStore, MemoryType
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+
+        # Build query
+        memory_types = None
+        if memory_type != "all":
+            memory_types = [MemoryType(memory_type)]
+
+        search_query = MemoryQuery(
+            query=query,
+            memory_types=memory_types,
+            limit=limit,
+        )
+
+        results = store.search(search_query)
+        store.close()
+
+        if not results:
+            click.echo(f"No memories found matching: {query}")
+            return
+
+        if output_format == "json":
+            import json
+
+            output = [
+                {
+                    "id": r.entry.id,
+                    "content": r.entry.content,
+                    "type": r.entry.memory_type.value,
+                    "score": round(r.score, 3),
+                    "created_at": (
+                        r.entry.created_at.isoformat() if r.entry.created_at else None
+                    ),
+                }
+                for r in results
+            ]
+            click.echo(json.dumps(output, indent=2))
+        elif output_format == "full":
+            for i, r in enumerate(results, 1):
+                click.echo(f"\n{'='*60}")
+                click.echo(
+                    f"[{i}] {r.entry.memory_type.value.upper()} (score: {r.score:.2f})"
+                )
+                click.echo(f"ID: {r.entry.id}")
+                click.echo(
+                    f"Created: {r.entry.created_at.strftime('%Y-%m-%d %H:%M') if r.entry.created_at else 'unknown'}"
+                )
+                click.echo(f"\n{r.entry.content}")
+                if r.entry.metadata.get("tags"):
+                    click.echo(f"\nTags: {', '.join(r.entry.metadata['tags'])}")
+                if r.entry.metadata.get("file_paths"):
+                    click.echo(f"Files: {', '.join(r.entry.metadata['file_paths'])}")
+        else:  # table
+            click.echo(f"\nSearch results for: {query}\n")
+            click.echo(f"{'Score':<8} {'Type':<15} {'Content':<55}")
+            click.echo("-" * 80)
+            for r in results:
+                content = (
+                    r.entry.content[:52] + "..."
+                    if len(r.entry.content) > 55
+                    else r.entry.content
+                )
+                content = content.replace("\n", " ")
+                click.echo(
+                    f"{r.score:.2f}    {r.entry.memory_type.value:<15} {content:<55}"
+                )
+            click.echo(f"\n{len(results)} memories found ({r.match_type} search)")
+
+    except ImportError as e:
+        click.echo(
+            "❌ Memory dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error searching memories: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option(
+    "--type",
+    "memory_type",
+    type=click.Choice(
+        [
+            "decision",
+            "preference",
+            "research",
+            "file_context",
+            "error_pattern",
+            "outcome",
+            "all",
+        ]
+    ),
+    default="all",
+    help="Filter by memory type",
+)
+@click.option("--since", help="Filter by age (e.g., 7d, 30d)")
+@click.option("--limit", default=50, type=int, help="Maximum results")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+@click.pass_context
+def memories(ctx, memory_type, since, limit, output_format):
+    """List stored memories
+
+    Examples:
+        sugar memories
+        sugar memories --type preference
+        sugar memories --since 7d --format json
+    """
+    from .memory import MemoryStore, MemoryType
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+
+        # Parse since filter
+        since_days = None
+        if since:
+            value = int(since[:-1])
+            unit = since[-1].lower()
+            if unit == "d":
+                since_days = value
+            elif unit == "w":
+                since_days = value * 7
+            elif unit == "m":
+                since_days = value * 30
+            else:
+                click.echo(
+                    f"❌ Invalid time format: {since}. Use format like 7d, 2w, 1m",
+                    err=True,
+                )
+                sys.exit(1)
+
+        # Get memories
+        type_filter = None if memory_type == "all" else MemoryType(memory_type)
+        entries = store.list_memories(
+            memory_type=type_filter,
+            limit=limit,
+            since_days=since_days,
+        )
+        store.close()
+
+        if not entries:
+            click.echo("No memories found")
+            return
+
+        if output_format == "json":
+            import json
+
+            output = [e.to_dict() for e in entries]
+            click.echo(json.dumps(output, indent=2))
+        else:  # table
+            click.echo(f"\n{'ID':<10} {'Type':<15} {'Created':<12} {'Content':<40}")
+            click.echo("-" * 80)
+            for e in entries:
+                content = e.content[:37] + "..." if len(e.content) > 40 else e.content
+                content = content.replace("\n", " ")
+                created = (
+                    e.created_at.strftime("%Y-%m-%d") if e.created_at else "unknown"
+                )
+                click.echo(
+                    f"{e.id[:8]:<10} {e.memory_type.value:<15} {created:<12} {content:<40}"
+                )
+            click.echo(f"\n{len(entries)} memories")
+
+            # Show counts by type
+            type_counts = {}
+            for e in entries:
+                t = e.memory_type.value
+                type_counts[t] = type_counts.get(t, 0) + 1
+            if len(type_counts) > 1:
+                counts_str = ", ".join(f"{k}: {v}" for k, v in type_counts.items())
+                click.echo(f"By type: {counts_str}")
+
+    except ImportError as e:
+        click.echo(
+            "❌ Memory dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error listing memories: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("memory_id")
+@click.option("--force", is_flag=True, help="Skip confirmation")
+@click.pass_context
+def forget(ctx, memory_id, force):
+    """Delete a memory by ID
+
+    Examples:
+        sugar forget abc123
+        sugar forget abc123 --force
+    """
+    from .memory import MemoryStore
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+
+        # Find the memory first
+        entry = store.get(memory_id)
+
+        # If not found by exact ID, try prefix match
+        if not entry:
+            entries = store.list_memories(limit=1000)
+            matches = [e for e in entries if e.id.startswith(memory_id)]
+            if len(matches) == 1:
+                entry = matches[0]
+            elif len(matches) > 1:
+                click.echo(
+                    f"❌ Ambiguous ID '{memory_id}' matches {len(matches)} memories:"
+                )
+                for m in matches[:5]:
+                    click.echo(f"   {m.id[:12]} - {m.content[:40]}...")
+                store.close()
+                sys.exit(1)
+
+        if not entry:
+            click.echo(f"❌ Memory not found: {memory_id}")
+            store.close()
+            sys.exit(1)
+
+        # Confirm deletion
+        if not force:
+            click.echo(f"\nMemory to delete:")
+            click.echo(f"  ID: {entry.id}")
+            click.echo(f"  Type: {entry.memory_type.value}")
+            click.echo(
+                f"  Content: {entry.content[:100]}{'...' if len(entry.content) > 100 else ''}"
+            )
+            if not click.confirm("\nDelete this memory?"):
+                click.echo("Cancelled")
+                store.close()
+                return
+
+        # Delete
+        deleted = store.delete(entry.id)
+        store.close()
+
+        if deleted:
+            click.echo(f"✅ Memory deleted: {entry.id[:8]}...")
+        else:
+            click.echo(f"❌ Failed to delete memory")
+            sys.exit(1)
+
+    except ImportError as e:
+        click.echo(
+            "❌ Memory dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error deleting memory: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command("export-context")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["markdown", "json", "claude"]),
+    default="markdown",
+    help="Output format",
+)
+@click.option("--limit", default=10, type=int, help="Maximum memories per type")
+@click.option(
+    "--types",
+    default="decision,preference,error_pattern",
+    help="Comma-separated memory types to include",
+)
+@click.pass_context
+def export_context(ctx, output_format, limit, types):
+    """Export memories for Claude Code SessionStart hook
+
+    This command outputs memory context suitable for injection into
+    Claude Code sessions via the SessionStart hook.
+
+    Examples:
+        sugar export-context
+        sugar export-context --format json --limit 5
+        sugar export-context --types preference,decision
+
+    To use with Claude Code, add to ~/.claude/settings.json:
+        {
+          "hooks": {
+            "SessionStart": [{
+              "matcher": "",
+              "hooks": [{
+                "type": "command",
+                "command": "sugar export-context"
+              }]
+            }]
+          }
+        }
+    """
+    from .memory import MemoryRetriever, MemoryStore
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+        retriever = MemoryRetriever(store)
+
+        # Get project context
+        context = retriever.get_project_context(limit=limit)
+        store.close()
+
+        # Filter by requested types
+        requested_types = [t.strip() for t in types.split(",")]
+        type_mapping = {
+            "decision": "recent_decisions",
+            "preference": "preferences",
+            "file_context": "file_context",
+            "error_pattern": "error_patterns",
+        }
+
+        filtered_context = {}
+        for t in requested_types:
+            if t in type_mapping and type_mapping[t] in context:
+                filtered_context[type_mapping[t]] = context[type_mapping[t]]
+
+        if output_format == "json":
+            import json
+
+            click.echo(json.dumps(filtered_context, indent=2))
+        elif output_format == "claude":
+            # Compact format optimized for Claude's context window
+            output = retriever.format_context_markdown(filtered_context)
+            if output:
+                click.echo(output)
+        else:  # markdown
+            output = retriever.format_context_markdown(filtered_context)
+            if output:
+                click.echo(output)
+            else:
+                click.echo("# No memories to export")
+
+    except ImportError as e:
+        # Silently output nothing if dependencies not installed
+        # This prevents errors in SessionStart hooks
+        if output_format == "json":
+            click.echo("{}")
+        else:
+            click.echo("# Sugar memory not available")
+    except Exception as e:
+        # Log error but don't break the hook
+        logger.warning(f"Error exporting context: {e}")
+        if output_format == "json":
+            click.echo("{}")
+        else:
+            click.echo(f"# Error: {e}")
+
+
+@cli.command("memory-stats")
+@click.pass_context
+def memory_stats(ctx):
+    """Show memory system statistics"""
+    from .memory import MemoryStore, MemoryType, is_semantic_search_available
+
+    config_file = ctx.obj["config"]
+    config = _require_sugar_project(config_file)
+
+    try:
+        store = _get_memory_store(config)
+
+        click.echo("\n📊 Sugar Memory Statistics\n")
+
+        # Check capabilities
+        semantic_available = is_semantic_search_available()
+        click.echo(
+            f"Semantic search: {'✅ Available' if semantic_available else '❌ Not available (using keyword search)'}"
+        )
+        click.echo(f"Database: {store.db_path}")
+        click.echo("")
+
+        # Count by type
+        total = store.count()
+        click.echo(f"Total memories: {total}")
+
+        if total > 0:
+            click.echo("\nBy type:")
+            for mem_type in MemoryType:
+                count = store.count(mem_type)
+                if count > 0:
+                    click.echo(f"  {mem_type.value:<15} {count:>5}")
+
+        # Database size
+        import os
+
+        if store.db_path.exists():
+            size_bytes = os.path.getsize(store.db_path)
+            if size_bytes < 1024:
+                size_str = f"{size_bytes} bytes"
+            elif size_bytes < 1024 * 1024:
+                size_str = f"{size_bytes / 1024:.1f} KB"
+            else:
+                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+            click.echo(f"\nDatabase size: {size_str}")
+
+        store.close()
+
+    except ImportError as e:
+        click.echo(
+            "❌ Memory dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error getting memory stats: {e}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
 # MCP Server Commands
 # =============================================================================
 
@@ -3836,6 +4453,54 @@ def mcp_serve(ctx, host, port, repo):
         asyncio.run(server.run())
     except KeyboardInterrupt:
         click.echo("\n👋 Server stopped")
+
+
+@mcp.command("memory")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio"]),
+    default="stdio",
+    help="Transport protocol (default: stdio)",
+)
+@click.pass_context
+def mcp_memory(ctx, transport):
+    """Start the Sugar Memory MCP server for Claude Code integration
+
+    This server exposes Sugar's memory system via MCP, allowing Claude Code
+    and other MCP clients to search, store, and retrieve memories.
+
+    To add to Claude Code, run:
+        claude mcp add sugar -- sugar mcp memory
+
+    Or add to ~/.claude.json:
+        {
+          "mcpServers": {
+            "sugar": {
+              "type": "stdio",
+              "command": "sugar",
+              "args": ["mcp", "memory"]
+            }
+          }
+        }
+    """
+    try:
+        from .mcp.memory_server import run_memory_server
+    except ImportError as e:
+        click.echo(
+            "❌ Memory MCP dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[memory]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        run_memory_server(transport=transport)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        click.echo(f"❌ MCP server error: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

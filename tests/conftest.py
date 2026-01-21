@@ -17,9 +17,48 @@ from click.testing import CliRunner
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for tests"""
+    import logging
+    import sys
+
     temp_path = Path(tempfile.mkdtemp())
     yield temp_path
-    shutil.rmtree(temp_path)
+
+    # Close all logging handlers that might be holding files open (Windows issue)
+    for handler in logging.root.handlers[:]:
+        handler.close()
+        logging.root.removeHandler(handler)
+
+    # Also close handlers on sugar loggers
+    for name in list(logging.Logger.manager.loggerDict.keys()):
+        if name.startswith("sugar"):
+            logger = logging.getLogger(name)
+            for handler in logger.handlers[:]:
+                handler.close()
+                logger.removeHandler(handler)
+
+    # On Windows, retry rmtree with error handling for locked files
+    def onerror(func, path, exc_info):
+        """Error handler for shutil.rmtree on Windows"""
+        import stat
+        import time
+
+        # Try to make file writable and retry
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            # If still failing, just skip (Windows file locking)
+            pass
+
+    if sys.platform == "win32":
+        import os
+        import time
+
+        # Give Windows time to release file handles
+        time.sleep(0.1)
+        shutil.rmtree(temp_path, onerror=onerror)
+    else:
+        shutil.rmtree(temp_path)
 
 
 @pytest.fixture
