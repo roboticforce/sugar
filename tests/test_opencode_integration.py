@@ -924,14 +924,13 @@ class TestOpenCodeSetupCommand:
         from sugar.main import cli
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--dry-run"])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--dry-run", "--config", str(config_file)]
+        )
 
         assert result.exit_code == 0
         assert "Found config" in result.output
@@ -944,15 +943,14 @@ class TestOpenCodeSetupCommand:
         from sugar.main import cli
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         original_content = '{"$schema": "https://opencode.ai/config.json"}'
         config_file.write_text(original_content)
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--dry-run"])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--dry-run", "--config", str(config_file)]
+        )
 
         assert result.exit_code == 0
         assert "Dry run" in result.output
@@ -966,14 +964,13 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--yes"])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(config_file)]
+        )
 
         assert result.exit_code == 0
         assert "Config updated" in result.output
@@ -996,9 +993,7 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a mock OpenCode config with existing settings
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text(
             json.dumps(
                 {
@@ -1010,8 +1005,9 @@ class TestOpenCodeSetupCommand:
         )
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--yes"])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(config_file)]
+        )
 
         assert result.exit_code == 0
 
@@ -1029,21 +1025,22 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            # Run setup first time
-            result1 = runner.invoke(cli, ["opencode", "setup", "--yes"])
-            assert result1.exit_code == 0
+        # Run setup first time
+        result1 = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(config_file)]
+        )
+        assert result1.exit_code == 0
 
-            # Run setup second time
-            result2 = runner.invoke(cli, ["opencode", "setup", "--yes"])
-            assert result2.exit_code == 0
-            assert "already configured" in result2.output
+        # Run setup second time
+        result2 = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(config_file)]
+        )
+        assert result2.exit_code == 0
+        assert "already configured" in result2.output
 
     def test_setup_no_config_file_error(self, tmp_path):
         """Test error when no OpenCode config file exists"""
@@ -1051,9 +1048,11 @@ class TestOpenCodeSetupCommand:
         from sugar.main import cli
 
         runner = CliRunner()
-        # Use empty temp dir with no config files
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup"])
+        # Use non-existent config file path
+        result = runner.invoke(
+            cli,
+            ["opencode", "setup", "--config", str(tmp_path / "nonexistent.json")],
+        )
 
         assert result.exit_code == 1
         assert "Could not find OpenCode config file" in result.output
@@ -1065,14 +1064,14 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--yes", "--no-memory"])
+        result = runner.invoke(
+            cli,
+            ["opencode", "setup", "--yes", "--no-memory", "--config", str(config_file)],
+        )
 
         assert result.exit_code == 0
 
@@ -1087,14 +1086,14 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a mock OpenCode config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text('{"$schema": "https://opencode.ai/config.json"}')
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--yes", "--no-tasks"])
+        result = runner.invoke(
+            cli,
+            ["opencode", "setup", "--yes", "--no-tasks", "--config", str(config_file)],
+        )
 
         assert result.exit_code == 0
 
@@ -1108,14 +1107,11 @@ class TestOpenCodeSetupCommand:
         from sugar.main import cli
 
         # Create a malformed config
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         config_file.write_text("{ invalid json }")
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup"])
+        result = runner.invoke(cli, ["opencode", "setup", "--config", str(config_file)])
 
         assert result.exit_code == 1
         assert "Failed to parse config file" in result.output
@@ -1127,19 +1123,18 @@ class TestOpenCodeSetupCommand:
         import json
 
         # Create a JSONC config with comments
-        config_dir = tmp_path / ".config" / "opencode"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "opencode.json"
+        config_file = tmp_path / "opencode.json"
         jsonc_content = """{
   // This is a comment
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["test"], // trailing comment
+  "plugin": ["test"] // trailing comment
 }"""
         config_file.write_text(jsonc_content)
 
         runner = CliRunner()
-        with patch.dict(os.environ, {"HOME": str(tmp_path)}):
-            result = runner.invoke(cli, ["opencode", "setup", "--yes"])
+        result = runner.invoke(
+            cli, ["opencode", "setup", "--yes", "--config", str(config_file)]
+        )
 
         assert result.exit_code == 0
         assert "Config updated" in result.output
