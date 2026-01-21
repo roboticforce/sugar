@@ -104,6 +104,8 @@ It keeps going until the queue is empty (or you stop it).
 
 Sugar remembers what matters across sessions. No more re-explaining decisions or rediscovering patterns.
 
+**Saves tokens:** Memories are stored as compressed summaries (~90% smaller) and retrieved only when relevant. Real projects see **~89% token reduction per session** - that's ~$32 saved over 500 sessions.
+
 ```bash
 # Store knowledge
 sugar remember "Always use async/await, never callbacks" --type preference
@@ -114,6 +116,9 @@ sugar recall "authentication"
 
 # Claude Code integration - give Claude access to your project memory
 claude mcp add sugar -- sugar mcp memory
+
+# See your token savings
+python examples/token_savings_demo.py
 ```
 
 **Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`

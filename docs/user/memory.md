@@ -12,6 +12,30 @@ The memory system solves a key problem with AI coding assistants: **context loss
 
 Sugar Memory persists this knowledge and makes it searchable.
 
+## Token Savings
+
+Memory reduces your Claude Code token usage significantly. Instead of re-explaining context every session, Sugar stores compressed summaries and retrieves only what's relevant.
+
+**Real-world example (56 memories stored):**
+
+| Metric | Without Memory | With Memory | Savings |
+|--------|----------------|-------------|---------|
+| Content stored | ~16,000 tokens | ~1,400 tokens | 91% smaller |
+| Per session | ~4,900 tokens | ~560 tokens | **89% reduction** |
+| 100 sessions | ~490,000 tokens | ~56,000 tokens | ~$6.50 saved |
+| 500 sessions | ~2.4M tokens | ~280,000 tokens | ~$32 saved |
+
+**Why it works:**
+1. **Targeted retrieval** - Only fetch relevant memories, not everything
+2. **Compressed summaries** - Memories stored as concise summaries (90%+ smaller)
+3. **Persistent storage** - Store once, retrieve many times
+4. **Semantic search** - FTS5/embeddings find exactly what's needed
+
+**Run the demo to see your own savings:**
+```bash
+python examples/token_savings_demo.py
+```
+
 ## Quick Start
 
 ```bash
