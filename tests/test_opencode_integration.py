@@ -399,7 +399,11 @@ class TestContextInjector:
         injector = ContextInjector()
         memories = [
             {"content": "Short", "type": "decision", "relevance": 0.9},
-            {"content": "Medium length content here", "type": "preference", "relevance": 0.8},
+            {
+                "content": "Medium length content here",
+                "type": "preference",
+                "relevance": 0.8,
+            },
             {"content": "A" * 1000, "type": "error_pattern", "relevance": 0.7},
         ]
 
@@ -535,7 +539,9 @@ class TestLearningCapture:
         from sugar.integrations.opencode.injector import LearningCapture
 
         capture = LearningCapture()
-        content = "The TypeError was fixed by adding null check before accessing property."
+        content = (
+            "The TypeError was fixed by adding null check before accessing property."
+        )
 
         learnings = await capture.extract_learnings(content)
         error = next((l for l in learnings if l["type"] == "error_pattern"), None)
@@ -600,7 +606,10 @@ class TestOpenCodeClientAvailability:
     def test_client_creation(self):
         """Test creating client with config"""
         try:
-            from sugar.integrations.opencode.client import OpenCodeClient, AIOHTTP_AVAILABLE
+            from sugar.integrations.opencode.client import (
+                OpenCodeClient,
+                AIOHTTP_AVAILABLE,
+            )
             from sugar.integrations.opencode.config import OpenCodeConfig
 
             if not AIOHTTP_AVAILABLE:
@@ -620,7 +629,10 @@ class TestOpenCodeClientMocked:
     async def test_health_check_success(self):
         """Test health check returns True on 200"""
         try:
-            from sugar.integrations.opencode.client import OpenCodeClient, AIOHTTP_AVAILABLE
+            from sugar.integrations.opencode.client import (
+                OpenCodeClient,
+                AIOHTTP_AVAILABLE,
+            )
 
             if not AIOHTTP_AVAILABLE:
                 pytest.skip("aiohttp not installed")

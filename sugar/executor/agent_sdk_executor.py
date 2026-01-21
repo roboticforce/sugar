@@ -581,9 +581,7 @@ class AgentSDKExecutor(BaseExecutor):
         start_time = datetime.now(timezone.utc)
 
         # Notify OpenCode that task is starting (non-blocking)
-        asyncio.create_task(
-            self._notify_opencode_task_started(work_item)
-        )
+        asyncio.create_task(self._notify_opencode_task_started(work_item))
 
         # Setup thinking capture if enabled
         thinking_capture = None

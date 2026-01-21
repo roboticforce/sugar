@@ -1882,7 +1882,8 @@ def status(ctx):
 def help():
     """Show comprehensive Sugar help and getting started guide"""
 
-    click.echo("""
+    click.echo(
+        """
 🍰 Sugar - The Autonomous Layer for AI Coding Agents
 =====================================================
 
@@ -1993,7 +1994,8 @@ Complete documentation: docs/README.md
 • By using Sugar, you agree to these terms and conditions
 
 Ready to supercharge your development workflow? 🚀
-""")
+"""
+    )
 
 
 @cli.command()
@@ -2994,7 +2996,8 @@ def dedupe(ctx, dry_run):
 
         async with aiosqlite.connect(work_queue.db_path) as db:
             # Find duplicates - keep the earliest created one for each source_file
-            cursor = await db.execute("""
+            cursor = await db.execute(
+                """
                 WITH ranked_items AS (
                     SELECT id, source_file, title, created_at,
                            ROW_NUMBER() OVER (PARTITION BY source_file ORDER BY created_at ASC) as rn
@@ -3005,7 +3008,8 @@ def dedupe(ctx, dry_run):
                 FROM ranked_items 
                 WHERE rn > 1
                 ORDER BY source_file, created_at
-            """)
+            """
+            )
 
             duplicates = await cursor.fetchall()
 
@@ -4583,10 +4587,14 @@ def opencode_status(ctx):
         click.echo("🔗 OpenCode Integration Status")
         click.echo("=" * 40)
         click.echo(f"  Enabled: {'✅ Yes' if config.enabled else '❌ No'}")
-        click.echo(f"  aiohttp: {'✅ Installed' if AIOHTTP_AVAILABLE else '❌ Not installed'}")
+        click.echo(
+            f"  aiohttp: {'✅ Installed' if AIOHTTP_AVAILABLE else '❌ Not installed'}"
+        )
         click.echo(f"  Server URL: {config.server_url}")
         click.echo(f"  Auto-inject: {'✅' if config.auto_inject else '❌'}")
-        click.echo(f"  Notify on completion: {'✅' if config.notify_on_completion else '❌'}")
+        click.echo(
+            f"  Notify on completion: {'✅' if config.notify_on_completion else '❌'}"
+        )
         click.echo(f"  Notify on failure: {'✅' if config.notify_on_failure else '❌'}")
 
         if not AIOHTTP_AVAILABLE:

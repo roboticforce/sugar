@@ -232,17 +232,18 @@ class TestSugarAddTask:
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")
-    async def test_add_task_with_acceptance_criteria_json(self, mock_get_queue, mock_queue):
+    async def test_add_task_with_acceptance_criteria_json(
+        self, mock_get_queue, mock_queue
+    ):
         """Test task addition with JSON acceptance criteria"""
         mock_get_queue.return_value = mock_queue
 
         mcp = create_task_mcp_server()
         tool_func = get_tool_function(mcp, "sugar_add_task")
 
-        criteria = json.dumps([
-            {"description": "Tests pass"},
-            {"description": "Code reviewed"}
-        ])
+        criteria = json.dumps(
+            [{"description": "Tests pass"}, {"description": "Code reviewed"}]
+        )
 
         result = await tool_func(
             title="Feature task",
@@ -255,7 +256,9 @@ class TestSugarAddTask:
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")
-    async def test_add_task_with_acceptance_criteria_string(self, mock_get_queue, mock_queue):
+    async def test_add_task_with_acceptance_criteria_string(
+        self, mock_get_queue, mock_queue
+    ):
         """Test task addition with plain string acceptance criteria"""
         mock_get_queue.return_value = mock_queue
 
@@ -270,7 +273,9 @@ class TestSugarAddTask:
         assert result["success"] is True
         call_args = mock_queue.add_work.call_args[0][0]
         assert len(call_args["acceptance_criteria"]) == 1
-        assert call_args["acceptance_criteria"][0]["description"] == "All tests must pass"
+        assert (
+            call_args["acceptance_criteria"][0]["description"] == "All tests must pass"
+        )
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")

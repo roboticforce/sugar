@@ -308,9 +308,7 @@ class ContextInjector:
                 relevance = self.calculate_relevance(mem_dict, semantic_score=r.score)
 
                 # Check type-specific threshold
-                threshold = self.SIMILARITY_THRESHOLDS.get(
-                    mem_dict["type"], 0.4
-                )
+                threshold = self.SIMILARITY_THRESHOLDS.get(mem_dict["type"], 0.4)
                 if r.score >= threshold:
                     mem_dict["relevance"] = relevance
                     memories.append(mem_dict)
@@ -482,11 +480,13 @@ class LearningCapture:
                 end = min(len(content), match.end() + 100)
                 context = content[start:end].strip()
 
-                learnings.append({
-                    "type": "decision",
-                    "content": context,
-                    "importance": 7,
-                })
+                learnings.append(
+                    {
+                        "type": "decision",
+                        "content": context,
+                        "importance": 7,
+                    }
+                )
 
         # Check preference patterns
         for pattern in self.PREFERENCE_PATTERNS:
@@ -495,11 +495,13 @@ class LearningCapture:
                 end = min(len(content), match.end() + 100)
                 context = content[start:end].strip()
 
-                learnings.append({
-                    "type": "preference",
-                    "content": context,
-                    "importance": 8,
-                })
+                learnings.append(
+                    {
+                        "type": "preference",
+                        "content": context,
+                        "importance": 8,
+                    }
+                )
 
         # Check error patterns
         for pattern in self.ERROR_PATTERNS:
@@ -508,11 +510,13 @@ class LearningCapture:
                 end = min(len(content), match.end() + 100)
                 context = content[start:end].strip()
 
-                learnings.append({
-                    "type": "error_pattern",
-                    "content": context,
-                    "importance": 6,
-                })
+                learnings.append(
+                    {
+                        "type": "error_pattern",
+                        "content": context,
+                        "importance": 6,
+                    }
+                )
 
         return learnings
 

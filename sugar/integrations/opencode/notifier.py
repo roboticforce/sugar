@@ -253,4 +253,6 @@ async def notify_task_failed(
     task_id: str, title: str, error: str, execution_time: Optional[float] = None
 ) -> bool:
     """Convenience function to notify task failed."""
-    return await get_notifier().notify_task_failed(task_id, title, error, execution_time)
+    return await get_notifier().notify_task_failed(
+        task_id, title, error, execution_time
+    )

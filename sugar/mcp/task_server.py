@@ -203,16 +203,18 @@ def create_task_mcp_server() -> "FastMCP":
             # Format output
             formatted_tasks = []
             for task in tasks:
-                formatted_tasks.append({
-                    "id": task.get("id", "")[:8],
-                    "full_id": task.get("id", ""),
-                    "title": task.get("title", ""),
-                    "type": task.get("type", ""),
-                    "priority": task.get("priority", 3),
-                    "status": task.get("status", ""),
-                    "created_at": task.get("created_at", ""),
-                    "attempts": task.get("attempts", 0),
-                })
+                formatted_tasks.append(
+                    {
+                        "id": task.get("id", "")[:8],
+                        "full_id": task.get("id", ""),
+                        "title": task.get("title", ""),
+                        "type": task.get("type", ""),
+                        "priority": task.get("priority", 3),
+                        "status": task.get("status", ""),
+                        "created_at": task.get("created_at", ""),
+                        "attempts": task.get("attempts", 0),
+                    }
+                )
 
             return {
                 "success": True,
@@ -497,8 +499,16 @@ def create_task_mcp_server() -> "FastMCP":
             lines = ["# Pending Tasks", ""]
             for task in tasks:
                 priority = task.get("priority", 3)
-                priority_label = {1: "Urgent", 2: "High", 3: "Normal", 4: "Low", 5: "Minimal"}.get(priority, "Normal")
-                lines.append(f"- **[{priority_label}]** {task.get('title')} ({task.get('id', '')[:8]})")
+                priority_label = {
+                    1: "Urgent",
+                    2: "High",
+                    3: "Normal",
+                    4: "Low",
+                    5: "Minimal",
+                }.get(priority, "Normal")
+                lines.append(
+                    f"- **[{priority_label}]** {task.get('title')} ({task.get('id', '')[:8]})"
+                )
 
             return "\n".join(lines)
         except Exception as e:

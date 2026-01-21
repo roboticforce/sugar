@@ -271,7 +271,9 @@ class OpenCodeClient:
     ) -> bool:
         """Send task completion notification."""
         level = (
-            NotificationLevel.SUCCESS if status == "completed" else NotificationLevel.WARNING
+            NotificationLevel.SUCCESS
+            if status == "completed"
+            else NotificationLevel.WARNING
         )
         time_str = f" ({execution_time:.1f}s)" if execution_time else ""
         return await self.notify(
