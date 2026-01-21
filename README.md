@@ -22,6 +22,32 @@ You plan the work. Sugar executes it.
 
 **Works with:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [OpenCode](https://github.com/opencode-ai/opencode) | [Aider](https://aider.chat) | [Goose](https://block.github.io/goose) | Any CLI-based AI agent
 
+## Native AI Agent Integrations
+
+Sugar has **first-class integrations** with leading AI coding agents:
+
+| Agent | Integration | Features |
+|-------|-------------|----------|
+| **Claude Code** | MCP Server | Memory access, task delegation, context injection |
+| **OpenCode** | Plugin + HTTP API | Bidirectional communication, notifications, memory injection |
+| **Goose** | MCP Server | Task management, memory access |
+
+**Claude Code** - Full memory system access via MCP:
+```bash
+claude mcp add sugar -- sugar mcp memory
+```
+
+**OpenCode** - Native plugin with real-time notifications:
+```bash
+# Check integration status
+sugar opencode status
+
+# Test connection
+sugar opencode test
+```
+
+Both integrations support **automatic memory injection** - Sugar injects relevant context (decisions, preferences, error patterns) into your AI sessions automatically.
+
 ## Install
 
 **Recommended: pipx** (install once, use everywhere)
@@ -213,10 +239,16 @@ With pipx, Sugar's dependencies don't conflict with your project's dependencies.
 
 ## Features
 
+**Native AI Agent Integrations** *(New in 3.5)*
+- **Claude Code** - MCP server for memory access and task delegation
+- **OpenCode** - Full bidirectional integration with notifications and context injection
+- Automatic memory injection into AI sessions
+- Real-time task lifecycle notifications
+
 **Memory System** *(New in 3.5)*
 - Persistent semantic memory across sessions
 - Remember decisions, preferences, error patterns
-- Claude Code integration via MCP server
+- Claude Code & OpenCode integration via MCP server
 - Semantic search with `sugar recall`
 
 **Task Management**
@@ -245,7 +277,7 @@ With pipx, Sugar's dependencies don't conflict with your project's dependencies.
 - Self-correcting loops until tests pass
 - Prevents single-shot failures
 
-**Full docs:** [Memory System](docs/user/memory.md) | [Ralph Wiggum](docs/ralph-wiggum.md)
+**Full docs:** [Memory System](docs/user/memory.md) | [OpenCode Integration](docs/user/opencode.md) | [Ralph Wiggum](docs/ralph-wiggum.md)
 
 ## Configuration
 
@@ -293,6 +325,39 @@ Claude: "I'll create a Sugar task for the test fixes."
 - `/sugar-task` - Create tasks with rich context
 - `/sugar-status` - Check queue and progress
 - `/sugar-run` - Start autonomous mode
+
+### OpenCode Integration
+
+Sugar has native bidirectional integration with [OpenCode](https://github.com/opencode-ai/opencode):
+
+**Features:**
+- Real-time task notifications (start, complete, fail)
+- Automatic memory injection into OpenCode sessions
+- Context-aware memory retrieval based on current work
+- Learning capture from session outcomes
+
+**Quick Setup:**
+```bash
+# Install OpenCode integration dependencies
+pipx inject sugarai aiohttp
+
+# Check integration status
+sugar opencode status
+
+# Test connection (requires OpenCode server running)
+sugar opencode test
+
+# Send a test notification
+sugar opencode notify "Hello from Sugar!" --title "Test" --level success
+```
+
+**Environment Variables:**
+```bash
+OPENCODE_SERVER_URL=http://localhost:4096  # OpenCode server URL
+SUGAR_OPENCODE_ENABLED=true                # Enable/disable integration
+```
+
+When Sugar executes tasks, it automatically sends notifications to OpenCode so you can track progress in real-time.
 
 ### MCP Server Integration
 
@@ -467,5 +532,7 @@ pytest tests/ -v
 ---
 
 **Sugar v3.5** - The autonomous layer for AI coding agents
+
+*Now with native Claude Code and OpenCode integrations for seamless AI agent collaboration.*
 
 > ⚠️ Sugar is provided "AS IS" without warranty. Review all AI-generated code before use.

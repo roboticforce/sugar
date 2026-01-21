@@ -69,8 +69,11 @@ memory = [
     "sentence-transformers>=2.2.0",
     "sqlite-vec>=0.1.0",
 ]
+opencode = [
+    "aiohttp>=3.9.0",
+]
 all = [
-    "sugarai[github,mcp,memory]",
+    "sugarai[github,mcp,memory,opencode]",
 ]
 
 [project.scripts]

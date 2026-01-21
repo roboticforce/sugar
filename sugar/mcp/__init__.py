@@ -16,6 +16,8 @@ __all__ = [
     "create_server",
     "create_memory_mcp_server",
     "run_memory_server",
+    "create_task_mcp_server",
+    "run_task_server",
 ]
 
 # Lazy import cache
@@ -40,6 +42,14 @@ def __getattr__(name: str):
 
                     _lazy_imports["create_memory_mcp_server"] = create_memory_mcp_server
                     _lazy_imports["run_memory_server"] = run_memory_server
+                elif name in ("create_task_mcp_server", "run_task_server"):
+                    from .task_server import (
+                        create_task_mcp_server,
+                        run_task_server,
+                    )
+
+                    _lazy_imports["create_task_mcp_server"] = create_task_mcp_server
+                    _lazy_imports["run_task_server"] = run_task_server
             except ImportError as e:
                 raise ImportError(
                     f"MCP dependencies not installed. Install with: pip install sugarai[mcp]\n"

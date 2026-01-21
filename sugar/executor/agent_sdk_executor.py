@@ -580,6 +580,9 @@ class AgentSDKExecutor(BaseExecutor):
 
         start_time = datetime.now(timezone.utc)
 
+        # Notify OpenCode that task is starting (non-blocking)
+        asyncio.create_task(self._notify_opencode_task_started(work_item))
+
         # Setup thinking capture if enabled
         thinking_capture = None
         if self.thinking_capture_enabled:
@@ -627,6 +630,13 @@ class AgentSDKExecutor(BaseExecutor):
                 f"{work_item.get('title', 'unknown')}"
             )
 
+            # Notify OpenCode that task completed (non-blocking)
+            asyncio.create_task(
+                self._notify_opencode_task_completed(
+                    work_item, execution_time, selected_model
+                )
+            )
+
             # Execute post-hooks
             if post_hooks and self.hooks_enabled:
                 logger.info(
@@ -655,6 +665,11 @@ class AgentSDKExecutor(BaseExecutor):
         except Exception as e:
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.error(f"Agent SDK execution failed: {e}")
+
+            # Notify OpenCode that task failed (non-blocking)
+            asyncio.create_task(
+                self._notify_opencode_task_failed(work_item, str(e), execution_time)
+            )
 
             return {
                 "success": False,
@@ -768,3 +783,68 @@ class AgentSDKExecutor(BaseExecutor):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit"""
         await self.end_session()
+
+    # =========================================================================
+    # OpenCode Integration Helpers
+    # =========================================================================
+
+    async def _notify_opencode_task_started(self, work_item: Dict[str, Any]) -> None:
+        """Notify OpenCode that a task has started (fire and forget)."""
+        try:
+            from ..integrations.opencode.notifier import notify_task_started
+
+            await notify_task_started(
+                task_id=work_item.get("id", "unknown"),
+                title=work_item.get("title", ""),
+                task_type=work_item.get("type", ""),
+                priority=work_item.get("priority", 3),
+            )
+        except ImportError:
+            # aiohttp not installed, skip silently
+            pass
+        except Exception as e:
+            logger.debug(f"OpenCode notification failed (task started): {e}")
+
+    async def _notify_opencode_task_completed(
+        self,
+        work_item: Dict[str, Any],
+        execution_time: float,
+        model_used: str,
+    ) -> None:
+        """Notify OpenCode that a task has completed (fire and forget)."""
+        try:
+            from ..integrations.opencode.notifier import notify_task_completed
+
+            await notify_task_completed(
+                task_id=work_item.get("id", "unknown"),
+                title=work_item.get("title", ""),
+                execution_time=execution_time,
+                model_used=model_used,
+            )
+        except ImportError:
+            # aiohttp not installed, skip silently
+            pass
+        except Exception as e:
+            logger.debug(f"OpenCode notification failed (task completed): {e}")
+
+    async def _notify_opencode_task_failed(
+        self,
+        work_item: Dict[str, Any],
+        error: str,
+        execution_time: float,
+    ) -> None:
+        """Notify OpenCode that a task has failed (fire and forget)."""
+        try:
+            from ..integrations.opencode.notifier import notify_task_failed
+
+            await notify_task_failed(
+                task_id=work_item.get("id", "unknown"),
+                title=work_item.get("title", ""),
+                error=error,
+                execution_time=execution_time,
+            )
+        except ImportError:
+            # aiohttp not installed, skip silently
+            pass
+        except Exception as e:
+            logger.debug(f"OpenCode notification failed (task failed): {e}")

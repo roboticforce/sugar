@@ -4503,5 +4503,205 @@ def mcp_memory(ctx, transport):
         sys.exit(1)
 
 
+@mcp.command("tasks")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio"]),
+    default="stdio",
+    help="Transport protocol (default: stdio)",
+)
+@click.pass_context
+def mcp_tasks(ctx, transport):
+    """Start the Sugar Task Queue MCP server for OpenCode integration
+
+    This server exposes Sugar's task queue via MCP, allowing OpenCode,
+    Claude Code, and other MCP clients to manage autonomous tasks.
+
+    Available tools:
+        - sugar_add_task: Add a new task to the queue
+        - sugar_list_tasks: List tasks with filtering
+        - sugar_view_task: View task details
+        - sugar_update_task: Update task properties
+        - sugar_task_status: Get queue statistics
+        - sugar_remove_task: Remove a task
+
+    To add to OpenCode, add to opencode.json:
+        {
+          "mcp": {
+            "sugar-tasks": {
+              "type": "local",
+              "command": ["sugar", "mcp", "tasks"]
+            }
+          }
+        }
+
+    To add to Claude Code:
+        claude mcp add sugar-tasks -- sugar mcp tasks
+    """
+    try:
+        from .mcp.task_server import run_task_server
+    except ImportError as e:
+        click.echo(
+            "❌ MCP dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[mcp]'",
+            err=True,
+        )
+        click.echo(f"\nMissing: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        run_task_server(transport=transport)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        click.echo(f"❌ MCP server error: {e}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# OpenCode Integration Commands
+# =============================================================================
+
+
+@cli.group()
+@click.pass_context
+def opencode(ctx):
+    """OpenCode integration for AI coding agent communication"""
+    pass
+
+
+@opencode.command("status")
+@click.pass_context
+def opencode_status(ctx):
+    """Check OpenCode integration status"""
+    try:
+        from .integrations.opencode.config import OpenCodeConfig
+        from .integrations.opencode.notifier import AIOHTTP_AVAILABLE, get_notifier
+
+        config = OpenCodeConfig.from_env()
+
+        click.echo("🔗 OpenCode Integration Status")
+        click.echo("=" * 40)
+        click.echo(f"  Enabled: {'✅ Yes' if config.enabled else '❌ No'}")
+        click.echo(
+            f"  aiohttp: {'✅ Installed' if AIOHTTP_AVAILABLE else '❌ Not installed'}"
+        )
+        click.echo(f"  Server URL: {config.server_url}")
+        click.echo(f"  Auto-inject: {'✅' if config.auto_inject else '❌'}")
+        click.echo(
+            f"  Notify on completion: {'✅' if config.notify_on_completion else '❌'}"
+        )
+        click.echo(f"  Notify on failure: {'✅' if config.notify_on_failure else '❌'}")
+
+        if not AIOHTTP_AVAILABLE:
+            click.echo("\n⚠️  Install aiohttp for OpenCode integration:")
+            click.echo("   pip install 'sugarai[opencode]'")
+
+    except Exception as e:
+        click.echo(f"❌ Error checking status: {e}", err=True)
+        sys.exit(1)
+
+
+@opencode.command("test")
+@click.option("--server", help="OpenCode server URL to test")
+@click.pass_context
+def opencode_test(ctx, server):
+    """Test connection to OpenCode server"""
+    import asyncio
+
+    try:
+        from .integrations.opencode.client import OpenCodeClient, AIOHTTP_AVAILABLE
+        from .integrations.opencode.config import OpenCodeConfig
+
+        if not AIOHTTP_AVAILABLE:
+            click.echo("❌ aiohttp not installed. Install with:")
+            click.echo("   pip install 'sugarai[opencode]'")
+            sys.exit(1)
+
+        config = OpenCodeConfig.from_env()
+        if server:
+            config.server_url = server
+
+        click.echo(f"🔗 Testing connection to {config.server_url}...")
+
+        async def test_connection():
+            try:
+                async with OpenCodeClient(config) as client:
+                    if await client.health_check():
+                        click.echo("✅ Connection successful!")
+                        return True
+                    else:
+                        click.echo("❌ Server responded but health check failed")
+                        return False
+            except Exception as e:
+                click.echo(f"❌ Connection failed: {e}")
+                return False
+
+        success = asyncio.run(test_connection())
+        sys.exit(0 if success else 1)
+
+    except ImportError as e:
+        click.echo(f"❌ Import error: {e}", err=True)
+        sys.exit(1)
+
+
+@opencode.command("notify")
+@click.argument("message")
+@click.option("--title", default="Sugar Notification", help="Notification title")
+@click.option(
+    "--level",
+    type=click.Choice(["info", "success", "warning", "error"]),
+    default="info",
+    help="Notification level",
+)
+@click.pass_context
+def opencode_notify(ctx, message, title, level):
+    """Send a test notification to OpenCode"""
+    import asyncio
+
+    try:
+        from .integrations.opencode.client import OpenCodeClient, AIOHTTP_AVAILABLE
+        from .integrations.opencode.config import OpenCodeConfig
+        from .integrations.opencode.models import NotificationLevel
+
+        if not AIOHTTP_AVAILABLE:
+            click.echo("❌ aiohttp not installed. Install with:")
+            click.echo("   pip install 'sugarai[opencode]'")
+            sys.exit(1)
+
+        config = OpenCodeConfig.from_env()
+
+        level_map = {
+            "info": NotificationLevel.INFO,
+            "success": NotificationLevel.SUCCESS,
+            "warning": NotificationLevel.WARNING,
+            "error": NotificationLevel.ERROR,
+        }
+
+        async def send_notification():
+            try:
+                async with OpenCodeClient(config) as client:
+                    success = await client.notify(
+                        title=title,
+                        message=message,
+                        level=level_map[level],
+                    )
+                    if success:
+                        click.echo(f"✅ Notification sent: {title}")
+                    else:
+                        click.echo("❌ Failed to send notification")
+                    return success
+            except Exception as e:
+                click.echo(f"❌ Error: {e}")
+                return False
+
+        success = asyncio.run(send_notification())
+        sys.exit(0 if success else 1)
+
+    except ImportError as e:
+        click.echo(f"❌ Import error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
