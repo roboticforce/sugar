@@ -1,0 +1,60 @@
+{
+  "name": "@anthropic/sugar-opencode",
+  "version": "1.0.0",
+  "description": "OpenCode plugin for Sugar autonomous task queue integration",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "sugar",
+    "ai",
+    "autonomous",
+    "development",
+    "task-queue",
+    "plugin"
+  ],
+  "author": {
+    "name": "Robotic Force",
+    "email": "contact@roboticforce.io"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/roboticforce/sugar.git",
+    "directory": "packages/opencode-plugin"
+  },
+  "homepage": "https://github.com/roboticforce/sugar",
+  "bugs": {
+    "url": "https://github.com/roboticforce/sugar/issues"
+  },
+  "peerDependencies": {
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0",
+    "zod": "^3.23.0"
+  },
+  "files": [
+    "dist",
+    "commands",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
