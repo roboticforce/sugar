@@ -386,8 +386,33 @@ class MemoryStore:
         where_sql = f"AND {' AND '.join(where_clauses)}" if where_clauses else ""
 
         # FTS5 search
-        # Escape special FTS5 characters
-        safe_query = query.query.replace('"', '""')
+        # Build FTS5 query with OR for better recall
+        # Escape special FTS5 characters and handle multi-word queries
+        words = query.query.split()
+        fts_terms = []
+        for word in words:
+            # Remove special FTS5 chars that could break query
+            clean_word = "".join(c for c in word if c.isalnum()).lower()
+            if clean_word and len(clean_word) >= 2:  # Skip very short words
+                # Add * for prefix matching (trademark* matches trademarking)
+                fts_terms.append(f"{clean_word}*")
+                # Also add stemmed version for plurals (trademarks -> trademark)
+                # Simple suffix removal for common English patterns
+                if clean_word.endswith("ies") and len(clean_word) > 4:
+                    fts_terms.append(f"{clean_word[:-3]}y*")  # companies -> company
+                elif clean_word.endswith("es") and len(clean_word) > 3:
+                    fts_terms.append(f"{clean_word[:-2]}*")  # fixes -> fix
+                elif clean_word.endswith("s") and len(clean_word) > 3:
+                    fts_terms.append(f"{clean_word[:-1]}*")  # trademarks -> trademark
+
+        # Use OR between terms for better recall (matches any word)
+        # Single words use just the term, multi-word uses OR
+        if len(fts_terms) == 1:
+            fts_query = fts_terms[0]
+        elif fts_terms:
+            fts_query = " OR ".join(fts_terms)
+        else:
+            fts_query = query.query
 
         sql = f"""
             SELECT e.*, bm25(memory_fts) as score
@@ -400,7 +425,7 @@ class MemoryStore:
         """
 
         try:
-            cursor.execute(sql, [f'"{safe_query}"', *params, query.limit])
+            cursor.execute(sql, [fts_query, *params, query.limit])
         except sqlite3.OperationalError:
             # If FTS query fails, fall back to LIKE
             sql = f"""
