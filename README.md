@@ -274,7 +274,7 @@ With pipx, Sugar's dependencies don't conflict with your project's dependencies.
 - Self-correcting loops until tests pass
 - Prevents single-shot failures
 
-**Full docs:** [Memory System](docs/user/memory.md) | [OpenCode Integration](docs/user/opencode.md) | [Ralph Wiggum](docs/ralph-wiggum.md)
+**Full docs:** [Memory System](docs/user/memory.md) | [Goose Integration](docs/user/goose.md) | [OpenCode Integration](docs/user/opencode.md) | [Ralph Wiggum](docs/ralph-wiggum.md)
 
 ## Configuration
 

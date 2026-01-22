@@ -193,20 +193,26 @@ sugar:
 
 ### Does Sugar work with Goose?
 
-Yes. Sugar provides MCP (Model Context Protocol) server support for Goose and other MCP clients.
+Yes! Sugar has full MCP integration with [Goose](https://block.github.io/goose).
 
-**Option 1: Built-in Python MCP Server**
+**Setup via Goose CLI:**
 ```bash
-# Install with MCP dependencies
-pip install sugarai[mcp]
-
-# Start the server
-sugar mcp serve --port 8080
+goose configure
+# Select "Add Extension" → "Command-line Extension"
+# Name: sugar
+# Command: npx -y sugarai-mcp
 ```
 
-**Option 2: Standalone TypeScript MCP Server**
+**Or add directly to** `~/.config/goose/config.yaml`:
+```yaml
+extensions:
+  sugar:
+    command: npx -y sugarai-mcp
+```
 
-For npm-based installations, see `packages/mcp-server/` in the Sugar repository.
+This gives Goose access to Sugar's task management and memory features.
+
+See the [Goose Integration Guide](goose.md) for full details.
 
 ### Can I use Sugar with my CI/CD?
 

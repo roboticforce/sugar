@@ -75,6 +75,16 @@ This creates:
 - `logs/errors/` directory with sample error log for testing
 - Auto-detects Claude CLI location
 
+### 2. Enable MCP Features in Claude Code (Recommended)
+
+To get the most out of Sugar, add the MCP server to Claude Code:
+
+```bash
+claude mcp add sugar -- sugar mcp memory
+```
+
+This gives Claude Code access to your project's memory system - decisions, preferences, error patterns, and more. See the [Memory System Guide](memory.md) for details.
+
 **Claude CLI Detection:**
 Sugar will automatically search for Claude CLI in common locations:
 - `claude` (in PATH)

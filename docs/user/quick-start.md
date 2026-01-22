@@ -59,7 +59,17 @@ This creates:
 - `.sugar/config.yaml` - customizable settings
 - `logs/errors/` - directory for error log monitoring
 
-### 2. Add Your First Task
+### 2. Enable MCP Features in Claude Code (Recommended)
+
+To get the most out of Sugar, add the MCP server to Claude Code:
+
+```bash
+claude mcp add sugar -- sugar mcp memory
+```
+
+This gives Claude Code access to your project's memory - decisions, preferences, error patterns, and more.
+
+### 3. Add Your First Task
 
 Sugar accepts tasks in **two ways**:
 
@@ -82,7 +92,7 @@ Sugar will also automatically discover work from:
 - Missing test coverage
 - GitHub issues (when configured)
 
-### 3. Check Status
+### 4. Check Status
 
 ```bash
 # View system status
@@ -95,7 +105,7 @@ sugar list
 sugar view TASK_ID
 ```
 
-### 4. Run Sugar
+### 5. Run Sugar
 
 ```bash
 # Test run (safe mode - no actual changes)
