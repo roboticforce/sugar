@@ -236,14 +236,83 @@ class TestGlobalMemoryManagerSearch:
         assert len(results) >= 1
         assert all(r.scope == "global" for r in results)
 
-    def test_search_sorts_by_score_descending(self, manager):
-        self._store_to_project(manager, "deployment procedure step one")
-        self._store_to_global(manager, "deployment procedure step two")
+    # --- Project-first strategy tests ---
 
-        results = manager.search(MemoryQuery(query="deployment procedure"))
+    def test_search_project_results_come_before_global(self, manager):
+        """Project results occupy the first slots in output."""
+        self._store_to_project(manager, "Project auth uses JWT tokens")
+        self._store_to_global(manager, "Global auth standard is OAuth2")
 
-        scores = [r.score for r in results]
-        assert scores == sorted(scores, reverse=True)
+        results = manager.search(MemoryQuery(query="auth tokens"))
+
+        # The very first result should be project-scoped
+        project_results = [r for r in results if r.scope == "project"]
+        if project_results and results:
+            first_project_idx = next(
+                i for i, r in enumerate(results) if r.scope == "project"
+            )
+            first_global_non_guideline = next(
+                (
+                    i
+                    for i, r in enumerate(results)
+                    if r.scope == "global"
+                    and r.entry.memory_type != MemoryType.GUIDELINE
+                ),
+                len(results),
+            )
+            assert first_project_idx < first_global_non_guideline
+
+    def test_search_guidelines_surface_even_when_project_full(self, manager):
+        """Global guidelines get reserved slots even when project has many results."""
+        # Fill project store with many results
+        for i in range(8):
+            self._store_to_project(
+                manager, f"Project decision about deployment step {i}"
+            )
+        # Store a global guideline
+        self._store_to_global(
+            manager, "Always use Kamal for deployment across all projects"
+        )
+
+        results = manager.search(
+            MemoryQuery(query="deployment"), limit=10, guideline_slots=2
+        )
+
+        global_guidelines = [
+            r
+            for r in results
+            if r.scope == "global" and r.entry.memory_type == MemoryType.GUIDELINE
+        ]
+        assert (
+            len(global_guidelines) >= 1
+        ), "Guidelines must surface even with many project results"
+
+    def test_search_guideline_slots_zero_disables_reserved_slots(self, manager):
+        """Setting guideline_slots=0 disables reserved guideline slots."""
+        for i in range(5):
+            self._store_to_project(
+                manager, f"Project decision about testing approach {i}"
+            )
+        self._store_to_global(manager, "Global testing guideline for all projects")
+
+        # With guideline_slots=0, global results only fill remaining space
+        results = manager.search(
+            MemoryQuery(query="testing"), limit=5, guideline_slots=0
+        )
+
+        # Should still work - just no guaranteed guideline slots
+        assert len(results) <= 5
+
+    def test_search_new_project_gets_global_results(self, manager):
+        """A project with no local memories gets results from global store."""
+        # Only store in global
+        self._store_to_global(manager, "SEO title tags under 60 characters")
+        self._store_to_global(manager, "Meta descriptions 120-160 characters")
+
+        results = manager.search(MemoryQuery(query="SEO guidelines"))
+
+        assert len(results) >= 1
+        assert all(r.scope == "global" for r in results)
 
 
 class TestGlobalMemoryManagerGetByType:

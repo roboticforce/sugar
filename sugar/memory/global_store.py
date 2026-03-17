@@ -66,37 +66,80 @@ class GlobalMemoryManager:
             )
         return self.project_store.store(entry)
 
-    def search(self, query: MemoryQuery, limit: int = 10) -> List[MemorySearchResult]:
+    def search(
+        self,
+        query: MemoryQuery,
+        limit: int = 10,
+        guideline_slots: int = 2,
+    ) -> List[MemorySearchResult]:
         """
-        Search both stores and return merged, deduplicated results.
+        Search with project-first strategy and reserved guideline slots.
 
-        Results are tagged with their scope and sorted by relevance score.
-        Near-duplicate content across stores is deduplicated, preferring
-        project-scoped results (more specific context).
+        Strategy:
+        1. Search project store first (most specific context wins).
+        2. Reserve slots for global guidelines so cross-project standards
+           always surface, even when the project store has plenty of hits.
+        3. Fill any remaining slots with other global results.
+        4. Deduplicate across all results.
+
+        This ensures:
+        - A mature project's local context dominates search results.
+        - A new project with no local memories still gets global knowledge.
+        - Cross-project guidelines (SEO rules, deploy standards, etc.)
+          always appear regardless of how many project results exist.
+        - A project-level decision naturally overrides a global guideline
+          on the same topic because it occupies a higher-priority slot.
 
         Args:
             query: Search query parameters.
             limit: Maximum number of results to return.
+            guideline_slots: How many result slots to reserve for global
+                guidelines (default 2). Set to 0 to disable.
 
         Returns:
-            Merged list of results sorted by score descending.
+            List of results: project results first, then guidelines,
+            then remaining global results - all deduplicated.
         """
         results: List[MemorySearchResult] = []
 
+        # --- Step 1: project results (highest priority) ---
         if self.project_store:
             project_results = self.project_store.search(query)
             for r in project_results:
                 r.scope = MemoryScope.PROJECT.value
             results.extend(project_results)
 
-        global_results = self.global_store.search(query)
-        for r in global_results:
-            r.scope = MemoryScope.GLOBAL.value
-        results.extend(global_results)
+        # --- Step 2: global guideline results (reserved slots) ---
+        guideline_results: List[MemorySearchResult] = []
+        if guideline_slots > 0:
+            guideline_query = MemoryQuery(
+                query=query.query,
+                memory_types=[MemoryType.GUIDELINE],
+                limit=guideline_slots,
+                min_importance=query.min_importance,
+                include_expired=query.include_expired,
+            )
+            guideline_results = self.global_store.search(guideline_query)
+            for r in guideline_results:
+                r.scope = MemoryScope.GLOBAL.value
+            results.extend(guideline_results)
 
-        results.sort(key=lambda r: r.score, reverse=True)
+        # --- Step 3: fill remaining slots with other global results ---
+        slots_used = len(self._deduplicate(results))
+        remaining_slots = limit - slots_used
+        if remaining_slots > 0:
+            global_results = self.global_store.search(query)
+            for r in global_results:
+                r.scope = MemoryScope.GLOBAL.value
+            # Exclude guidelines already added in step 2
+            guideline_ids = {r.entry.id for r in guideline_results}
+            global_results = [
+                r for r in global_results if r.entry.id not in guideline_ids
+            ]
+            results.extend(global_results)
+
+        # --- Step 4: deduplicate and cap ---
         results = self._deduplicate(results)
-
         return results[:limit]
 
     def get_by_type(
