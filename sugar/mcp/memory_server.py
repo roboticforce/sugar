@@ -31,27 +31,33 @@ except ImportError:
         FastMCP = None
 
 
-def get_memory_store():
-    """Get memory store from Sugar project context."""
-    from sugar.memory import MemoryStore
+def get_memory_manager():
+    """Get global memory manager with optional project store.
 
-    # Try to find .sugar directory
+    Walks up from cwd to find a .sugar directory. If found, creates a
+    project-scoped MemoryStore and passes it to GlobalMemoryManager.
+    If not found, returns a GlobalMemoryManager with no project store -
+    global memory is still fully available in that case.
+    """
+    from sugar.memory import MemoryStore
+    from sugar.memory.global_store import GlobalMemoryManager
+
+    project_store = None
     cwd = Path.cwd()
     sugar_dir = cwd / ".sugar"
 
     if not sugar_dir.exists():
-        # Check parent directories
         for parent in cwd.parents:
             potential = parent / ".sugar"
             if potential.exists():
                 sugar_dir = potential
                 break
 
-    if not sugar_dir.exists():
-        raise RuntimeError("Not in a Sugar project. Run 'sugar init' first.")
+    if sugar_dir.exists():
+        memory_db = sugar_dir / "memory.db"
+        project_store = MemoryStore(str(memory_db))
 
-    memory_db = sugar_dir / "memory.db"
-    return MemoryStore(str(memory_db))
+    return GlobalMemoryManager(project_store=project_store)
 
 
 def create_memory_mcp_server() -> "FastMCP":
@@ -68,6 +74,10 @@ def create_memory_mcp_server() -> "FastMCP":
         """
         Search Sugar memory for relevant context.
 
+        Automatically searches both project-local and global memories,
+        merging results by relevance score. Results include a scope field
+        indicating whether each memory came from the project or global store.
+
         Use this to find previous decisions, preferences, error patterns,
         and other relevant information from past sessions.
 
@@ -76,21 +86,21 @@ def create_memory_mcp_server() -> "FastMCP":
             limit: Maximum results to return (default: 5)
 
         Returns:
-            List of matching memories with content, type, and relevance score
+            List of matching memories with content, type, relevance score, and scope
         """
         from sugar.memory import MemoryQuery
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
             search_query = MemoryQuery(query=query, limit=limit)
-            results = store.search(search_query)
-            store.close()
+            results = manager.search(search_query, limit=limit)
 
             return [
                 {
                     "content": r.entry.content,
                     "type": r.entry.memory_type.value,
                     "score": round(r.score, 3),
+                    "scope": r.scope,
                     "id": r.entry.id[:8],
                     "created_at": (
                         r.entry.created_at.isoformat() if r.entry.created_at else None
@@ -101,41 +111,58 @@ def create_memory_mcp_server() -> "FastMCP":
         except Exception as e:
             logger.error(f"search_memory failed: {e}")
             return [{"error": str(e)}]
+        finally:
+            manager.close()
 
     @mcp.tool()
     async def store_learning(
         content: str,
         memory_type: str = "decision",
         tags: Optional[str] = None,
+        scope: str = "project",
     ) -> Dict[str, Any]:
         """
         Store a new learning, decision, or observation in Sugar memory.
 
-        Use this to remember important information for future sessions:
-        - Decisions made during implementation
-        - User preferences discovered
-        - Error patterns and their fixes
-        - Research findings
+        Use scope="global" for cross-project knowledge that should be available
+        in all projects:
+        - Coding guidelines and best practices
+        - Infrastructure and deployment standards
+        - SEO standards and content conventions
+        - Organisation-wide architectural decisions
+
+        Use scope="project" (default) for context that only applies to this
+        project. If you are outside a Sugar project directory, project-scoped
+        memories are automatically promoted to global scope.
 
         Args:
             content: What to remember (be specific and detailed)
-            memory_type: Type of memory (decision, preference, research, error_pattern, file_context, outcome)
-            tags: Optional comma-separated tags for organization
+            memory_type: Type of memory (decision, preference, research,
+                error_pattern, file_context, outcome, guideline)
+            tags: Optional comma-separated tags for organisation
+            scope: "project" for local context, "global" for cross-project
+                knowledge (default: project)
 
         Returns:
-            Confirmation with memory ID
+            Confirmation with memory ID and scope used
         """
         import uuid
         from sugar.memory import MemoryEntry, MemoryType
+        from sugar.memory.types import MemoryScope
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-
             # Validate memory type
             try:
                 mem_type = MemoryType(memory_type)
             except ValueError:
                 mem_type = MemoryType.DECISION
+
+            # Validate scope
+            try:
+                mem_scope = MemoryScope(scope)
+            except ValueError:
+                mem_scope = MemoryScope.PROJECT
 
             # Parse tags
             metadata = {}
@@ -150,54 +177,87 @@ def create_memory_mcp_server() -> "FastMCP":
                 metadata=metadata,
             )
 
-            entry_id = store.store(entry)
-            store.close()
+            # If project scope is requested but no project store exists, fall
+            # back to global so the server never errors outside a Sugar project.
+            actual_scope = mem_scope
+            scope_note = None
+            if mem_scope == MemoryScope.PROJECT and manager.project_store is None:
+                actual_scope = MemoryScope.GLOBAL
+                scope_note = (
+                    "No Sugar project found - stored in global memory instead. "
+                    "Run 'sugar init' to initialise a project store."
+                )
 
-            return {
+            entry_id = manager.store(entry, actual_scope)
+
+            result: Dict[str, Any] = {
                 "status": "stored",
                 "id": entry_id[:8],
                 "type": mem_type.value,
+                "scope": actual_scope.value,
                 "content_preview": (
                     content[:100] + "..." if len(content) > 100 else content
                 ),
             }
+            if scope_note:
+                result["note"] = scope_note
+
+            return result
         except Exception as e:
             logger.error(f"store_learning failed: {e}")
             return {"error": str(e)}
+        finally:
+            manager.close()
 
     @mcp.tool()
     async def get_project_context() -> Dict[str, Any]:
         """
         Get current project context summary from Sugar memory.
 
-        Returns an organized summary of:
+        Returns an organised summary of:
         - User preferences (coding style, conventions)
         - Recent decisions (architecture, implementation choices)
         - Known error patterns and fixes
         - File context (what files do what)
+        - Global guidelines (cross-project standards and best practices)
 
         Use this at the start of a task to understand project context.
         """
-        from sugar.memory import MemoryRetriever
+        from sugar.memory import MemoryRetriever, MemoryType
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-            retriever = MemoryRetriever(store)
+            retriever = MemoryRetriever(manager)
             context = retriever.get_project_context(limit=10)
-            store.close()
+
+            # Add global guidelines - these live in the global store only
+            guidelines = manager.global_store.get_by_type(
+                MemoryType.GUIDELINE, limit=10
+            )
+            context["guidelines"] = [
+                {
+                    "id": g.id[:8],
+                    "content": g.content,
+                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                }
+                for g in guidelines
+            ]
 
             return context
         except Exception as e:
             logger.error(f"get_project_context failed: {e}")
             return {"error": str(e)}
+        finally:
+            manager.close()
 
     @mcp.tool()
     async def recall(topic: str) -> str:
         """
         Get memories about a specific topic, formatted as readable context.
 
-        Similar to search_memory but returns formatted markdown suitable
-        for injection into prompts or context.
+        Searches both project-local and global memories. Similar to
+        search_memory but returns formatted markdown suitable for injection
+        into prompts or context.
 
         Args:
             topic: The topic to recall information about
@@ -207,13 +267,12 @@ def create_memory_mcp_server() -> "FastMCP":
         """
         from sugar.memory import MemoryQuery, MemoryRetriever
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-            retriever = MemoryRetriever(store)
+            retriever = MemoryRetriever(manager)
 
             search_query = MemoryQuery(query=topic, limit=5)
-            results = store.search(search_query)
-            store.close()
+            results = manager.search(search_query)
 
             if not results:
                 return f"No memories found about: {topic}"
@@ -222,6 +281,8 @@ def create_memory_mcp_server() -> "FastMCP":
         except Exception as e:
             logger.error(f"recall failed: {e}")
             return f"Error recalling memories: {e}"
+        finally:
+            manager.close()
 
     @mcp.tool()
     async def list_recent_memories(
@@ -229,10 +290,12 @@ def create_memory_mcp_server() -> "FastMCP":
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """
-        List recent memories, optionally filtered by type.
+        List recent memories from both project and global stores, optionally
+        filtered by type.
 
         Args:
-            memory_type: Optional filter (decision, preference, research, error_pattern, file_context, outcome)
+            memory_type: Optional filter (decision, preference, research,
+                error_pattern, file_context, outcome, guideline)
             limit: Maximum memories to return (default: 10)
 
         Returns:
@@ -240,9 +303,8 @@ def create_memory_mcp_server() -> "FastMCP":
         """
         from sugar.memory import MemoryType
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-
             type_filter = None
             if memory_type:
                 try:
@@ -250,11 +312,10 @@ def create_memory_mcp_server() -> "FastMCP":
                 except ValueError:
                     pass
 
-            entries = store.list_memories(
+            entries = manager.list_memories(
                 memory_type=type_filter,
                 limit=limit,
             )
-            store.close()
 
             return [
                 {
@@ -270,6 +331,8 @@ def create_memory_mcp_server() -> "FastMCP":
         except Exception as e:
             logger.error(f"list_recent_memories failed: {e}")
             return [{"error": str(e)}]
+        finally:
+            manager.close()
 
     @mcp.resource("sugar://project/context")
     async def project_context_resource() -> str:
@@ -281,12 +344,11 @@ def create_memory_mcp_server() -> "FastMCP":
         """
         from sugar.memory import MemoryRetriever
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-            retriever = MemoryRetriever(store)
+            retriever = MemoryRetriever(manager)
             context = retriever.get_project_context(limit=10)
             output = retriever.format_context_markdown(context)
-            store.close()
 
             return (
                 output
@@ -295,16 +357,17 @@ def create_memory_mcp_server() -> "FastMCP":
             )
         except Exception as e:
             return f"# Error loading project context\n\n{e}"
+        finally:
+            manager.close()
 
     @mcp.resource("sugar://preferences")
     async def preferences_resource() -> str:
         """User coding preferences stored in Sugar memory."""
         from sugar.memory import MemoryType
 
+        manager = get_memory_manager()
         try:
-            store = get_memory_store()
-            preferences = store.get_by_type(MemoryType.PREFERENCE, limit=20)
-            store.close()
+            preferences = manager.get_by_type(MemoryType.PREFERENCE, limit=20)
 
             if not preferences:
                 return "# No preferences stored yet\n\nUse `store_learning` with type='preference' to add preferences."
@@ -316,6 +379,36 @@ def create_memory_mcp_server() -> "FastMCP":
             return "\n".join(lines)
         except Exception as e:
             return f"# Error loading preferences\n\n{e}"
+        finally:
+            manager.close()
+
+    @mcp.resource("sugar://global/guidelines")
+    async def global_guidelines_resource() -> str:
+        """Cross-project guidelines and best practices from Sugar global memory."""
+        from sugar.memory import MemoryType
+
+        manager = get_memory_manager()
+        try:
+            guidelines = manager.global_store.get_by_type(
+                MemoryType.GUIDELINE, limit=50
+            )
+
+            if not guidelines:
+                return (
+                    "# No global guidelines stored yet\n\n"
+                    "Use `store_learning` with type='guideline' and scope='global' "
+                    "to add cross-project standards and best practices."
+                )
+
+            lines = ["# Global Guidelines", ""]
+            for g in guidelines:
+                lines.append(f"- {g.content}")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"# Error loading global guidelines\n\n{e}"
+        finally:
+            manager.close()
 
     return mcp
 

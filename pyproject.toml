@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sugarai"
 version = "3.8.1.dev0"
-description = "🍰 Sugar - The autonomous layer for AI coding agents. Manages task queues, runs 24/7, ships working code."
+description = "Persistent memory for AI coding agents. Cross-session context, global knowledge, and autonomous task execution."
 
 readme = "README.md"
 requires-python = ">=3.11"

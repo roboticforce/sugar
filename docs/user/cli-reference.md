@@ -744,11 +744,12 @@ sugar remember "CONTENT" [OPTIONS]
 ```
 
 **Options:**
-- `--type TYPE` - Memory type: `decision`, `preference`, `research`, `file_context`, `error_pattern`, `outcome` (default: `decision`)
+- `--type TYPE` - Memory type: `decision`, `preference`, `research`, `file_context`, `error_pattern`, `outcome`, `guideline` (default: `decision`)
 - `--tags TEXT` - Comma-separated tags for organization
 - `--file PATH` - Associate with a specific file
 - `--ttl TEXT` - Time to live: `30d`, `90d`, `1y`, `never` (default: `never`)
 - `--importance FLOAT` - Importance score 0.0-2.0 (default: 1.0)
+- `--global` - Store in global memory (`~/.sugar/memory.db`) instead of the project store. Works from any directory, no `sugar init` required.
 
 **Examples:**
 ```bash
@@ -763,13 +764,19 @@ sugar remember "Stripe API rate limit: 100/sec" --type research --ttl 90d
 
 # File context
 sugar remember "Handles OAuth callbacks" --type file_context --file src/auth/callback.py
+
+# Global guideline (available in every project)
+sugar remember --global "Title tags under 60 characters for SEO" --type guideline
+
+# Global decision (available in every project)
+sugar remember --global "Always use Kamal for deploys" --type decision
 ```
 
 ---
 
 ### `sugar recall`
 
-Search memories for relevant context.
+Search memories for relevant context. Searches both the project store and the global store automatically.
 
 ```bash
 sugar recall "QUERY" [OPTIONS]
@@ -780,9 +787,11 @@ sugar recall "QUERY" [OPTIONS]
 - `--limit INTEGER` - Maximum results (default: 10)
 - `--format FORMAT` - Output format: `table`, `json`, `full` (default: `table`)
 
+Results include a scope label (`project` or `global`) so you can see where each memory came from. Global guidelines are always included in a reserved set of slots so they are not crowded out by project results.
+
 **Examples:**
 ```bash
-# Basic search
+# Basic search - returns project + global results
 sugar recall "authentication"
 
 # Filter by type
@@ -793,6 +802,9 @@ sugar recall "stripe" --format json
 
 # Full details
 sugar recall "architecture" --format full --limit 5
+
+# Search for deployment knowledge (picks up global decisions)
+sugar recall "deployment"
 ```
 
 ---
@@ -810,10 +822,11 @@ sugar memories [OPTIONS]
 - `--since TEXT` - Filter by age (e.g., `7d`, `30d`, `2w`)
 - `--limit INTEGER` - Maximum results (default: 50)
 - `--format FORMAT` - Output format: `table`, `json`
+- `--global` - List memories from the global store (`~/.sugar/memory.db`) instead of the project store
 
 **Examples:**
 ```bash
-# List all
+# List all project memories
 sugar memories
 
 # Recent decisions
@@ -821,6 +834,12 @@ sugar memories --type decision --since 7d
 
 # Export to JSON
 sugar memories --format json > backup.json
+
+# List all global memories
+sugar memories --global
+
+# List global guidelines only
+sugar memories --global --type guideline
 ```
 
 ---
@@ -835,6 +854,7 @@ sugar forget MEMORY_ID [OPTIONS]
 
 **Options:**
 - `--force` - Skip confirmation prompt
+- `--global` - Delete from the global store (`~/.sugar/memory.db`) instead of the project store
 
 **Examples:**
 ```bash
@@ -843,6 +863,9 @@ sugar forget abc123
 
 # Force delete
 sugar forget abc123 --force
+
+# Delete a global memory
+sugar forget abc123 --global
 ```
 
 ---
@@ -884,7 +907,7 @@ sugar export-context [OPTIONS]
 
 ### `sugar memory-stats`
 
-Show memory system statistics.
+Show memory system statistics for both the project store and the global store.
 
 ```bash
 sugar memory-stats
@@ -892,9 +915,9 @@ sugar memory-stats
 
 **Output includes:**
 - Semantic search availability
-- Database path and size
-- Total memory count
-- Count by memory type
+- Project database path and size
+- Global database path and size
+- Memory count by type for each store
 
 ---
 

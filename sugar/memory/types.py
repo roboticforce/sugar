@@ -8,6 +8,13 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
+class MemoryScope(str, Enum):
+    """Where a memory lives."""
+
+    PROJECT = "project"  # .sugar/memory.db (current behavior)
+    GLOBAL = "global"  # ~/.sugar/memory.db
+
+
 class MemoryType(str, Enum):
     """Types of memories that Sugar can store."""
 
@@ -17,6 +24,7 @@ class MemoryType(str, Enum):
     ERROR_PATTERN = "error_pattern"  # Bug patterns and fixes
     RESEARCH = "research"  # API docs, library findings
     OUTCOME = "outcome"  # Task outcomes and learnings
+    GUIDELINE = "guideline"  # Cross-project standards and best practices
 
 
 @dataclass
@@ -102,6 +110,7 @@ class MemorySearchResult:
     entry: MemoryEntry
     score: float  # Similarity score (0-1)
     match_type: str = "semantic"  # "semantic" or "keyword"
+    scope: str = "project"  # "project" or "global"
 
 
 @dataclass
