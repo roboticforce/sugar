@@ -57,7 +57,7 @@ sugar memories
 
 ## Memory Types
 
-Sugar organizes memories into six categories:
+Sugar organizes memories into seven categories:
 
 | Type | Description | TTL Default | Example |
 |------|-------------|-------------|---------|
@@ -67,6 +67,65 @@ Sugar organizes memories into six categories:
 | `error_pattern` | Bugs and their fixes | 90 days | "Login loop caused by missing return" |
 | `research` | API docs, library findings | 60 days | "Stripe idempotency keys required" |
 | `outcome` | Task results and learnings | 30 days | "Refactor improved load time 40%" |
+| `guideline` | Cross-project rules and standards (global only) | Never | "Title tags under 60 characters for SEO" |
+
+## Global Memory
+
+By default, Sugar stores memories per-project in `.sugar/memory.db`. Global memory gives you a second store at `~/.sugar/memory.db` that persists across every project on your machine.
+
+Use global memory for knowledge that applies everywhere - deployment conventions, SEO rules, personal coding standards, or any decision that isn't tied to one codebase.
+
+### The `--global` Flag
+
+Pass `--global` to any memory command to target the global store instead of the project store:
+
+```bash
+# Store a global guideline
+sugar remember --global "Title tags under 60 characters for SEO" --type guideline
+
+# Store a global decision
+sugar remember --global "Always use Kamal for deploys" --type decision
+
+# Recall from any project (searches both local + global)
+sugar recall "deployment"
+
+# View global memory stats
+sugar memory-stats
+```
+
+You can run `sugar remember --global` from any directory - no `sugar init` required.
+
+### The `guideline` Memory Type
+
+Global memory introduces a seventh memory type: `guideline`. Use it for standing rules and standards that should always be surfaced, regardless of which project you're working in.
+
+| Type | Description | TTL Default | Example |
+|------|-------------|-------------|---------|
+| `guideline` | Cross-project rules and standards | Never | "Title tags under 60 characters for SEO" |
+
+Guidelines are treated as high-priority context. When search results are assembled, a fixed number of slots are reserved for global guidelines so they are never crowded out by project-specific results.
+
+### How Search Works
+
+When you run `sugar recall`, Sugar searches both stores and merges the results:
+
+1. Project memories are searched first and fill most of the result slots
+2. Global memories supplement the results with cross-project context
+3. A reserved number of slots are held for `guideline` entries so important standards always appear
+
+This means you get the most relevant project-specific context plus your global rules, without needing to do anything differently - `sugar recall` handles both automatically.
+
+### MCP Usage
+
+When using the MCP server, pass `scope="global"` to `store_learning` to write to the global store:
+
+```
+store_learning(content="Always use Kamal for deploys", memory_type="decision", scope="global")
+```
+
+Search via `search_memory` and `recall` automatically queries both the project store and the global store. No extra configuration needed.
+
+---
 
 ## CLI Commands
 
@@ -78,11 +137,12 @@ Store a new memory.
 sugar remember "content" [options]
 
 Options:
-  --type TYPE        Memory type (decision, preference, research, etc.)
+  --type TYPE        Memory type (decision, preference, research, guideline, etc.)
   --tags TAGS        Comma-separated tags for organization
   --file PATH        Associate with a specific file
   --ttl TTL          Time to live: 30d, 90d, 1y, never (default: never)
   --importance NUM   Importance score 0.0-2.0 (default: 1.0)
+  --global           Store in global memory (~/.sugar/memory.db) instead of project memory
 ```
 
 **Examples:**
@@ -217,21 +277,25 @@ sugar memory-stats
 
 Output:
 ```
-📊 Sugar Memory Statistics
+Sugar Memory Statistics
 
-Semantic search: ✅ Available
-Database: /Users/steve/project/.sugar/memory.db
+Semantic search: Available
+Project database: /Users/steve/project/.sugar/memory.db
+Global database:  /Users/steve/.sugar/memory.db
 
-Total memories: 47
-
-By type:
+Project memories: 47
   preference        12
   decision           8
   error_pattern      6
   research          15
   file_context       6
 
-Database size: 156.2 KB
+Global memories: 5
+  guideline          3
+  decision           2
+
+Project database size: 156.2 KB
+Global database size:   12.4 KB
 ```
 
 ## Claude Code Integration
@@ -417,9 +481,12 @@ Memory still works with keyword search.
 
 ### "Not a Sugar project"
 
-Run from a directory with `.sugar/` folder:
+Run from a directory with `.sugar/` folder, or use `--global` to write to the global store without a project:
 ```bash
-sugar init  # If not initialized
+sugar init  # Initialize the current directory
+
+# Or write directly to global memory from anywhere
+sugar remember --global "Your rule here" --type guideline
 ```
 
 ### Slow first search

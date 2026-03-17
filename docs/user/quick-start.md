@@ -69,7 +69,24 @@ claude mcp add sugar -- sugar mcp memory
 
 This gives Claude Code access to your project's memory - decisions, preferences, error patterns, and more.
 
-### 3. Add Your First Task
+### 3. Store and Recall Memory
+
+Sugar persists context across sessions so your AI agent remembers decisions, preferences, and patterns.
+
+```bash
+# Store a memory
+sugar remember "Always use async/await in this project" --type preference
+
+# Store a global guideline (available in all projects)
+sugar remember --global "Use Kamal for all deployments" --type guideline
+
+# Recall relevant context
+sugar recall "deployment strategy"
+```
+
+Memory is also available through the MCP server - Claude Code can read and write project memory directly during conversations.
+
+### 4. Add Your First Task
 
 Sugar accepts tasks in **two ways**:
 
@@ -92,7 +109,7 @@ Sugar will also automatically discover work from:
 - Missing test coverage
 - GitHub issues (when configured)
 
-### 4. Check Status
+### 5. Check Status
 
 ```bash
 # View system status
@@ -105,7 +122,7 @@ sugar list
 sugar view TASK_ID
 ```
 
-### 5. Run Sugar
+### 6. Run Sugar
 
 ```bash
 # Test run (safe mode - no actual changes)

@@ -11,18 +11,22 @@ from .embedder import (
     create_embedder,
     is_semantic_search_available,
 )
+from .global_store import GlobalMemoryManager
 from .retriever import MemoryRetriever
 from .store import MemoryStore
-from .types import MemoryEntry, MemoryQuery, MemorySearchResult, MemoryType
+from .types import MemoryEntry, MemoryQuery, MemoryScope, MemorySearchResult, MemoryType
 
 __all__ = [
     # Types
     "MemoryEntry",
     "MemoryQuery",
+    "MemoryScope",
     "MemorySearchResult",
     "MemoryType",
     # Store
     "MemoryStore",
+    # Global store
+    "GlobalMemoryManager",
     # Retriever
     "MemoryRetriever",
     # Embedder
