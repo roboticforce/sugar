@@ -40,7 +40,9 @@ class GlobalMemoryManager:
         self.project_store = project_store
         self.global_store = MemoryStore(str(GLOBAL_DB_PATH))
 
-    def store(self, entry: MemoryEntry, scope: MemoryScope = MemoryScope.PROJECT) -> str:
+    def store(
+        self, entry: MemoryEntry, scope: MemoryScope = MemoryScope.PROJECT
+    ) -> str:
         """
         Store a memory entry in the appropriate database.
 
@@ -97,7 +99,9 @@ class GlobalMemoryManager:
 
         return results[:limit]
 
-    def get_by_type(self, memory_type: MemoryType, limit: int = 50) -> List[MemoryEntry]:
+    def get_by_type(
+        self, memory_type: MemoryType, limit: int = 50
+    ) -> List[MemoryEntry]:
         """
         Get memories of a specific type from both stores.
 
@@ -183,7 +187,9 @@ class GlobalMemoryManager:
             self.project_store.close()
         self.global_store.close()
 
-    def _deduplicate(self, results: List[MemorySearchResult]) -> List[MemorySearchResult]:
+    def _deduplicate(
+        self, results: List[MemorySearchResult]
+    ) -> List[MemorySearchResult]:
         """
         Remove near-duplicate results based on content similarity.
 

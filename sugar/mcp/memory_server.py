@@ -231,7 +231,9 @@ def create_memory_mcp_server() -> "FastMCP":
             context = retriever.get_project_context(limit=10)
 
             # Add global guidelines - these live in the global store only
-            guidelines = manager.global_store.get_by_type(MemoryType.GUIDELINE, limit=10)
+            guidelines = manager.global_store.get_by_type(
+                MemoryType.GUIDELINE, limit=10
+            )
             context["guidelines"] = [
                 {
                     "id": g.id[:8],
@@ -387,7 +389,9 @@ def create_memory_mcp_server() -> "FastMCP":
 
         manager = get_memory_manager()
         try:
-            guidelines = manager.global_store.get_by_type(MemoryType.GUIDELINE, limit=50)
+            guidelines = manager.global_store.get_by_type(
+                MemoryType.GUIDELINE, limit=50
+            )
 
             if not guidelines:
                 return (

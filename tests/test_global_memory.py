@@ -31,7 +31,6 @@ from sugar.memory import (
 )
 from sugar.memory.global_store import GLOBAL_DB_PATH
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -83,9 +82,7 @@ class TestGlobalMemoryManagerInit:
         project_store = make_store(tmp_path, "project.db")
         global_store_path = tmp_path / "global.db"
 
-        with patch(
-            "sugar.memory.global_store.GLOBAL_DB_PATH", global_store_path
-        ):
+        with patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_store_path):
             manager = GlobalMemoryManager(project_store=project_store)
             assert manager.project_store is project_store
             assert manager.global_store is not None
@@ -95,9 +92,7 @@ class TestGlobalMemoryManagerInit:
     def test_init_without_project_store(self, tmp_path):
         global_store_path = tmp_path / "global.db"
 
-        with patch(
-            "sugar.memory.global_store.GLOBAL_DB_PATH", global_store_path
-        ):
+        with patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_store_path):
             manager = GlobalMemoryManager(project_store=None)
             assert manager.project_store is None
             assert manager.global_store is not None
@@ -200,9 +195,7 @@ class TestGlobalMemoryManagerSearch:
         assert len(project_results) >= 1
 
     def test_search_labels_global_results_correctly(self, manager):
-        self._store_to_global(
-            manager, "Always use 60-character title tags for SEO"
-        )
+        self._store_to_global(manager, "Always use 60-character title tags for SEO")
 
         results = manager.search(MemoryQuery(query="title tags SEO"))
 
@@ -478,7 +471,9 @@ class TestGuidelineMemoryType:
 
     def test_store_and_retrieve_guideline(self, tmp_path):
         store = make_store(tmp_path)
-        entry = make_entry("Never commit secrets to version control", MemoryType.GUIDELINE)
+        entry = make_entry(
+            "Never commit secrets to version control", MemoryType.GUIDELINE
+        )
         store.store(entry)
 
         retrieved = store.get(entry.id)
@@ -579,9 +574,7 @@ class TestMCPStoreLearning:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             project_store = make_store(tmp_path, "project.db")
@@ -608,9 +601,7 @@ class TestMCPStoreLearning:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             project_store = make_store(tmp_path, "project.db")
@@ -639,9 +630,7 @@ class TestMCPStoreLearning:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             # No project store - simulates running outside a Sugar project
@@ -673,9 +662,7 @@ class TestMCPSearchMemory:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             project_store = make_store(tmp_path, "project.db")
@@ -687,7 +674,9 @@ class TestMCPSearchMemory:
             mock_get_manager.return_value = manager
 
             mcp = create_memory_mcp_server()
-            results = run(_get_mcp_tool_fn(mcp, "search_memory")(query="JWT authentication"))
+            results = run(
+                _get_mcp_tool_fn(mcp, "search_memory")(query="JWT authentication")
+            )
 
         assert isinstance(results, list)
         if results and "error" not in results[0]:
@@ -703,9 +692,7 @@ class TestMCPSearchMemory:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -727,9 +714,7 @@ class TestMCPGetProjectContext:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -748,9 +733,7 @@ class TestMCPGetProjectContext:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -777,9 +760,7 @@ class TestMCPRecall:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -797,16 +778,16 @@ class TestMCPRecall:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
             mock_get_manager.return_value = manager
 
             mcp = create_memory_mcp_server()
-            result = run(_get_mcp_tool_fn(mcp, "recall")(topic="absolutely unique xyz123"))
+            result = run(
+                _get_mcp_tool_fn(mcp, "recall")(topic="absolutely unique xyz123")
+            )
 
         assert "No memories found" in result or isinstance(result, str)
         manager.close()
@@ -821,9 +802,7 @@ class TestMCPGlobalGuidelinesResource:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -841,9 +820,7 @@ class TestMCPGlobalGuidelinesResource:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
@@ -861,13 +838,13 @@ class TestMCPGlobalGuidelinesResource:
         global_db = tmp_path / "global.db"
 
         with (
-            patch(
-                "sugar.mcp.memory_server.get_memory_manager"
-            ) as mock_get_manager,
+            patch("sugar.mcp.memory_server.get_memory_manager") as mock_get_manager,
             patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db),
         ):
             manager = GlobalMemoryManager(project_store=None)
-            guideline = make_entry("Kamal-only deploys, never raw Docker", MemoryType.GUIDELINE)
+            guideline = make_entry(
+                "Kamal-only deploys, never raw Docker", MemoryType.GUIDELINE
+            )
             manager.store(guideline, scope=MemoryScope.GLOBAL)
             mock_get_manager.return_value = manager
 
@@ -902,7 +879,9 @@ class TestRetrieverWithGlobalManager:
         with patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db):
             manager = GlobalMemoryManager(project_store=None)
 
-        guideline = make_entry("Meta descriptions must be 120-160 chars", MemoryType.GUIDELINE)
+        guideline = make_entry(
+            "Meta descriptions must be 120-160 chars", MemoryType.GUIDELINE
+        )
         manager.store(guideline, scope=MemoryScope.GLOBAL)
 
         results = manager.search(MemoryQuery(query="meta descriptions"))
@@ -933,9 +912,7 @@ class TestRetrieverWithGlobalManager:
         if results:
             # Project-scoped results must not carry a [Global] label
             # Split on the result content and check its header
-            project_result = next(
-                (r for r in results if r.scope == "project"), None
-            )
+            project_result = next((r for r in results if r.scope == "project"), None)
             if project_result:
                 assert "[Global]" not in formatted or "Decision" in formatted
 
@@ -1063,7 +1040,8 @@ class TestEdgeCases:
         """When content is in both stores, the project-scoped result is kept (higher
         specificity). The project result has a higher score because it is sorted first
         before dedup runs - but with FallbackEmbedder scores are equal, so the first
-        result in the pre-sorted list is kept. We verify at least one result survives."""
+        result in the pre-sorted list is kept. We verify at least one result survives.
+        """
         global_db = tmp_path / "global.db"
 
         with patch("sugar.memory.global_store.GLOBAL_DB_PATH", global_db):
@@ -1081,9 +1059,9 @@ class TestEdgeCases:
 
         # At least one result, and the dedup key is based on content
         assert len(results) >= 1
-        assert len(results) == len({
-            " ".join(r.entry.content[:200].lower().split()) for r in results
-        })
+        assert len(results) == len(
+            {" ".join(r.entry.content[:200].lower().split()) for r in results}
+        )
         manager.close()
 
     def test_global_db_path_is_in_home_dot_sugar(self):

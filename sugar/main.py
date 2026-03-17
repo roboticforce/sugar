@@ -1883,8 +1883,7 @@ def status(ctx):
 def help():
     """Show comprehensive Sugar help and getting started guide"""
 
-    click.echo(
-        """
+    click.echo("""
 🍰 Sugar - The Autonomous Layer for AI Coding Agents
 =====================================================
 
@@ -1995,8 +1994,7 @@ Complete documentation: docs/README.md
 • By using Sugar, you agree to these terms and conditions
 
 Ready to supercharge your development workflow? 🚀
-"""
-    )
+""")
 
 
 @cli.command()
@@ -2997,8 +2995,7 @@ def dedupe(ctx, dry_run):
 
         async with aiosqlite.connect(work_queue.db_path) as db:
             # Find duplicates - keep the earliest created one for each source_file
-            cursor = await db.execute(
-                """
+            cursor = await db.execute("""
                 WITH ranked_items AS (
                     SELECT id, source_file, title, created_at,
                            ROW_NUMBER() OVER (PARTITION BY source_file ORDER BY created_at ASC) as rn
@@ -3009,8 +3006,7 @@ def dedupe(ctx, dry_run):
                 FROM ranked_items 
                 WHERE rn > 1
                 ORDER BY source_file, created_at
-            """
-            )
+            """)
 
             duplicates = await cursor.fetchall()
 
@@ -4087,7 +4083,9 @@ def recall(ctx, query, memory_type, limit, output_format):
                 click.echo(
                     f"{r.score:.2f}    {r.entry.memory_type.value:<15} {scope_label:<10} {content:<47}"
                 )
-            click.echo(f"\n{len(results)} memories found ({results[-1].match_type} search)")
+            click.echo(
+                f"\n{len(results)} memories found ({results[-1].match_type} search)"
+            )
 
     except ImportError as e:
         click.echo(
@@ -4196,6 +4194,7 @@ def memories(ctx, memory_type, since, limit, output_format):
 
         # Sort by importance then recency
         from datetime import datetime as _dt
+
         scoped_entries.sort(
             key=lambda se: (se[1].importance, se[1].created_at or _dt.min),
             reverse=True,
@@ -4216,7 +4215,9 @@ def memories(ctx, memory_type, since, limit, output_format):
                 output.append(d)
             click.echo(json.dumps(output, indent=2))
         else:  # table
-            click.echo(f"\n{'ID':<10} {'Scope':<10} {'Type':<15} {'Created':<12} {'Content':<35}")
+            click.echo(
+                f"\n{'ID':<10} {'Scope':<10} {'Type':<15} {'Created':<12} {'Content':<35}"
+            )
             click.echo("-" * 85)
             for scope, e in scoped_entries:
                 content = e.content[:32] + "..." if len(e.content) > 35 else e.content
@@ -4292,7 +4293,10 @@ def forget(ctx, memory_id, force):
             all_entries = []
             if manager.project_store:
                 all_entries.extend(
-                    [("project", e) for e in manager.project_store.list_memories(limit=1000)]
+                    [
+                        ("project", e)
+                        for e in manager.project_store.list_memories(limit=1000)
+                    ]
                 )
             all_entries.extend(
                 [("global", e) for e in manager.global_store.list_memories(limit=1000)]
