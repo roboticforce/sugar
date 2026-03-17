@@ -10,6 +10,7 @@ import signal
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -3839,6 +3840,23 @@ def _get_memory_store(config: dict):
     return MemoryStore(str(memory_db))
 
 
+def _get_global_memory_manager(config: Optional[dict] = None):
+    """Get GlobalMemoryManager with optional project store."""
+    from .memory import MemoryStore
+    from .memory.global_store import GlobalMemoryManager
+
+    project_store = None
+    if config:
+        try:
+            sugar_dir = Path(config["sugar"]["storage"]["database"]).parent
+            memory_db = sugar_dir / "memory.db"
+            project_store = MemoryStore(str(memory_db))
+        except (KeyError, Exception):
+            pass
+
+    return GlobalMemoryManager(project_store=project_store)
+
+
 @cli.command()
 @click.argument("content")
 @click.option(
@@ -3852,6 +3870,7 @@ def _get_memory_store(config: dict):
             "file_context",
             "error_pattern",
             "outcome",
+            "guideline",
         ]
     ),
     default="decision",
@@ -3867,25 +3886,38 @@ def _get_memory_store(config: dict):
 @click.option(
     "--importance", type=float, default=1.0, help="Importance score (0.0-2.0)"
 )
+@click.option(
+    "--global",
+    "is_global",
+    is_flag=True,
+    help="Store in global memory (available across all projects)",
+)
 @click.pass_context
-def remember(ctx, content, memory_type, tags, file_path, ttl, importance):
+def remember(ctx, content, memory_type, tags, file_path, ttl, importance, is_global):
     """Store a memory for future reference
 
     Examples:
         sugar remember "Always use async/await, never callbacks"
         sugar remember "Auth tokens expire after 15 minutes" --type research --ttl 90d
         sugar remember "payment_processor.rb handles Stripe webhooks" --type file_context --file src/payment_processor.rb
+        sugar remember "Always use Kamal for deploys" --type guideline --global
     """
     import uuid
 
-    from .memory import MemoryEntry, MemoryStore, MemoryType
+    from .memory import MemoryEntry, MemoryScope, MemoryType
 
     config_file = ctx.obj["config"]
-    config = _require_sugar_project(config_file)
+
+    if is_global:
+        config = None
+        manager = _get_global_memory_manager(config=None)
+        scope = MemoryScope.GLOBAL
+    else:
+        config = _require_sugar_project(config_file)
+        manager = _get_global_memory_manager(config=config)
+        scope = MemoryScope.PROJECT
 
     try:
-        store = _get_memory_store(config)
-
         # Parse TTL
         expires_at = None
         if ttl.lower() != "never":
@@ -3913,12 +3945,13 @@ def remember(ctx, content, memory_type, tags, file_path, ttl, importance):
             expires_at=expires_at,
         )
 
-        entry_id = store.store(entry)
-        store.close()
+        entry_id = manager.store(entry, scope=scope)
+        manager.close()
 
         click.echo(f"✅ Remembered: {content[:60]}{'...' if len(content) > 60 else ''}")
         click.echo(f"   ID: {entry_id[:8]}...")
         click.echo(f"   Type: {memory_type}")
+        click.echo(f"   Scope: {'global' if is_global else 'project'}")
         if expires_at:
             click.echo(f"   Expires: {expires_at.strftime('%Y-%m-%d')}")
 
@@ -3948,6 +3981,7 @@ def remember(ctx, content, memory_type, tags, file_path, ttl, importance):
             "file_context",
             "error_pattern",
             "outcome",
+            "guideline",
             "all",
         ]
     ),
@@ -3966,18 +4000,26 @@ def remember(ctx, content, memory_type, tags, file_path, ttl, importance):
 def recall(ctx, query, memory_type, limit, output_format):
     """Search memories for relevant context
 
+    Searches both project and global memories automatically.
+
     Examples:
         sugar recall "how do we handle authentication"
         sugar recall "error handling" --type error_pattern --limit 5
         sugar recall "database" --format json
     """
-    from .memory import MemoryQuery, MemoryStore, MemoryType
+    from .memory import MemoryQuery, MemoryType
 
     config_file = ctx.obj["config"]
-    config = _require_sugar_project(config_file)
+
+    # Try to load project config, but don't require it - global memories
+    # are available even outside a Sugar project.
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
 
     try:
-        store = _get_memory_store(config)
+        manager = _get_global_memory_manager(config=config)
 
         # Build query
         memory_types = None
@@ -3990,8 +4032,8 @@ def recall(ctx, query, memory_type, limit, output_format):
             limit=limit,
         )
 
-        results = store.search(search_query)
-        store.close()
+        results = manager.search(search_query, limit=limit)
+        manager.close()
 
         if not results:
             click.echo(f"No memories found matching: {query}")
@@ -4006,6 +4048,7 @@ def recall(ctx, query, memory_type, limit, output_format):
                     "content": r.entry.content,
                     "type": r.entry.memory_type.value,
                     "score": round(r.score, 3),
+                    "scope": r.scope,
                     "created_at": (
                         r.entry.created_at.isoformat() if r.entry.created_at else None
                     ),
@@ -4016,8 +4059,9 @@ def recall(ctx, query, memory_type, limit, output_format):
         elif output_format == "full":
             for i, r in enumerate(results, 1):
                 click.echo(f"\n{'='*60}")
+                scope_label = f" [{r.scope}]" if r.scope else ""
                 click.echo(
-                    f"[{i}] {r.entry.memory_type.value.upper()} (score: {r.score:.2f})"
+                    f"[{i}] {r.entry.memory_type.value.upper()}{scope_label} (score: {r.score:.2f})"
                 )
                 click.echo(f"ID: {r.entry.id}")
                 click.echo(
@@ -4030,19 +4074,20 @@ def recall(ctx, query, memory_type, limit, output_format):
                     click.echo(f"Files: {', '.join(r.entry.metadata['file_paths'])}")
         else:  # table
             click.echo(f"\nSearch results for: {query}\n")
-            click.echo(f"{'Score':<8} {'Type':<15} {'Content':<55}")
-            click.echo("-" * 80)
+            click.echo(f"{'Score':<8} {'Type':<15} {'Scope':<10} {'Content':<47}")
+            click.echo("-" * 82)
             for r in results:
                 content = (
-                    r.entry.content[:52] + "..."
-                    if len(r.entry.content) > 55
+                    r.entry.content[:44] + "..."
+                    if len(r.entry.content) > 47
                     else r.entry.content
                 )
                 content = content.replace("\n", " ")
+                scope_label = r.scope or "project"
                 click.echo(
-                    f"{r.score:.2f}    {r.entry.memory_type.value:<15} {content:<55}"
+                    f"{r.score:.2f}    {r.entry.memory_type.value:<15} {scope_label:<10} {content:<47}"
                 )
-            click.echo(f"\n{len(results)} memories found ({r.match_type} search)")
+            click.echo(f"\n{len(results)} memories found ({results[-1].match_type} search)")
 
     except ImportError as e:
         click.echo(
@@ -4069,6 +4114,7 @@ def recall(ctx, query, memory_type, limit, output_format):
             "file_context",
             "error_pattern",
             "outcome",
+            "guideline",
             "all",
         ]
     ),
@@ -4086,20 +4132,25 @@ def recall(ctx, query, memory_type, limit, output_format):
 )
 @click.pass_context
 def memories(ctx, memory_type, since, limit, output_format):
-    """List stored memories
+    """List stored memories (project and global)
 
     Examples:
         sugar memories
         sugar memories --type preference
         sugar memories --since 7d --format json
     """
-    from .memory import MemoryStore, MemoryType
+    from .memory import MemoryType
 
     config_file = ctx.obj["config"]
-    config = _require_sugar_project(config_file)
+
+    # Try to load project config but don't require it.
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
 
     try:
-        store = _get_memory_store(config)
+        manager = _get_global_memory_manager(config=config)
 
         # Parse since filter
         since_days = None
@@ -4119,41 +4170,68 @@ def memories(ctx, memory_type, since, limit, output_format):
                 )
                 sys.exit(1)
 
-        # Get memories
+        # Get memories from both stores
         type_filter = None if memory_type == "all" else MemoryType(memory_type)
-        entries = store.list_memories(
+
+        # Collect from project store with scope label
+        project_entries = []
+        if manager.project_store:
+            project_entries = manager.project_store.list_memories(
+                memory_type=type_filter,
+                limit=limit,
+                since_days=since_days,
+            )
+
+        global_entries = manager.global_store.list_memories(
             memory_type=type_filter,
             limit=limit,
             since_days=since_days,
         )
-        store.close()
+        manager.close()
 
-        if not entries:
+        # Build combined list with scope tracking
+        scoped_entries = [("project", e) for e in project_entries] + [
+            ("global", e) for e in global_entries
+        ]
+
+        # Sort by importance then recency
+        from datetime import datetime as _dt
+        scoped_entries.sort(
+            key=lambda se: (se[1].importance, se[1].created_at or _dt.min),
+            reverse=True,
+        )
+        scoped_entries = scoped_entries[:limit]
+
+        if not scoped_entries:
             click.echo("No memories found")
             return
 
         if output_format == "json":
             import json
 
-            output = [e.to_dict() for e in entries]
+            output = []
+            for scope, e in scoped_entries:
+                d = e.to_dict()
+                d["scope"] = scope
+                output.append(d)
             click.echo(json.dumps(output, indent=2))
         else:  # table
-            click.echo(f"\n{'ID':<10} {'Type':<15} {'Created':<12} {'Content':<40}")
-            click.echo("-" * 80)
-            for e in entries:
-                content = e.content[:37] + "..." if len(e.content) > 40 else e.content
+            click.echo(f"\n{'ID':<10} {'Scope':<10} {'Type':<15} {'Created':<12} {'Content':<35}")
+            click.echo("-" * 85)
+            for scope, e in scoped_entries:
+                content = e.content[:32] + "..." if len(e.content) > 35 else e.content
                 content = content.replace("\n", " ")
                 created = (
                     e.created_at.strftime("%Y-%m-%d") if e.created_at else "unknown"
                 )
                 click.echo(
-                    f"{e.id[:8]:<10} {e.memory_type.value:<15} {created:<12} {content:<40}"
+                    f"{e.id[:8]:<10} {scope:<10} {e.memory_type.value:<15} {created:<12} {content:<35}"
                 )
-            click.echo(f"\n{len(entries)} memories")
+            click.echo(f"\n{len(scoped_entries)} memories")
 
             # Show counts by type
-            type_counts = {}
-            for e in entries:
+            type_counts: dict = {}
+            for _scope, e in scoped_entries:
                 t = e.memory_type.value
                 type_counts[t] = type_counts.get(t, 0) + 1
             if len(type_counts) > 1:
@@ -4178,41 +4256,62 @@ def memories(ctx, memory_type, since, limit, output_format):
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.pass_context
 def forget(ctx, memory_id, force):
-    """Delete a memory by ID
+    """Delete a memory by ID (searches both project and global stores)
 
     Examples:
         sugar forget abc123
         sugar forget abc123 --force
     """
-    from .memory import MemoryStore
-
     config_file = ctx.obj["config"]
-    config = _require_sugar_project(config_file)
+
+    # Try to load project config but don't require it.
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
 
     try:
-        store = _get_memory_store(config)
+        manager = _get_global_memory_manager(config=config)
 
-        # Find the memory first
-        entry = store.get(memory_id)
+        # Find the memory in either store - check project first, then global
+        entry = None
+        entry_scope = None
 
-        # If not found by exact ID, try prefix match
+        if manager.project_store:
+            entry = manager.project_store.get(memory_id)
+            if entry:
+                entry_scope = "project"
+
         if not entry:
-            entries = store.list_memories(limit=1000)
-            matches = [e for e in entries if e.id.startswith(memory_id)]
+            entry = manager.global_store.get(memory_id)
+            if entry:
+                entry_scope = "global"
+
+        # If not found by exact ID, try prefix match across both stores
+        if not entry:
+            all_entries = []
+            if manager.project_store:
+                all_entries.extend(
+                    [("project", e) for e in manager.project_store.list_memories(limit=1000)]
+                )
+            all_entries.extend(
+                [("global", e) for e in manager.global_store.list_memories(limit=1000)]
+            )
+            matches = [(s, e) for s, e in all_entries if e.id.startswith(memory_id)]
             if len(matches) == 1:
-                entry = matches[0]
+                entry_scope, entry = matches[0]
             elif len(matches) > 1:
                 click.echo(
                     f"❌ Ambiguous ID '{memory_id}' matches {len(matches)} memories:"
                 )
-                for m in matches[:5]:
-                    click.echo(f"   {m.id[:12]} - {m.content[:40]}...")
-                store.close()
+                for s, m in matches[:5]:
+                    click.echo(f"   {m.id[:12]} [{s}] - {m.content[:40]}...")
+                manager.close()
                 sys.exit(1)
 
         if not entry:
             click.echo(f"❌ Memory not found: {memory_id}")
-            store.close()
+            manager.close()
             sys.exit(1)
 
         # Confirm deletion
@@ -4220,17 +4319,18 @@ def forget(ctx, memory_id, force):
             click.echo(f"\nMemory to delete:")
             click.echo(f"  ID: {entry.id}")
             click.echo(f"  Type: {entry.memory_type.value}")
+            click.echo(f"  Scope: {entry_scope}")
             click.echo(
                 f"  Content: {entry.content[:100]}{'...' if len(entry.content) > 100 else ''}"
             )
             if not click.confirm("\nDelete this memory?"):
                 click.echo("Cancelled")
-                store.close()
+                manager.close()
                 return
 
-        # Delete
-        deleted = store.delete(entry.id)
-        store.close()
+        # Delete from the appropriate store
+        deleted = manager.delete(entry.id)
+        manager.close()
 
         if deleted:
             click.echo(f"✅ Memory deleted: {entry.id[:8]}...")
@@ -4353,13 +4453,20 @@ def export_context(ctx, output_format, limit, types):
 @click.pass_context
 def memory_stats(ctx):
     """Show memory system statistics"""
-    from .memory import MemoryStore, MemoryType, is_semantic_search_available
+    import os
+
+    from .memory import MemoryType, is_semantic_search_available
 
     config_file = ctx.obj["config"]
-    config = _require_sugar_project(config_file)
+
+    # Try to load project config but don't require it.
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
 
     try:
-        store = _get_memory_store(config)
+        manager = _get_global_memory_manager(config=config)
 
         click.echo("\n📊 Sugar Memory Statistics\n")
 
@@ -4368,34 +4475,40 @@ def memory_stats(ctx):
         click.echo(
             f"Semantic search: {'✅ Available' if semantic_available else '❌ Not available (using keyword search)'}"
         )
-        click.echo(f"Database: {store.db_path}")
         click.echo("")
 
-        # Count by type
-        total = store.count()
-        click.echo(f"Total memories: {total}")
+        def _print_store_stats(label: str, store):
+            """Print stats for a single MemoryStore."""
+            click.echo(f"{label}")
+            click.echo(f"  Database: {store.db_path}")
+            total = store.count()
+            click.echo(f"  Total memories: {total}")
+            if total > 0:
+                click.echo("  By type:")
+                for mem_type in MemoryType:
+                    count = store.count(mem_type)
+                    if count > 0:
+                        click.echo(f"    {mem_type.value:<15} {count:>5}")
+            if store.db_path.exists():
+                size_bytes = os.path.getsize(store.db_path)
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes} bytes"
+                elif size_bytes < 1024 * 1024:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                else:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                click.echo(f"  Database size: {size_str}")
+            click.echo("")
 
-        if total > 0:
-            click.echo("\nBy type:")
-            for mem_type in MemoryType:
-                count = store.count(mem_type)
-                if count > 0:
-                    click.echo(f"  {mem_type.value:<15} {count:>5}")
+        if manager.project_store:
+            _print_store_stats("Project memories:", manager.project_store)
+        else:
+            click.echo("Project memories: (not in a Sugar project)")
+            click.echo("")
 
-        # Database size
-        import os
+        _print_store_stats("Global memories:", manager.global_store)
 
-        if store.db_path.exists():
-            size_bytes = os.path.getsize(store.db_path)
-            if size_bytes < 1024:
-                size_str = f"{size_bytes} bytes"
-            elif size_bytes < 1024 * 1024:
-                size_str = f"{size_bytes / 1024:.1f} KB"
-            else:
-                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
-            click.echo(f"\nDatabase size: {size_str}")
-
-        store.close()
+        manager.close()
 
     except ImportError as e:
         click.echo(

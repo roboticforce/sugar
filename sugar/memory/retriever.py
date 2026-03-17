@@ -4,7 +4,7 @@ Memory retrieval for task execution context injection.
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from .store import MemoryStore
 from .types import MemoryEntry, MemoryQuery, MemorySearchResult, MemoryType
@@ -20,9 +20,12 @@ class MemoryRetriever:
     - Semantic search for relevant context
     - Combining different memory types
     - Formatting memories for prompt injection
+
+    Accepts either a MemoryStore or a GlobalMemoryManager - both expose the
+    same search/get_by_type/list_memories interface.
     """
 
-    def __init__(self, store: MemoryStore):
+    def __init__(self, store: Union[MemoryStore, "GlobalMemoryManager"]):  # noqa: F821
         self.store = store
 
     def get_relevant(
@@ -63,7 +66,9 @@ class MemoryRetriever:
         Get overall project context for session injection.
 
         Returns:
-            Dictionary with organized memories by type
+            Dictionary with organized memories by type. Includes a
+            "guidelines" key when the store is a GlobalMemoryManager -
+            populated from global guideline memories.
         """
         context = {
             "preferences": [],
@@ -96,6 +101,19 @@ class MemoryRetriever:
         )
         context["error_patterns"] = [self._entry_to_dict(e) for e in patterns]
 
+        # Pull global guidelines when a GlobalMemoryManager is in use.
+        # Import lazily to avoid a circular dependency.
+        try:
+            from .global_store import GlobalMemoryManager
+
+            if isinstance(self.store, GlobalMemoryManager):
+                guidelines = self.store.global_store.get_by_type(
+                    MemoryType.GUIDELINE, limit=10
+                )
+                context["guidelines"] = [self._entry_to_dict(e) for e in guidelines]
+        except ImportError:
+            pass
+
         return context
 
     def format_for_prompt(
@@ -126,6 +144,8 @@ class MemoryRetriever:
 
             # Build memory block
             type_label = entry.memory_type.value.replace("_", " ").title()
+            if hasattr(result, "scope") and result.scope == "global":
+                type_label = f"[Global] {type_label}"
             block_lines = [
                 f"### {type_label} ({age})",
                 entry.content,
