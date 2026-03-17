@@ -77,13 +77,15 @@ This creates:
 
 ### 2. Enable MCP Features in Claude Code (Recommended)
 
-To get the most out of Sugar, add the MCP server to Claude Code:
+To get the most out of Sugar, add the memory MCP server to Claude Code first:
 
 ```bash
 claude mcp add sugar -- sugar mcp memory
 ```
 
-This gives Claude Code access to your project's memory system - decisions, preferences, error patterns, and more. See the [Memory System Guide](memory.md) for details.
+This gives Claude Code access to your memory system - decisions, preferences, error patterns, guidelines, and more. The memory MCP server works from any directory. Global memories (stored with `--global`) are always available, even outside Sugar projects.
+
+See the [Memory System Guide](memory.md) for details, including the `--global` flag for cross-project knowledge.
 
 **Claude CLI Detection:**
 Sugar will automatically search for Claude CLI in common locations:

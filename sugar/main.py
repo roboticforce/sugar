@@ -219,9 +219,9 @@ def signal_handler(signum, frame):
 @click.option("--version", is_flag=True, help="Show version information")
 @click.pass_context
 def cli(ctx, config, debug, version):
-    """🍰 Sugar - The autonomous layer for AI coding agents
+    """Sugar - Persistent memory for AI coding agents
 
-    Manages task queues, runs 24/7, and ships working code with any AI coding CLI.
+    Cross-session context, global knowledge, and autonomous task execution.
     """
     # Handle version request
     if version:

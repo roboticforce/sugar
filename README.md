@@ -1,63 +1,159 @@
 # 🍰 Sugar
 
-The autonomous layer for AI coding agents.
+Persistent memory for AI coding agents.
 
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
-Sugar manages your task queue, runs 24/7, and ships working code while you focus on what matters.
+Sugar gives your AI agents memory that persists across sessions and projects. It remembers your decisions, patterns, and preferences so you stop re-explaining context every time you open a new session. The task queue builds on top of that memory layer to run work autonomously while you focus on other things.
 
-## What It Does
+## What Sugar Does
 
-Sugar adds **autonomy and persistence** to your AI coding workflow. Instead of one-off interactions:
+Every AI coding session starts cold. You explain the same architectural decisions, re-describe the same error patterns, and re-establish the same preferences - over and over.
 
-- **Continuous execution** - Runs 24/7, working through your task queue
-- **Agent-agnostic** - Works with Claude Code, OpenCode, Aider, or any AI CLI
-- **Persistent memory** - Remember decisions, preferences, and patterns across sessions
-- **Delegate and forget** - Hand off tasks from any session
-- **Builds features** - Takes specs, implements, tests, commits working code
-- **Fixes bugs** - Reads error logs, investigates, implements fixes
-- **GitHub integration** - Creates PRs, updates issues, tracks progress
+Sugar fixes that. It stores what matters and surfaces it when relevant:
 
-You plan the work. Sugar executes it.
+- **Project memory** - Decisions, preferences, error patterns, and research stored per-project
+- **Global memory** - Standards and guidelines shared across every project you work on
+- **Semantic search** - Retrieve relevant context by meaning, not just keywords
+- **MCP integration** - Your AI agent reads and writes memory directly during sessions
+- **Task queue** - Hand off work to run autonomously, powered by the same memory layer
 
-**Works with:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [OpenCode](https://github.com/opencode-ai/opencode) | [Aider](https://aider.chat) | [Goose](https://block.github.io/goose) | Any CLI-based AI agent
+## Quick Start
 
-## Native AI Agent Integrations
+```bash
+# Install once, use in any project
+pipx install sugarai
 
-Sugar has **first-class integrations** with leading AI coding agents:
+# Initialize in your project
+cd ~/dev/my-app
+sugar init
 
-| Agent | Integration | Features |
-|-------|-------------|----------|
-| **Claude Code** | MCP Server | Memory access, task delegation, context injection |
-| **OpenCode** | Plugin + HTTP API | Bidirectional communication, notifications, memory injection |
-| **Goose** | MCP Server | Task management, memory access |
+# Store what you know
+sugar remember "We use async/await everywhere, never callbacks" --type preference
+sugar remember "JWT tokens use RS256, expire in 15 min - see auth/tokens.py" --type decision
+sugar remember "When tests fail with import errors, check __init__.py exports first" --type error_pattern
 
-**Claude Code** - Full memory system access via MCP:
+# Retrieve it later
+sugar recall "authentication"
+sugar recall "how do we handle async"
+```
+
+Your AI agent can also read and write memory directly - no copy-pasting required.
+
+## MCP Integration
+
+Connect Sugar's memory to your AI agent so it can access project context automatically.
+
+**Claude Code - Memory server (primary):**
 ```bash
 claude mcp add sugar -- sugar mcp memory
 ```
 
-**OpenCode** - One-command setup with MCP integration:
+**Claude Code - Task server (optional):**
 ```bash
-sugar opencode setup  # Automatically configures OpenCode
-# Then restart OpenCode
+claude mcp add sugar-tasks -- sugar mcp tasks
 ```
 
-Both integrations support **automatic memory injection** - Sugar injects relevant context (decisions, preferences, error patterns) into your AI sessions automatically.
+Once connected, Claude can call `store_learning` to save context mid-session and `search_memories` to pull relevant knowledge before starting work. The memory server works from any directory - global memory is always available even outside a Sugar project.
 
-## Install
+**Other MCP clients (Goose, Claude Desktop):**
+```bash
+# Goose
+goose configure
+# Select "Add Extension" -> "Command-line Extension"
+# Name: sugar
+# Command: sugar mcp memory
 
-**Recommended: pipx** (install once, use everywhere)
+# OpenCode - one command setup
+sugar opencode setup
+```
+
+## Global Memory (New in 3.8)
+
+Some knowledge belongs to you, not just one project. Coding standards, preferred patterns, security practices - these should follow you everywhere.
+
+```bash
+# Store a guideline that applies to all your projects
+sugar remember "Always validate and sanitize user input before any DB query" \
+  --type guideline --global
+
+sugar remember "Use conventional commits: feat/fix/chore/docs/test" \
+  --type guideline --global
+
+# View your global guidelines
+sugar recall "security" --global
+sugar memories --global
+
+# Search works project-first, but guidelines always surface
+sugar recall "database queries"
+# Returns: project-specific memories + relevant global guidelines
+```
+
+Global memory lives at `~/.sugar/memory.db`. Project memory lives at `.sugar/sugar.db`. When you search, project context wins - but `guideline` type memories from global always appear in results so your standards stay visible.
+
+**Via MCP**, pass `scope: "global"` to `store_learning` to save cross-project knowledge directly from your AI session.
+
+**Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`, `guideline`
+
+Full docs: [Memory System Guide](docs/user/memory.md)
+
+## Task Queue
+
+The task queue lets you hand off work and let it run autonomously. It reads from the same memory store, so Sugar already knows your preferences and patterns before it starts.
+
+```bash
+# Add tasks
+sugar add "Fix authentication timeout" --type bug_fix --urgent
+sugar add "Add user profile settings" --type feature
+
+# Start the autonomous loop
+sugar run
+```
+
+Sugar picks up tasks, executes them with your configured AI agent, runs tests, commits working code, and moves to the next task. It runs until the queue is empty or you stop it.
+
+**Delegate from Claude Code mid-session:**
+```
+/sugar-task "Fix login timeout" --type bug_fix --urgent
+```
+
+**Advanced task options:**
+```bash
+# Orchestrated execution (research -> plan -> implement -> review)
+sugar add "Add OAuth authentication" --type feature --orchestrate
+
+# Iterative mode - loops until tests pass
+sugar add "Implement rate limiting" --ralph --max-iterations 10
+
+# Check queue status
+sugar list
+sugar status
+```
+
+Full docs: [Task Orchestration](docs/task_orchestration.md)
+
+## Supported AI Tools
+
+Works with any CLI-based AI coding agent:
+
+| Agent | Memory MCP | Task MCP | Notes |
+|-------|-----------|---------|-------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Yes | Yes | Full support |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Yes | Yes | `sugar opencode setup` |
+| [Goose](https://block.github.io/goose) | Yes | Yes | Via MCP |
+| [Aider](https://aider.chat) | Via CLI | Via CLI | Manual recall |
+
+## Installation
+
+**Recommended: pipx** - installs once, available everywhere, no venv conflicts:
 ```bash
 pipx install sugarai
 ```
 
-This gives you a global `sugar` command that works in any project. Each project gets its own isolated config and database in a `.sugar/` folder.
-
 **Upgrade / Uninstall:**
 ```bash
-pipx upgrade sugarai    # Upgrade to latest version
-pipx uninstall sugarai  # Remove completely
+pipx upgrade sugarai
+pipx uninstall sugarai
 ```
 
 <details>
@@ -68,19 +164,19 @@ pipx uninstall sugarai  # Remove completely
 pip install sugarai
 ```
 
-**uv** (fast alternative to pip)
+**uv**
 ```bash
 uv pip install sugarai
+```
+
+**With semantic search (recommended for memory):**
+```bash
+pipx install 'sugarai[memory]'
 ```
 
 **With GitHub integration:**
 ```bash
 pipx install 'sugarai[github]'
-```
-
-**With memory system (semantic search):**
-```bash
-pipx install 'sugarai[memory]'
 ```
 
 **All features:**
@@ -90,425 +186,70 @@ pipx install 'sugarai[all]'
 
 </details>
 
-## Quick Start
+Sugar is **project-local** by default. Each project gets its own `.sugar/` folder with its own database and config. Global memory lives at `~/.sugar/`. Like `git` - one installation, per-project state.
 
-Sugar is **project-local** - each project has its own isolated task queue and config.
-
-```bash
-# Navigate to your project
-cd ~/dev/my-app
-
-# Initialize Sugar (creates .sugar/ folder)
-sugar init
-
-# This creates:
-# - .sugar/sugar.db     (task queue database)
-# - .sugar/config.yaml  (project settings)
-# - .sugar/prompts/     (custom prompts)
-
-# Add tasks to the queue
-sugar add "Fix authentication timeout" --type bug_fix --urgent
-sugar add "Add user profile settings" --type feature
-
-# Start the autonomous loop
-sugar run
-```
-
-Sugar will:
-1. Pick up tasks from the queue
-2. Execute them using your configured AI agent
-3. Run tests and verify changes
-4. Commit working code
-5. Move to the next task
-
-It keeps going until the queue is empty (or you stop it).
-
-## Memory System
-
-Sugar remembers what matters across sessions. No more re-explaining decisions or rediscovering patterns.
-
-**Saves tokens:** Memories are stored as compressed summaries (~90% smaller) and retrieved only when relevant. Real projects see **~89% token reduction per session** - that's ~$32 saved over 500 sessions.
-
-```bash
-# Store knowledge
-sugar remember "Always use async/await, never callbacks" --type preference
-sugar remember "JWT tokens use RS256, expire in 15 min" --type decision
-
-# Search memories
-sugar recall "authentication"
-
-# Claude Code integration - give Claude access to your project memory
-claude mcp add sugar -- sugar mcp memory
-
-# See your token savings
-python examples/token_savings_demo.py
-```
-
-**Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`
-
-**Full docs:** [Memory System Guide](docs/user/memory.md)
-
-**Delegate from Claude Code:**
-```
-/sugar-task "Fix login timeout" --type bug_fix --urgent
-```
-Sugar picks it up and works on it while you keep coding.
-
-## How It Works: Project-Local Architecture
+## Project Structure
 
 ```
-Global Installation (pipx)
-└── sugar CLI (~/.local/bin/sugar)
+~/.sugar/
+└── memory.db          # Global memory (guidelines, cross-project knowledge)
 
-Project A                          Project B
-~/dev/frontend-app/                ~/dev/backend-api/
-├── .sugar/                        ├── .sugar/
-│   ├── sugar.db                   │   ├── sugar.db
-│   ├── config.yaml                │   ├── config.yaml
-│   └── prompts/                   │   └── prompts/
-├── src/                           ├── main.py
-└── tests/                         └── requirements.txt
-
-Running `sugar` uses the .sugar/ folder in your current directory
+~/dev/my-app/
+├── .sugar/
+│   ├── sugar.db       # Project memory + task queue
+│   ├── config.yaml    # Project settings
+│   └── prompts/       # Custom agent prompts
+└── src/
 ```
-
-**One global CLI, many isolated projects.** Like `git` - one installation, per-project repositories.
-
-## FAQ
-
-### Do I need to install Sugar in every project?
-
-**No!** Install Sugar once with `pipx install sugarai` and use it everywhere.
-
-The `sugar` command is globally available, but it reads configuration from the `.sugar/` folder in your **current directory**:
-
-- **Global CLI access**: Run `sugar` from anywhere without venv activation
-- **Project-local state**: Each project's tasks and config stay isolated
-- **No conflicts**: Work on multiple projects simultaneously
-
-### Can I run Sugar on multiple projects at the same time?
-
-Yes! Each project has its own isolated database.
-
-```bash
-# Terminal 1
-cd ~/dev/frontend-app
-sugar run
-
-# Terminal 2 (simultaneously)
-cd ~/dev/backend-api
-sugar run
-```
-
-The two Sugar instances won't interfere with each other.
-
-### What happens if I run `sugar` outside a project folder?
-
-Sugar will show a friendly error:
-
-```
-❌ Not a Sugar project
-
-   Could not find: .sugar/config.yaml
-
-   Run 'sugar init' to initialize Sugar in this directory.
-```
-
-### Why pipx over pip?
-
-| Installation | Global access? | Requires venv? |
-|--------------|----------------|----------------|
-| `pip install sugarai` | Only in active venv | Yes |
-| `pipx install sugarai` | Yes, always | No |
-
-With pipx, Sugar's dependencies don't conflict with your project's dependencies.
-
-### Should I commit .sugar/ to git?
 
 **Recommended .gitignore:**
 ```gitignore
-.sugar/sugar.db       # Task queue is personal
-.sugar/sugar.log      # Logs contain local paths
-.sugar/*.db-*         # SQLite temp files
+.sugar/sugar.db
+.sugar/sugar.log
+.sugar/*.db-*
 ```
 
-**DO commit:** `.sugar/config.yaml` and `.sugar/prompts/` to share settings with your team.
-
-## Features
-
-**Native AI Agent Integrations** *(New in 3.5)*
-- **Claude Code** - MCP server for memory access and task delegation
-- **OpenCode** - Full bidirectional integration with notifications and context injection
-- Automatic memory injection into AI sessions
-- Real-time task lifecycle notifications
-
-**Memory System** *(New in 3.5)*
-- Persistent semantic memory across sessions
-- Remember decisions, preferences, error patterns
-- Claude Code & OpenCode integration via MCP server
-- Semantic search with `sugar recall`
-
-**Task Management**
-- Rich task context with priorities and metadata
-- Custom task types for your workflow
-- Queue management and filtering
-
-**Task Orchestration**
-- Auto-decomposes complex features into subtasks
-- 4-stage workflow: Research → Planning → Implementation → Review
-- Specialist agent routing (frontend, backend, QA, security, DevOps)
-- Parallel execution with dependency management
-
-**Autonomous Execution**
-- Specialized task agents (UX, backend, QA, security, DevOps)
-- Automatic retries on failures
-- Quality checks and testing
-
-**GitHub Integration**
-- Reads issues, creates PRs
-- Updates issue status automatically
-- Commits with proper messages
-
-**Ralph Wiggum Integration**
-- Iterative execution for complex tasks
-- Self-correcting loops until tests pass
-- Prevents single-shot failures
-
-**Full docs:** [Memory System](docs/user/memory.md) | [Goose Integration](docs/user/goose.md) | [OpenCode Integration](docs/user/opencode.md) | [Ralph Wiggum](docs/ralph-wiggum.md)
+Commit `.sugar/config.yaml` and `.sugar/prompts/` to share settings with your team.
 
 ## Configuration
 
-`.sugar/config.yaml` is auto-generated on `sugar init`. Key settings:
+`.sugar/config.yaml` is created on `sugar init`:
 
 ```yaml
 sugar:
-  dry_run: false              # Set to true for testing
-  loop_interval: 300          # 5 minutes between cycles
-  max_concurrent_work: 3      # Parallel task execution
+  dry_run: false
+  loop_interval: 300
+  max_concurrent_work: 3
 
 claude:
-  enable_agents: true         # Use specialized Claude agents
+  enable_agents: true
 
 discovery:
   github:
     enabled: true
     repo: "user/repository"
-  error_logs:
-    enabled: true
-    paths: ["logs/errors/"]
 ```
-
-## Integrations
-
-### Claude Code Plugin
-
-Sugar has native Claude Code integration. Delegate work directly from your Claude sessions.
-
-```
-/plugin install roboticforce/sugar
-```
-
-**Inside a Claude Code session:**
-```
-You: "I'm working on auth but need to fix these test failures.
-     Can you handle the tests while I finish?"
-
-Claude: "I'll create a Sugar task for the test fixes."
-
-/sugar-task "Fix authentication test failures" --type test --urgent
-```
-
-**Available Slash Commands:**
-- `/sugar-task` - Create tasks with rich context
-- `/sugar-status` - Check queue and progress
-- `/sugar-run` - Start autonomous mode
-
-### OpenCode Integration
-
-Sugar has native MCP integration with [OpenCode](https://github.com/opencode-ai/opencode):
-
-**Features:**
-- MCP servers for task management and memory access
-- Automatic memory injection into OpenCode sessions
-- Context-aware memory retrieval based on current work
-
-**Quick Setup:**
-```bash
-# One-command setup - adds Sugar MCP servers to OpenCode config
-sugar opencode setup
-
-# Restart OpenCode to load the new servers
-# Then verify:
-sugar opencode status
-```
-
-The setup command automatically:
-- Finds your OpenCode config file
-- Adds `sugar-tasks` and `sugar-memory` MCP servers
-- Preserves your existing configuration
-
-**Options:**
-```bash
-sugar opencode setup --dry-run  # Preview changes without applying
-sugar opencode setup --yes      # Non-interactive mode
-sugar opencode setup --no-memory  # Only add task server
-```
-
-### MCP Server Integration
-
-Sugar provides MCP servers for Goose, Claude Code, Claude Desktop, and other MCP clients.
-
-**Using with Claude Code (Memory):**
-```bash
-# Add Sugar memory to Claude Code
-claude mcp add sugar -- sugar mcp memory
-```
-
-Or add to `~/.claude.json`:
-```json
-{
-  "mcpServers": {
-    "sugar": {
-      "type": "stdio",
-      "command": "sugar",
-      "args": ["mcp", "memory"]
-    }
-  }
-}
-```
-
-This gives Claude Code access to your project's memory - decisions, preferences, error patterns, and more.
-
-**Using with Goose:**
-```bash
-goose configure
-# Select "Add Extension" → "Command-line Extension"
-# Name: sugar
-# Command: npx -y sugarai-mcp
-```
-
-**Using with Claude Desktop:**
-```json
-{
-  "mcpServers": {
-    "sugar": {
-      "command": "npx",
-      "args": ["-y", "sugarai-mcp"],
-      "env": {
-        "SUGAR_PROJECT_ROOT": "/path/to/your/project"
-      }
-    }
-  }
-}
-```
-
-### Memory System
-
-Sugar's memory system provides persistent context across sessions:
-
-```bash
-# Store memories
-sugar remember "Always use async/await, never callbacks" --type preference
-sugar remember "Auth tokens expire after 15 minutes" --type research --ttl 90d
-
-# Search memories
-sugar recall "how do we handle authentication"
-sugar recall "error patterns" --type error_pattern
-
-# List and manage
-sugar memories --type decision --since 7d
-sugar forget abc123 --force
-sugar memory-stats
-
-# Export for Claude Code SessionStart hook
-sugar export-context
-```
-
-**Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`
-
-**Full docs:** [Memory System Guide](docs/user/memory.md)
-
-## Advanced Usage
-
-**Task Orchestration**
-```bash
-sugar add "Add OAuth authentication" --type feature --orchestrate
-
-# Sugar will:
-# 1. RESEARCH - Search best practices, analyze codebase
-# 2. PLAN - Create implementation plan with subtasks
-# 3. IMPLEMENT - Route subtasks to specialists in parallel
-# 4. REVIEW - Code review and test verification
-
-sugar orchestrate <task_id> --stages
-```
-
-**Ralph Wiggum (iterative execution)**
-```bash
-sugar add "Implement rate limiting" --ralph --max-iterations 10
-# Iterates until tests pass, not just until code is written
-```
-
-**Custom Task Types**
-```bash
-sugar task-type add deployment --name "Deployment" --emoji "🚀"
-sugar add "Deploy to staging" --type deployment
-```
-
-**Complex Tasks with Context**
-```bash
-sugar add "User Dashboard" --json --description '{
-  "priority": 5,
-  "context": "Complete dashboard redesign",
-  "agent_assignments": {
-    "frontend_developer": "Implementation",
-    "qa_test_engineer": "Testing"
-  }
-}'
-```
-
-## Troubleshooting
-
-**Sugar not finding Claude CLI?**
-```yaml
-# .sugar/config.yaml
-claude:
-  command: "/full/path/to/claude"
-```
-
-**Tasks not executing?**
-```bash
-cat .sugar/config.yaml | grep dry_run  # Check dry_run is false
-tail -f .sugar/sugar.log                # Monitor logs
-sugar run --once                        # Test single cycle
-```
-
-**More help:**
-- [Troubleshooting Guide](docs/user/troubleshooting.md)
-- [GitHub Issues](https://github.com/roboticforce/sugar/issues)
 
 ## Documentation
 
 - [Quick Start](docs/user/quick-start.md)
+- [Memory System](docs/user/memory.md)
 - [CLI Reference](docs/user/cli-reference.md)
-- [Memory System](docs/user/memory.md) *(New)*
 - [Task Orchestration](docs/task_orchestration.md)
-- [Ralph Wiggum](docs/ralph-wiggum.md)
+- [Goose Integration](docs/user/goose.md)
+- [OpenCode Integration](docs/user/opencode.md)
 - [GitHub Integration](docs/user/github-integration.md)
 - [Configuration Guide](docs/user/configuration-best-practices.md)
+- [Troubleshooting](docs/user/troubleshooting.md)
 
 ## Requirements
 
 - Python 3.11+
-- An AI coding agent CLI:
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (default)
-  - [OpenCode](https://github.com/opencode-ai/opencode)
-  - [Aider](https://aider.chat)
-  - Or any CLI-based AI coding tool
+- A CLI-based AI agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/opencode-ai/opencode), [Aider](https://aider.chat), or similar
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](docs/dev/contributing.md).
+Contributions welcome. See [CONTRIBUTING.md](docs/dev/contributing.md).
 
 ```bash
 git clone https://github.com/roboticforce/sugar.git
@@ -526,8 +267,4 @@ pytest tests/ -v
 
 ---
 
-**Sugar v3.5** - The autonomous layer for AI coding agents
-
-*Now with native Claude Code and OpenCode integrations for seamless AI agent collaboration.*
-
-> ⚠️ Sugar is provided "AS IS" without warranty. Review all AI-generated code before use.
+> Sugar is provided "AS IS" without warranty. Review all AI-generated code before use.
