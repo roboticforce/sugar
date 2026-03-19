@@ -316,10 +316,17 @@ class SubAgentManager:
 
         Note: This will attempt graceful shutdown but may not
         interrupt tasks that are already executing.
+
+        Takes a snapshot of the dict before iterating to avoid
+        RuntimeError if spawn()'s finally block mutates the dict
+        concurrently (e.g., during shutdown while tasks are in-flight).
         """
         logger.warning(f"Cancelling {len(self._active_subagents)} active sub-agents")
 
-        for task_id, subagent in self._active_subagents.items():
+        # Snapshot to avoid RuntimeError: dictionary changed size during iteration
+        active_snapshot = dict(self._active_subagents)
+
+        for task_id, subagent in active_snapshot.items():
             try:
                 await subagent.end_session()
                 logger.debug(f"Cancelled sub-agent task: {task_id}")

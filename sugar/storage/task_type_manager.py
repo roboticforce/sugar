@@ -4,6 +4,7 @@ Provides database operations for managing configurable task types.
 Integrates with the existing WorkQueue storage system.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -20,96 +21,101 @@ class TaskTypeManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     async def initialize(self):
         """Initialize the task_types table if it doesn't exist"""
         if self._initialized:
             return
 
-        async with aiosqlite.connect(self.db_path) as db:
-            # Check if task_types table exists
-            cursor = await db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_types'"
-            )
-            table_exists = await cursor.fetchone()
+        async with self._init_lock:
+            if self._initialized:
+                return
 
-            if not table_exists:
-                # Create task_types table
-                await db.execute(
-                    """
-                    CREATE TABLE task_types (
-                        id TEXT PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        description TEXT,
-                        agent TEXT DEFAULT 'general-purpose',
-                        commit_template TEXT,
-                        emoji TEXT,
-                        file_patterns TEXT DEFAULT '[]',
-                        default_acceptance_criteria TEXT DEFAULT '[]',
-                        model_tier TEXT DEFAULT 'standard',
-                        complexity_level INTEGER DEFAULT 3,
-                        allowed_tools TEXT DEFAULT NULL,
-                        disallowed_tools TEXT DEFAULT NULL,
-                        bash_permissions TEXT DEFAULT '[]',
-                        pre_hooks TEXT DEFAULT '[]',
-                        post_hooks TEXT DEFAULT '[]',
-                        is_default INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
+            async with aiosqlite.connect(self.db_path) as db:
+                # Check if task_types table exists
+                cursor = await db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='task_types'"
                 )
+                table_exists = await cursor.fetchone()
 
-                # Populate with default types
-                default_types = self._get_default_task_types()
-                for task_type in default_types:
-                    allowed_tools = task_type.get("allowed_tools")
-                    disallowed_tools = task_type.get("disallowed_tools")
-                    pre_hooks = task_type.get("pre_hooks", [])
-                    post_hooks = task_type.get("post_hooks", [])
-
+                if not table_exists:
+                    # Create task_types table
                     await db.execute(
                         """
-                        INSERT INTO task_types
-                        (id, name, description, agent, commit_template, emoji, file_patterns,
-                         model_tier, complexity_level, allowed_tools, disallowed_tools,
-                         bash_permissions, pre_hooks, post_hooks, is_default)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            task_type["id"],
-                            task_type["name"],
-                            task_type["description"],
-                            task_type["agent"],
-                            task_type["commit_template"],
-                            task_type["emoji"],
-                            json.dumps(task_type.get("file_patterns", [])),
-                            task_type.get("model_tier", "standard"),
-                            task_type.get("complexity_level", 3),
-                            json.dumps(allowed_tools) if allowed_tools else None,
-                            json.dumps(disallowed_tools) if disallowed_tools else None,
-                            json.dumps(task_type.get("bash_permissions", [])),
-                            json.dumps(pre_hooks),
-                            json.dumps(post_hooks),
-                            1,
-                        ),
+                        CREATE TABLE task_types (
+                            id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            description TEXT,
+                            agent TEXT DEFAULT 'general-purpose',
+                            commit_template TEXT,
+                            emoji TEXT,
+                            file_patterns TEXT DEFAULT '[]',
+                            default_acceptance_criteria TEXT DEFAULT '[]',
+                            model_tier TEXT DEFAULT 'standard',
+                            complexity_level INTEGER DEFAULT 3,
+                            allowed_tools TEXT DEFAULT NULL,
+                            disallowed_tools TEXT DEFAULT NULL,
+                            bash_permissions TEXT DEFAULT '[]',
+                            pre_hooks TEXT DEFAULT '[]',
+                            post_hooks TEXT DEFAULT '[]',
+                            is_default INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
                     )
 
-                await db.commit()
-                logger.info("Created task_types table and populated with default types")
-            else:
-                # Migrate existing table to add default_acceptance_criteria column
-                await self._migrate_acceptance_criteria_column(db)
-                # Migrate to add model_tier and complexity_level columns (AUTO-001)
-                await self._migrate_model_routing_columns(db)
-                # Migrate to add tool restriction columns
-                await self._migrate_tool_restriction_columns(db)
-                # Migrate to add bash_permissions column
-                await self._migrate_bash_permissions_column(db)
-                # Migrate to add hooks columns
-                await self._migrate_hooks_columns(db)
+                    # Populate with default types
+                    default_types = self._get_default_task_types()
+                    for task_type in default_types:
+                        allowed_tools = task_type.get("allowed_tools")
+                        disallowed_tools = task_type.get("disallowed_tools")
+                        pre_hooks = task_type.get("pre_hooks", [])
+                        post_hooks = task_type.get("post_hooks", [])
 
-        self._initialized = True
+                        await db.execute(
+                            """
+                            INSERT INTO task_types
+                            (id, name, description, agent, commit_template, emoji, file_patterns,
+                             model_tier, complexity_level, allowed_tools, disallowed_tools,
+                             bash_permissions, pre_hooks, post_hooks, is_default)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                task_type["id"],
+                                task_type["name"],
+                                task_type["description"],
+                                task_type["agent"],
+                                task_type["commit_template"],
+                                task_type["emoji"],
+                                json.dumps(task_type.get("file_patterns", [])),
+                                task_type.get("model_tier", "standard"),
+                                task_type.get("complexity_level", 3),
+                                json.dumps(allowed_tools) if allowed_tools else None,
+                                json.dumps(disallowed_tools) if disallowed_tools else None,
+                                json.dumps(task_type.get("bash_permissions", [])),
+                                json.dumps(pre_hooks),
+                                json.dumps(post_hooks),
+                                1,
+                            ),
+                        )
+
+                    await db.commit()
+                    logger.info("Created task_types table and populated with default types")
+                else:
+                    # Migrate existing table to add default_acceptance_criteria column
+                    await self._migrate_acceptance_criteria_column(db)
+                    # Migrate to add model_tier and complexity_level columns (AUTO-001)
+                    await self._migrate_model_routing_columns(db)
+                    # Migrate to add tool restriction columns
+                    await self._migrate_tool_restriction_columns(db)
+                    # Migrate to add bash_permissions column
+                    await self._migrate_bash_permissions_column(db)
+                    # Migrate to add hooks columns
+                    await self._migrate_hooks_columns(db)
+
+            self._initialized = True
 
     async def _migrate_acceptance_criteria_column(self, db):
         """Add default_acceptance_criteria column to existing task_types table"""
