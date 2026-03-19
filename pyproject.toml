@@ -163,7 +163,8 @@ addopts = "-v --cov=sugar --cov-branch --cov-report=term-missing --cov-report=xm
 markers = [
     "unit: Unit tests (no I/O, no database)",
     "integration: Integration tests (real database, aiosqlite)",
-    "slow: Slow running tests (throughput, load)"
+    "slow: Slow running tests (throughput, load)",
+    "benchmark: Throughput benchmarks (skip in CI, run with: pytest -m benchmark)"
 ]
 
 # MCP Registry identification

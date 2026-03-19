@@ -640,6 +640,7 @@ class TestMemoryStoreConcurrentLoad:
 
 
 @pytest.mark.asyncio
+@pytest.mark.benchmark
 class TestTaskThroughput:
     """
     Throughput regression guard. After fixes, the queue should process tasks
