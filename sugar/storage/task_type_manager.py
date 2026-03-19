@@ -93,7 +93,11 @@ class TaskTypeManager:
                                 task_type.get("model_tier", "standard"),
                                 task_type.get("complexity_level", 3),
                                 json.dumps(allowed_tools) if allowed_tools else None,
-                                json.dumps(disallowed_tools) if disallowed_tools else None,
+                                (
+                                    json.dumps(disallowed_tools)
+                                    if disallowed_tools
+                                    else None
+                                ),
                                 json.dumps(task_type.get("bash_permissions", [])),
                                 json.dumps(pre_hooks),
                                 json.dumps(post_hooks),
@@ -102,7 +106,9 @@ class TaskTypeManager:
                         )
 
                     await db.commit()
-                    logger.info("Created task_types table and populated with default types")
+                    logger.info(
+                        "Created task_types table and populated with default types"
+                    )
                 else:
                     # Migrate existing table to add default_acceptance_criteria column
                     await self._migrate_acceptance_criteria_column(db)

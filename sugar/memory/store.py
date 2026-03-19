@@ -82,9 +82,7 @@ class MemoryStore:
         by self._lock around all public methods that access the connection.
         """
         if self._conn is None:
-            self._conn = sqlite3.connect(
-                str(self.db_path), check_same_thread=False
-            )
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
 
             if self._has_vec:
@@ -243,7 +241,11 @@ class MemoryStore:
                     json.dumps(entry.metadata) if entry.metadata else None,
                     entry.importance,
                     entry.created_at.isoformat() if entry.created_at else None,
-                    entry.last_accessed_at.isoformat() if entry.last_accessed_at else None,
+                    (
+                        entry.last_accessed_at.isoformat()
+                        if entry.last_accessed_at
+                        else None
+                    ),
                     entry.access_count,
                     entry.expires_at.isoformat() if entry.expires_at else None,
                 ),
@@ -295,7 +297,9 @@ class MemoryStore:
 
             if self._has_vec:
                 try:
-                    cursor.execute("DELETE FROM memory_vectors WHERE id = ?", (entry_id,))
+                    cursor.execute(
+                        "DELETE FROM memory_vectors WHERE id = ?", (entry_id,)
+                    )
                 except Exception:
                     pass
 

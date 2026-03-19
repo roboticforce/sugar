@@ -85,9 +85,9 @@ class TestConcurrentTaskPickup:
         )
 
         ids = [r["id"] for r in results if r is not None]
-        assert len(ids) == len(set(ids)), (
-            f"Duplicate task assigned to concurrent workers: {ids}"
-        )
+        assert len(ids) == len(
+            set(ids)
+        ), f"Duplicate task assigned to concurrent workers: {ids}"
 
     @pytest.mark.integration
     async def test_n_concurrent_callers_each_get_unique_task(
@@ -102,9 +102,7 @@ class TestConcurrentTaskPickup:
 
         non_null = [r for r in results if r is not None]
         ids = [r["id"] for r in non_null]
-        assert len(ids) == len(set(ids)), (
-            f"Duplicate tasks assigned: ids={ids}"
-        )
+        assert len(ids) == len(set(ids)), f"Duplicate tasks assigned: ids={ids}"
 
     @pytest.mark.integration
     async def test_no_task_claimed_twice_across_worker_loop(
@@ -126,9 +124,9 @@ class TestConcurrentTaskPickup:
         non_null = [r for r in results if r is not None]
         ids = [r["id"] for r in non_null]
 
-        assert len(ids) == len(set(ids)), (
-            f"Race condition: duplicate task IDs assigned: {ids}"
-        )
+        assert len(ids) == len(
+            set(ids)
+        ), f"Race condition: duplicate task IDs assigned: {ids}"
         # All 4 tasks should be claimed (exactly task_count tasks exist)
         assert len(non_null) == task_count
 
@@ -146,9 +144,9 @@ class TestConcurrentTaskPickup:
         )
 
         non_null = [r for r in results if r is not None]
-        assert len(non_null) == 1, (
-            f"Expected exactly 1 task claimed, got {len(non_null)}: {non_null}"
-        )
+        assert (
+            len(non_null) == 1
+        ), f"Expected exactly 1 task claimed, got {len(non_null)}: {non_null}"
         ids = [r["id"] for r in non_null]
         assert len(ids) == len(set(ids))
 
@@ -179,9 +177,9 @@ class TestStatusConsistency:
         for task in claimed:
             stored = await queue.get_work_by_id(task["id"])
             assert stored is not None
-            assert stored["status"] == "active", (
-                f"Task {task['id']} should be active, got {stored['status']}"
-            )
+            assert (
+                stored["status"] == "active"
+            ), f"Task {task['id']} should be active, got {stored['status']}"
 
     @pytest.mark.integration
     async def test_unclaimed_tasks_remain_pending(self, queue: WorkQueue) -> None:
@@ -202,9 +200,9 @@ class TestStatusConsistency:
                 assert task["attempts"] == 1
             else:
                 assert task["status"] == "pending"
-                assert task["attempts"] == 0, (
-                    f"Unclaimed task {task_id} had attempts incremented"
-                )
+                assert (
+                    task["attempts"] == 0
+                ), f"Unclaimed task {task_id} had attempts incremented"
 
     @pytest.mark.integration
     async def test_concurrent_complete_and_fail_do_not_corrupt_each_other(
@@ -346,9 +344,7 @@ class TestShutdownReliability:
     """
 
     @pytest.mark.integration
-    async def test_shutdown_event_stops_execute_work_loop(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_shutdown_event_stops_execute_work_loop(self, tmp_path: Path) -> None:
         """
         Setting the shutdown_event before _execute_work starts must cause it
         to exit without executing any tasks.
@@ -549,9 +545,7 @@ class TestMemoryStoreConcurrentLoad:
 
     @pytest.mark.integration
     @pytest.mark.slow
-    async def test_concurrent_memory_writes_all_succeed(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_concurrent_memory_writes_all_succeed(self, tmp_path: Path) -> None:
         """
         N concurrent coroutines each writing to MemoryStore must all succeed
         with no database-locked errors or exceptions.
@@ -584,12 +578,8 @@ class TestMemoryStoreConcurrentLoad:
         await asyncio.gather(*[write_entry(i) for i in range(n)])
         store.close()
 
-        assert not errors, (
-            f"{len(errors)} write(s) failed with errors: {errors[:3]}"
-        )
-        assert write_count == n, (
-            f"Only {write_count}/{n} writes succeeded"
-        )
+        assert not errors, f"{len(errors)} write(s) failed with errors: {errors[:3]}"
+        assert write_count == n, f"Only {write_count}/{n} writes succeeded"
 
     @pytest.mark.integration
     async def test_memory_store_search_under_concurrent_writes(
@@ -641,9 +631,7 @@ class TestMemoryStoreConcurrentLoad:
         await asyncio.gather(*ops)
         store.close()
 
-        assert not errors, (
-            f"Concurrent read/write errors: {errors[:3]}"
-        )
+        assert not errors, f"Concurrent read/write errors: {errors[:3]}"
 
 
 # ---------------------------------------------------------------------------
@@ -660,9 +648,7 @@ class TestTaskThroughput:
 
     @pytest.mark.integration
     @pytest.mark.slow
-    async def test_sequential_add_and_get_throughput(
-        self, queue: WorkQueue
-    ) -> None:
+    async def test_sequential_add_and_get_throughput(self, queue: WorkQueue) -> None:
         """
         Baseline: sequential add + get_next_work must achieve at least
         50 operations per second on any reasonable machine.
@@ -714,7 +700,9 @@ class TestTaskThroughput:
         q_con = WorkQueue(str(db_path_con))
         await q_con.initialize()
         con_start = time.perf_counter()
-        await asyncio.gather(*[q_con.add_work(_make_task(f"con-{i}")) for i in range(n)])
+        await asyncio.gather(
+            *[q_con.add_work(_make_task(f"con-{i}")) for i in range(n)]
+        )
         con_elapsed = time.perf_counter() - con_start
         await q_con.close()
 

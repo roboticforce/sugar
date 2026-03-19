@@ -466,7 +466,9 @@ async def main() -> None:
         if "skipped" in fixed:
             _result("SKIPPED", fixed["skipped"])
         else:
-            _result("NON-BLOCKING (executor) - mean stall", f"{fixed['mean_ms']:.2f} ms")
+            _result(
+                "NON-BLOCKING (executor) - mean stall", f"{fixed['mean_ms']:.2f} ms"
+            )
             _result("NON-BLOCKING (executor) - max stall", f"{fixed['max_ms']:.2f} ms")
             _result("NON-BLOCKING (executor) - p95 stall", f"{fixed['p95_ms']:.2f} ms")
 
@@ -475,10 +477,19 @@ async def main() -> None:
         print("  N concurrent get_next_work calls. duplicate_count must be 0.\n")
         for n in (2, 5, 10):
             pickup = await bench_concurrent_pickup(tmp, n_workers=n)
-            status = "OK" if pickup["duplicate_count"] == 0 else f"RACE CONDITION ({pickup['duplicate_count']} duplicates)"
-            _result(f"n={n} workers - duplicates", f"{pickup['duplicate_count']} [{status}]")
+            status = (
+                "OK"
+                if pickup["duplicate_count"] == 0
+                else f"RACE CONDITION ({pickup['duplicate_count']} duplicates)"
+            )
+            _result(
+                f"n={n} workers - duplicates", f"{pickup['duplicate_count']} [{status}]"
+            )
             _result(f"n={n} workers - elapsed", f"{pickup['elapsed_ms']:.1f} ms")
-            _result(f"n={n} workers - rate", f"{pickup['pickup_rate_per_sec']:.0f} pickups/sec")
+            _result(
+                f"n={n} workers - rate",
+                f"{pickup['pickup_rate_per_sec']:.0f} pickups/sec",
+            )
             print()
 
         # --- Throughput ---
@@ -486,20 +497,33 @@ async def main() -> None:
         print("  ops/sec for add + get_next_work at various concurrency levels.\n")
 
         seq = await bench_throughput_sequential(tmp, n=100)
-        _result("Sequential (100 adds + 100 gets)", f"{seq['total_ops_per_sec']:.0f} ops/sec")
+        _result(
+            "Sequential (100 adds + 100 gets)",
+            f"{seq['total_ops_per_sec']:.0f} ops/sec",
+        )
         _result("  add rate", f"{seq['add_rate_per_sec']:.0f} ops/sec")
         _result("  get rate", f"{seq['get_rate_per_sec']:.0f} ops/sec")
         print()
 
         con = await bench_throughput_concurrent(tmp, n=100)
-        _result("Concurrent adds (100) + sequential gets", f"{con['total_ops_per_sec']:.0f} ops/sec")
+        _result(
+            "Concurrent adds (100) + sequential gets",
+            f"{con['total_ops_per_sec']:.0f} ops/sec",
+        )
         _result("  concurrent add rate", f"{con['add_rate_per_sec']:.0f} ops/sec")
         _result("  sequential get rate", f"{con['get_rate_per_sec']:.0f} ops/sec")
         print()
 
         stress = await bench_throughput_all_concurrent(tmp, n=50)
-        status = "OK" if stress["duplicate_pickups"] == 0 and stress["errors"] == 0 else "ISSUES"
-        _result("Fully concurrent (50 adds + 50 gets)", f"{stress['total_ops_per_sec']:.0f} ops/sec [{status}]")
+        status = (
+            "OK"
+            if stress["duplicate_pickups"] == 0 and stress["errors"] == 0
+            else "ISSUES"
+        )
+        _result(
+            "Fully concurrent (50 adds + 50 gets)",
+            f"{stress['total_ops_per_sec']:.0f} ops/sec [{status}]",
+        )
         _result("  errors", str(stress["errors"]))
         _result("  duplicate pickups", str(stress["duplicate_pickups"]))
         print()
