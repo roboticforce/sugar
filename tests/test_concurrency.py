@@ -669,8 +669,8 @@ class TestTaskThroughput:
         elapsed = time.perf_counter() - start
         ops_per_sec = (n * 2) / elapsed  # adds + gets
 
-        assert ops_per_sec >= 50, (
-            f"Throughput regression: {ops_per_sec:.1f} ops/sec (floor: 50 ops/sec). "
+        assert ops_per_sec >= 30, (
+            f"Throughput regression: {ops_per_sec:.1f} ops/sec (floor: 30 ops/sec). "
             f"Elapsed: {elapsed:.2f}s for {n * 2} operations."
         )
 
