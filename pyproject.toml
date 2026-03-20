@@ -161,9 +161,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v --cov=sugar --cov-branch --cov-report=term-missing --cov-report=xml"
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "slow: Slow running tests"
+    "unit: Unit tests (no I/O, no database)",
+    "integration: Integration tests (real database, aiosqlite)",
+    "slow: Slow running tests (throughput, load)",
+    "benchmark: Throughput benchmarks (skip in CI, run with: pytest -m benchmark)"
 ]
 
 # MCP Registry identification

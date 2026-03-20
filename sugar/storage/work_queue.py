@@ -21,65 +21,70 @@ class WorkQueue:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     async def initialize(self):
         """Initialize the database and create tables"""
         if self._initialized:
             return
 
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
+        async with self._init_lock:
+            if self._initialized:
+                return
+
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS work_items (
+                        id TEXT PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        priority INTEGER DEFAULT 3,
+                        status TEXT DEFAULT 'pending',
+                        source TEXT,
+                        source_file TEXT,
+                        context TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        attempts INTEGER DEFAULT 0,
+                        last_attempt_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        result TEXT,
+                        error_message TEXT,
+                        total_execution_time REAL DEFAULT 0.0,
+                        started_at TIMESTAMP,
+                        total_elapsed_time REAL DEFAULT 0.0,
+                        commit_sha TEXT
+                    )
                 """
-                CREATE TABLE IF NOT EXISTS work_items (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    priority INTEGER DEFAULT 3,
-                    status TEXT DEFAULT 'pending',
-                    source TEXT,
-                    source_file TEXT,
-                    context TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    attempts INTEGER DEFAULT 0,
-                    last_attempt_at TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    result TEXT,
-                    error_message TEXT,
-                    total_execution_time REAL DEFAULT 0.0,
-                    started_at TIMESTAMP,
-                    total_elapsed_time REAL DEFAULT 0.0,
-                    commit_sha TEXT
                 )
-            """
-            )
 
-            await db.execute(
+                await db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
+                    ON work_items (priority ASC, status, created_at)
                 """
-                CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
-                ON work_items (priority ASC, status, created_at)
-            """
-            )
+                )
 
-            await db.execute(
+                await db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_work_items_status
+                    ON work_items (status)
                 """
-                CREATE INDEX IF NOT EXISTS idx_work_items_status 
-                ON work_items (status)
-            """
-            )
+                )
 
-            # Migrate existing databases to add timing columns and task types table
-            await self._migrate_timing_columns(db)
-            await self._migrate_task_types_table(db)
-            await self._migrate_orchestration_columns(db)
-            await self._migrate_acceptance_criteria_column(db)
-            await self._migrate_verification_columns(db)
-            await self._migrate_thinking_columns(db)
+                # Migrate existing databases to add timing columns and task types table
+                await self._migrate_timing_columns(db)
+                await self._migrate_task_types_table(db)
+                await self._migrate_orchestration_columns(db)
+                await self._migrate_acceptance_criteria_column(db)
+                await self._migrate_verification_columns(db)
+                await self._migrate_thinking_columns(db)
 
-            await db.commit()
+                await db.commit()
 
-        self._initialized = True
+            self._initialized = True
 
     async def _migrate_timing_columns(self, db):
         """Add timing columns to existing databases if they don't exist"""
@@ -451,59 +456,73 @@ class WorkQueue:
         return work_id
 
     async def get_next_work(self) -> Optional[Dict[str, Any]]:
-        """Get the highest priority pending work item"""
-        async with aiosqlite.connect(self.db_path) as db:
+        """Get the highest priority pending work item (atomic claim).
+
+        Uses BEGIN IMMEDIATE to acquire an exclusive lock before SELECT,
+        preventing two concurrent callers from claiming the same task.
+        """
+        async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
             db.row_factory = aiosqlite.Row
 
-            # Get highest priority pending work item (exclude hold status)
-            cursor = await db.execute(
+            # BEGIN IMMEDIATE acquires a reserved lock upfront, serializing
+            # concurrent callers so only one can read+update at a time.
+            await db.execute("BEGIN IMMEDIATE")
+
+            try:
+                # Get highest priority pending work item (exclude hold status)
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM work_items
+                    WHERE status = 'pending'
+                    ORDER BY priority ASC, created_at ASC
+                    LIMIT 1
                 """
-                SELECT * FROM work_items
-                WHERE status = 'pending'
-                ORDER BY priority ASC, created_at ASC
-                LIMIT 1
-            """
-            )
+                )
 
-            row = await cursor.fetchone()
+                row = await cursor.fetchone()
 
-            if not row:
-                return None
+                if not row:
+                    await db.execute("ROLLBACK")
+                    return None
 
-            work_item = dict(row)
+                work_item = dict(row)
 
-            # Parse JSON context
-            if work_item["context"]:
-                try:
-                    work_item["context"] = json.loads(work_item["context"])
-                except json.JSONDecodeError:
+                # Parse JSON context
+                if work_item["context"]:
+                    try:
+                        work_item["context"] = json.loads(work_item["context"])
+                    except json.JSONDecodeError:
+                        work_item["context"] = {}
+                else:
                     work_item["context"] = {}
-            else:
-                work_item["context"] = {}
 
-            # Mark as active and increment attempts
-            await db.execute(
-                """
-                UPDATE work_items 
-                SET status = 'active', 
-                    attempts = attempts + 1,
-                    last_attempt_at = CURRENT_TIMESTAMP,
-                    started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """,
-                (work_item["id"],),
-            )
+                # Mark as active and increment attempts
+                await db.execute(
+                    """
+                    UPDATE work_items
+                    SET status = 'active',
+                        attempts = attempts + 1,
+                        last_attempt_at = CURRENT_TIMESTAMP,
+                        started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """,
+                    (work_item["id"],),
+                )
 
-            await db.commit()
+                await db.execute("COMMIT")
 
-            work_item["attempts"] += 1
-            work_item["status"] = "active"
-            logger.debug(
-                f"📋 Retrieved work item: {work_item['title']} (attempt #{work_item['attempts']})"
-            )
+                work_item["attempts"] += 1
+                work_item["status"] = "active"
+                logger.debug(
+                    f"📋 Retrieved work item: {work_item['title']} (attempt #{work_item['attempts']})"
+                )
 
-            return work_item
+                return work_item
+
+            except Exception:
+                await db.execute("ROLLBACK")
+                raise
 
     async def complete_work(self, work_id: str, result: Dict[str, Any]):
         """Mark a work item as completed with results and timing"""
@@ -738,15 +757,17 @@ class WorkQueue:
 
     async def cleanup_old_items(self, days_old: int = 30):
         """Clean up old completed/failed items"""
+        if not isinstance(days_old, int) or days_old < 0:
+            raise ValueError("days_old must be a non-negative integer")
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                DELETE FROM work_items 
-                WHERE status IN ('completed', 'failed') 
-                AND created_at < datetime('now', '-{} days')
-            """.format(
-                    days_old
-                )
+                DELETE FROM work_items
+                WHERE status IN ('completed', 'failed')
+                AND created_at < datetime('now', '-' || ? || ' days')
+            """,
+                (days_old,),
             )
 
             deleted_count = cursor.rowcount
@@ -866,47 +887,75 @@ class WorkQueue:
             return cursor.rowcount > 0
 
     async def hold_work(self, work_id: str, reason: str = None) -> bool:
-        """Put a work item on hold"""
-        updates = {"status": "hold", "updated_at": "CURRENT_TIMESTAMP"}
-        if reason:
-            # Store hold reason in context
-            work_item = await self.get_work_item(work_id)
-            if work_item:
-                context = work_item.get("context", {})
+        """Put a work item on hold (atomic read-modify-write)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT context, status FROM work_items WHERE id = ?", (work_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return False
+
+            context = {}
+            if row["context"]:
+                try:
+                    context = json.loads(row["context"])
+                except json.JSONDecodeError:
+                    context = {}
+
+            if reason:
                 context["hold_reason"] = reason
                 context["held_at"] = datetime.now().isoformat()
-                updates["context"] = context
 
-        success = await self.update_work(work_id, updates)
-        if success:
-            logger.info(f"⏸️ Work item put on hold: {work_id}")
-        return success
+            await db.execute(
+                """UPDATE work_items
+                   SET status = 'hold', context = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (json.dumps(context), work_id),
+            )
+            await db.commit()
+
+        logger.info(f"⏸️ Work item put on hold: {work_id}")
+        return True
 
     async def release_work(self, work_id: str) -> bool:
-        """Release a work item from hold to pending status"""
-        work_item = await self.get_work_item(work_id)
-        if not work_item:
-            return False
-
-        if work_item["status"] != "hold":
-            logger.warning(
-                f"Work item {work_id} is not on hold (status: {work_item['status']})"
+        """Release a work item from hold to pending status (atomic read-modify-write)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT context, status FROM work_items WHERE id = ?", (work_id,)
             )
-            return False
+            row = await cursor.fetchone()
+            if not row:
+                return False
 
-        # Clear hold-related context data
-        context = work_item.get("context", {})
-        context.pop("hold_reason", None)
-        context.pop("held_at", None)
-        context["released_at"] = datetime.now().isoformat()
+            if row["status"] != "hold":
+                logger.warning(
+                    f"Work item {work_id} is not on hold (status: {row['status']})"
+                )
+                return False
 
-        updates = {
-            "status": "pending",
-            "context": context,
-            "updated_at": "CURRENT_TIMESTAMP",
-        }
+            context = {}
+            if row["context"]:
+                try:
+                    context = json.loads(row["context"])
+                except json.JSONDecodeError:
+                    context = {}
 
-        success = await self.update_work(work_id, updates)
+            context.pop("hold_reason", None)
+            context.pop("held_at", None)
+            context["released_at"] = datetime.now().isoformat()
+
+            await db.execute(
+                """UPDATE work_items
+                   SET status = 'pending', context = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (json.dumps(context), work_id),
+            )
+            await db.commit()
+
+        success = True
         if success:
             logger.info(f"▶️ Work item released from hold: {work_id}")
         return success

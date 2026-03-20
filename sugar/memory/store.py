@@ -7,6 +7,7 @@ Falls back to FTS5 keyword search if sqlite-vec is not available.
 import json
 import logging
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +60,7 @@ class MemoryStore:
         self.embedder = embedder or create_embedder()
         self._has_vec = self._check_sqlite_vec()
         self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()
 
         self._init_db()
 
@@ -73,9 +75,14 @@ class MemoryStore:
             return False
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get or create database connection."""
+        """Get or create database connection.
+
+        Uses check_same_thread=False to allow safe cross-thread use when
+        called from asyncio's run_in_executor. Thread safety is ensured
+        by self._lock around all public methods that access the connection.
+        """
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
 
             if self._has_vec:
@@ -209,86 +216,95 @@ class MemoryStore:
         if entry.created_at is None:
             entry.created_at = datetime.now(timezone.utc)
 
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        # Store main entry
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO memory_entries
-            (id, memory_type, source_id, content, summary, metadata,
-             importance, created_at, last_accessed_at, access_count, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                entry.id,
+            # Store main entry
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO memory_entries
+                (id, memory_type, source_id, content, summary, metadata,
+                 importance, created_at, last_accessed_at, access_count, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
                 (
-                    entry.memory_type.value
-                    if isinstance(entry.memory_type, MemoryType)
-                    else entry.memory_type
+                    entry.id,
+                    (
+                        entry.memory_type.value
+                        if isinstance(entry.memory_type, MemoryType)
+                        else entry.memory_type
+                    ),
+                    entry.source_id,
+                    entry.content,
+                    entry.summary,
+                    json.dumps(entry.metadata) if entry.metadata else None,
+                    entry.importance,
+                    entry.created_at.isoformat() if entry.created_at else None,
+                    (
+                        entry.last_accessed_at.isoformat()
+                        if entry.last_accessed_at
+                        else None
+                    ),
+                    entry.access_count,
+                    entry.expires_at.isoformat() if entry.expires_at else None,
                 ),
-                entry.source_id,
-                entry.content,
-                entry.summary,
-                json.dumps(entry.metadata) if entry.metadata else None,
-                entry.importance,
-                entry.created_at.isoformat() if entry.created_at else None,
-                entry.last_accessed_at.isoformat() if entry.last_accessed_at else None,
-                entry.access_count,
-                entry.expires_at.isoformat() if entry.expires_at else None,
-            ),
-        )
+            )
 
-        # Generate and store embedding if we have semantic search
-        if self._has_vec and not isinstance(self.embedder, FallbackEmbedder):
-            try:
-                embedding = self.embedder.embed(entry.content)
-                if embedding:
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO memory_vectors (id, embedding)
-                        VALUES (?, ?)
-                    """,
-                        (entry.id, _serialize_embedding(embedding)),
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to store embedding: {e}")
+            # Generate and store embedding if we have semantic search
+            if self._has_vec and not isinstance(self.embedder, FallbackEmbedder):
+                try:
+                    embedding = self.embedder.embed(entry.content)
+                    if embedding:
+                        cursor.execute(
+                            """
+                            INSERT OR REPLACE INTO memory_vectors (id, embedding)
+                            VALUES (?, ?)
+                        """,
+                            (entry.id, _serialize_embedding(embedding)),
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to store embedding: {e}")
 
-        conn.commit()
-        return entry.id
+            conn.commit()
+            return entry.id
 
     def get(self, entry_id: str) -> Optional[MemoryEntry]:
         """Get a memory entry by ID."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT * FROM memory_entries WHERE id = ?
-        """,
-            (entry_id,),
-        )
+            cursor.execute(
+                """
+                SELECT * FROM memory_entries WHERE id = ?
+            """,
+                (entry_id,),
+            )
 
-        row = cursor.fetchone()
-        if row:
-            return self._row_to_entry(row)
-        return None
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_entry(row)
+            return None
 
     def delete(self, entry_id: str) -> bool:
         """Delete a memory entry."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
+            cursor.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
 
-        if self._has_vec:
-            try:
-                cursor.execute("DELETE FROM memory_vectors WHERE id = ?", (entry_id,))
-            except Exception:
-                pass
+            if self._has_vec:
+                try:
+                    cursor.execute(
+                        "DELETE FROM memory_vectors WHERE id = ?", (entry_id,)
+                    )
+                except Exception:
+                    pass
 
-        conn.commit()
-        return cursor.rowcount > 0
+            conn.commit()
+            return cursor.rowcount > 0
 
     def search(self, query: MemoryQuery) -> List[MemorySearchResult]:
         """
@@ -296,9 +312,10 @@ class MemoryStore:
 
         Uses vector similarity if available, falls back to FTS5.
         """
-        if self._has_vec and not isinstance(self.embedder, FallbackEmbedder):
-            return self._search_semantic(query)
-        return self._search_keyword(query)
+        with self._lock:
+            if self._has_vec and not isinstance(self.embedder, FallbackEmbedder):
+                return self._search_semantic(query)
+            return self._search_keyword(query)
 
     def _search_semantic(self, query: MemoryQuery) -> List[MemorySearchResult]:
         """Search using vector similarity."""
@@ -638,6 +655,7 @@ class MemoryStore:
 
     def close(self):
         """Close database connection."""
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn:
+                self._conn.close()
+                self._conn = None

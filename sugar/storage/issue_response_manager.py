@@ -2,6 +2,7 @@
 Issue Response Manager - Track GitHub issue responses
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -19,41 +20,46 @@ class IssueResponseManager:
     def __init__(self, db_path: str = ".sugar/sugar.db"):
         self.db_path = db_path
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Create table if not exists"""
         if self._initialized:
             return
 
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
+        async with self._init_lock:
+            if self._initialized:
+                return
+
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS issue_responses (
+                        id TEXT PRIMARY KEY,
+                        repo TEXT NOT NULL,
+                        issue_number INTEGER NOT NULL,
+                        response_type TEXT NOT NULL,
+                        work_item_id TEXT,
+                        confidence REAL,
+                        posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        response_content TEXT,
+                        labels_applied TEXT,
+                        was_auto_posted BOOLEAN DEFAULT 0,
+                        UNIQUE(repo, issue_number, response_type)
+                    )
                 """
-                CREATE TABLE IF NOT EXISTS issue_responses (
-                    id TEXT PRIMARY KEY,
-                    repo TEXT NOT NULL,
-                    issue_number INTEGER NOT NULL,
-                    response_type TEXT NOT NULL,
-                    work_item_id TEXT,
-                    confidence REAL,
-                    posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    response_content TEXT,
-                    labels_applied TEXT,
-                    was_auto_posted BOOLEAN DEFAULT 0,
-                    UNIQUE(repo, issue_number, response_type)
                 )
-            """
-            )
 
-            await db.execute(
+                await db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_issue_responses_repo_number
+                    ON issue_responses (repo, issue_number)
                 """
-                CREATE INDEX IF NOT EXISTS idx_issue_responses_repo_number
-                ON issue_responses (repo, issue_number)
-            """
-            )
+                )
 
-            await db.commit()
+                await db.commit()
 
-        self._initialized = True
+            self._initialized = True
         logger.debug(f"Issue response manager initialized: {self.db_path}")
 
     async def has_responded(

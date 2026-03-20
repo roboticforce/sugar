@@ -210,7 +210,10 @@ def signal_handler(signum, frame):
         shutdown_event.set()
         logger.info("🔔 Shutdown event triggered")
     else:
-        logger.warning("⚠️ Shutdown event not available")
+        # Fallback: if shutdown_event isn't ready yet (shouldn't happen
+        # now that we create it before registering handlers), exit cleanly.
+        logger.warning("⚠️ Shutdown event not available, forcing exit")
+        sys.exit(128 + signum)
 
 
 @click.group(invoke_without_command=True)
@@ -2035,6 +2038,11 @@ def run(ctx, dry_run, once, validate):
             asyncio.run(validate_config(sugar_loop))
             return
 
+        # Create shutdown event BEFORE registering signal handlers to avoid
+        # a window where a signal arrives but the event doesn't exist yet.
+        global shutdown_event
+        shutdown_event = asyncio.Event()
+
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -2117,9 +2125,10 @@ async def run_once(sugar_loop):
 
 
 async def run_continuous(sugar_loop):
-    """Run Sugar continuously"""
+    """Run Sugar continuously (shutdown_event created before signal handlers)"""
     global shutdown_event
-    shutdown_event = asyncio.Event()
+    if shutdown_event is None:
+        shutdown_event = asyncio.Event()
 
     # Create PID file for stop command
     import os
