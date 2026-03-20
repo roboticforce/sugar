@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sugarai"
-version = "3.9.1.dev0"
+version = "3.9.1.dev1"
 description = "Persistent memory for AI coding agents. Cross-session context, global knowledge, and autonomous task execution."
 
 readme = "README.md"
