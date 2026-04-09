@@ -1,8 +1,8 @@
 # Sugar - Claude Code Plugin
 
-Persistent memory for AI coding agents.
+Autonomous issue resolution for AI-assisted development.
 
-Cross-session context, global knowledge, and autonomous task execution for any AI coding CLI.
+Persistent memory, cross-session context, and autonomous task execution for any AI coding CLI.
 
 ## What is Sugar?
 
@@ -173,6 +173,6 @@ MIT License - see [LICENSE](https://github.com/roboticforce/sugar/blob/main/LICE
 
 ---
 
-**Sugar** - Persistent memory for AI coding agents.
+**Sugar** - Autonomous issue resolution for AI-assisted development.
 
 ⚠️ **Disclaimer**: Sugar is an independent third-party tool. "Claude," "Claude Code," and related marks are trademarks of Anthropic, Inc. Sugar is not affiliated with, endorsed by, or sponsored by Anthropic, Inc.

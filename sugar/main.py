@@ -222,9 +222,9 @@ def signal_handler(signum, frame):
 @click.option("--version", is_flag=True, help="Show version information")
 @click.pass_context
 def cli(ctx, config, debug, version):
-    """Sugar - Persistent memory for AI coding agents
+    """Sugar - Autonomous issue resolution for AI-assisted development
 
-    Cross-session context, global knowledge, and autonomous task execution.
+    Persistent memory, cross-session context, and autonomous task execution.
     """
     # Handle version request
     if version:
