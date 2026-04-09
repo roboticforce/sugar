@@ -841,10 +841,40 @@ class WorkQueue:
             await db.commit()
             return cursor.rowcount > 0
 
+    ALLOWED_UPDATE_COLUMNS: frozenset = frozenset(
+        {
+            "title",
+            "description",
+            "type",
+            "priority",
+            "status",
+            "context",
+            "acceptance_criteria",
+            "blocked_by",
+            "verification_results",
+            "assigned_agent",
+            "stage",
+            "error_count",
+            "last_error",
+            "result",
+            "started_at",
+            "completed_at",
+            "updated_at",
+        }
+    )
+
     async def update_work(self, work_id: str, updates: Dict[str, Any]) -> bool:
         """Update work item by ID"""
         if not updates:
             return False
+
+        # Validate column names against allowlist to prevent SQL injection
+        invalid_keys = set(updates.keys()) - self.ALLOWED_UPDATE_COLUMNS
+        if invalid_keys:
+            raise ValueError(
+                f"Invalid update columns: {invalid_keys}. "
+                f"Allowed columns: {sorted(self.ALLOWED_UPDATE_COLUMNS)}"
+            )
 
         # Build dynamic UPDATE query
         set_clauses = []
