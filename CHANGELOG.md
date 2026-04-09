@@ -7,14 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Pin all dependencies to exact versions in pyproject.toml (replace `>=` ranges with `==` exact pins across all dependency groups)
+_Development in progress._
 
 ---
 
-## [3.9.1] - Unreleased
+## [3.9.1] - 2026-04-09
 
-_Development in progress. No functional changes beyond 3.9.0._
+### Security
+- Fix SQL injection via dynamic column names in `WorkQueue.update_work()` - added column allowlist
+- Fix grep flag injection in MCP `_search_codebase` - added `--` end-of-options separator
+- Fix shell injection in `HookExecutor` - added `shlex.quote()` on task field substitutions
+
+### Fixed
+- Add missing `self._lock` to `MemoryStore.list_memories`, `count`, and `prune_expired` methods
+- Replace silent `except: pass` with `logger.warning()` for vector deletion and unknown memory types
+- Remove no-op `.replace('AND', 'AND')` in keyword search fallback
+- Fix `.gitignore` duplicate entries and add `.fastembed_cache/`
+- Raise `ValueError` on missing `SUGAR_SIGNING_SECRET` instead of silently generating random secret
+
+### Changed
+- Pin all dependencies to exact versions in pyproject.toml (replace `>=` ranges with `==` exact pins)
+- Reposition Sugar as "Autonomous issue resolution for AI-assisted development"
+- Update tagline across CLI help, plugin README, and pyproject.toml description
+
+### Added
+- `docs/ARCHITECTURE.md` - contributor-focused architecture overview with system diagram
+- `docs/workflows/` - 5 real-world workflow examples (security auto-fix, bug triage, test coverage, code quality, feature development)
+- Document `hold`, `release`, `logs`, and `opencode` CLI commands in cli-reference.md
+
+### Removed
+- Remove unused `billing` module (api_keys, tiers, usage) and associated tests/fixtures
 
 ---
 
