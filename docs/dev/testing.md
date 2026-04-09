@@ -22,7 +22,6 @@ tests/
 ├── test_v3_benchmarks.py    # V2 vs V3 executor comparison
 ├── test_goose_integration.py # MCP CLI compatibility
 ├── test_task_types.py       # Task type management
-├── test_billing.py          # Billing and pricing tiers
 ├── test_profiles.py         # Workflow profiles
 ├── plugin/                  # Plugin system tests
 │   └── test_structure.py
