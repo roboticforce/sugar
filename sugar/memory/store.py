@@ -300,8 +300,8 @@ class MemoryStore:
                     cursor.execute(
                         "DELETE FROM memory_vectors WHERE id = ?", (entry_id,)
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to delete vector for entry {entry_id}: {e}")
 
             conn.commit()
             return cursor.rowcount > 0
@@ -499,36 +499,37 @@ class MemoryStore:
         since_days: Optional[int] = None,
     ) -> List[MemoryEntry]:
         """List memories with optional filtering."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        where_clauses = []
-        params: List[Any] = []
+            where_clauses = []
+            params: List[Any] = []
 
-        if memory_type:
-            where_clauses.append("memory_type = ?")
-            params.append(
-                memory_type.value
-                if isinstance(memory_type, MemoryType)
-                else memory_type
-            )
+            if memory_type:
+                where_clauses.append("memory_type = ?")
+                params.append(
+                    memory_type.value
+                    if isinstance(memory_type, MemoryType)
+                    else memory_type
+                )
 
-        if since_days:
-            where_clauses.append("created_at >= datetime('now', ?)")
-            params.append(f"-{since_days} days")
+            if since_days:
+                where_clauses.append("created_at >= datetime('now', ?)")
+                params.append(f"-{since_days} days")
 
-        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-        sql = f"""
-            SELECT * FROM memory_entries
-            {where_sql}
-            ORDER BY importance DESC, created_at DESC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([limit, offset])
+            sql = f"""
+                SELECT * FROM memory_entries
+                {where_sql}
+                ORDER BY importance DESC, created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
 
-        cursor.execute(sql, params)
-        return [self._row_to_entry(row) for row in cursor.fetchall()]
+            cursor.execute(sql, params)
+            return [self._row_to_entry(row) for row in cursor.fetchall()]
 
     def get_by_type(
         self, memory_type: MemoryType, limit: int = 50
@@ -538,27 +539,34 @@ class MemoryStore:
 
     def count(self, memory_type: Optional[MemoryType] = None) -> int:
         """Count memories."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        if memory_type:
-            cursor.execute(
-                "SELECT COUNT(*) FROM memory_entries WHERE memory_type = ?",
-                (
+            if memory_type:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM memory_entries WHERE memory_type = ?",
                     (
-                        memory_type.value
-                        if isinstance(memory_type, MemoryType)
-                        else memory_type
+                        (
+                            memory_type.value
+                            if isinstance(memory_type, MemoryType)
+                            else memory_type
+                        ),
                     ),
-                ),
-            )
-        else:
-            cursor.execute("SELECT COUNT(*) FROM memory_entries")
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM memory_entries")
 
-        return cursor.fetchone()[0]
+            return cursor.fetchone()[0]
 
     def _update_access(self, entry_id: str):
-        """Update access statistics for an entry."""
+        """Update access statistics for an entry.
+
+        INVARIANT: This method must only be called from within an already-locked
+        context. It is called exclusively by _search_semantic and _search_keyword,
+        both of which are invoked from the locked search() method. Do NOT call
+        this method directly from any public method without holding self._lock.
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -615,43 +623,44 @@ class MemoryStore:
 
     def prune_expired(self) -> int:
         """Remove expired memories. Returns count of removed entries."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
 
-        # Get IDs to delete (for vector cleanup)
-        cursor.execute(
+            # Get IDs to delete (for vector cleanup)
+            cursor.execute(
+                """
+                SELECT id FROM memory_entries
+                WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
             """
-            SELECT id FROM memory_entries
-            WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
-        """
-        )
-        expired_ids = [row["id"] for row in cursor.fetchall()]
+            )
+            expired_ids = [row["id"] for row in cursor.fetchall()]
 
-        if not expired_ids:
-            return 0
+            if not expired_ids:
+                return 0
 
-        # Delete from main table
-        cursor.execute(
+            # Delete from main table
+            cursor.execute(
+                """
+                DELETE FROM memory_entries
+                WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
             """
-            DELETE FROM memory_entries
-            WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
-        """
-        )
-        deleted = cursor.rowcount
+            )
+            deleted = cursor.rowcount
 
-        # Clean up vectors
-        if self._has_vec and expired_ids:
-            placeholders = ",".join("?" * len(expired_ids))
-            try:
-                cursor.execute(
-                    f"DELETE FROM memory_vectors WHERE id IN ({placeholders})",
-                    expired_ids,
-                )
-            except Exception:
-                pass
+            # Clean up vectors
+            if self._has_vec and expired_ids:
+                placeholders = ",".join("?" * len(expired_ids))
+                try:
+                    cursor.execute(
+                        f"DELETE FROM memory_vectors WHERE id IN ({placeholders})",
+                        expired_ids,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to delete expired vectors: {e}")
 
-        conn.commit()
-        return deleted
+            conn.commit()
+            return deleted
 
     def close(self):
         """Close database connection."""
