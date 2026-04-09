@@ -467,7 +467,7 @@ class MemoryStore:
                 SELECT e.*, 0.5 as score
                 FROM memory_entries e
                 WHERE (e.content LIKE ? OR e.summary LIKE ?)
-                {where_sql.replace('AND', 'AND' if where_sql else '')}
+                {where_sql}
                 ORDER BY e.importance DESC, e.created_at DESC
                 LIMIT ?
             """
@@ -593,6 +593,9 @@ class MemoryStore:
         try:
             memory_type = MemoryType(memory_type)
         except ValueError:
+            logger.warning(
+                f"Unknown memory_type '{memory_type}', defaulting to DECISION"
+            )
             memory_type = MemoryType.DECISION
 
         created_at = row["created_at"]
