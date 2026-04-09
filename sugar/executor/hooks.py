@@ -5,6 +5,7 @@ This allows for automated linting, testing, cleanup, and other workflow automati
 """
 
 import logging
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -160,13 +161,13 @@ class HookExecutor:
         Returns:
             Command with variables substituted
         """
-        # Extract task fields with safe defaults
-        task_id = str(task.get("id", ""))
-        task_type = str(task.get("type", ""))
-        task_title = str(task.get("title", ""))
-        task_priority = str(task.get("priority", ""))
+        # Extract task fields with safe defaults, shell-quoted to prevent injection
+        task_id = shlex.quote(str(task.get("id", "")))
+        task_type = shlex.quote(str(task.get("type", "")))
+        task_title = shlex.quote(str(task.get("title", "")))
+        task_priority = shlex.quote(str(task.get("priority", "")))
 
-        # Perform substitution
+        # Perform substitution (values are shell-quoted above)
         substituted = cmd.format(
             task_id=task_id,
             task_type=task_type,

@@ -219,45 +219,8 @@ async def mock_work_queue(temp_dir):
 
 
 # ============================================================================
-# Sugar 3.0 Fixtures - Billing, Profiles, Hooks
+# Sugar 3.0 Fixtures - Profiles, Hooks
 # ============================================================================
-
-
-@pytest.fixture
-def billing_storage_path(temp_dir):
-    """Temporary storage for billing tests"""
-    path = temp_dir / "billing"
-    path.mkdir(exist_ok=True)
-    return path
-
-
-@pytest.fixture
-def usage_tracker(billing_storage_path):
-    """UsageTracker with temp storage"""
-    from sugar.billing import UsageTracker
-
-    tracker = UsageTracker(storage_path=str(billing_storage_path / "usage"))
-    return tracker
-
-
-@pytest.fixture
-def api_key_manager(billing_storage_path):
-    """APIKeyManager with temp storage"""
-    from sugar.billing import APIKeyManager
-
-    manager = APIKeyManager(
-        storage_path=str(billing_storage_path / "keys"),
-        signing_secret="test_secret_for_testing_only",
-    )
-    return manager
-
-
-@pytest.fixture
-def tier_manager():
-    """TierManager instance"""
-    from sugar.billing import TierManager
-
-    return TierManager()
 
 
 @pytest.fixture

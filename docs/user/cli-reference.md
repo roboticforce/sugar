@@ -399,6 +399,60 @@ sugar priority task-abc123 -p 4
 
 ---
 
+### `sugar hold`
+
+Pause a task by putting it on hold. Held tasks are excluded from the active queue and will not be picked up by `sugar run` until released.
+
+```bash
+sugar hold TASK_ID [OPTIONS]
+```
+
+**Arguments:**
+- `TASK_ID` - Task ID to put on hold (required)
+
+**Options:**
+- `--reason TEXT` - Reason for putting the task on hold
+
+**Examples:**
+```bash
+# Put a task on hold
+sugar hold task-abc123
+
+# Hold with a reason
+sugar hold task-abc123 --reason "Waiting for upstream API changes"
+```
+
+**What it does:**
+- Sets the task status to `hold`
+- Records the optional reason and timestamp in the task context
+- The task remains in the queue but is skipped during autonomous execution
+
+---
+
+### `sugar release`
+
+Release a task from hold, returning it to `pending` status so it can be picked up by `sugar run`.
+
+```bash
+sugar release TASK_ID
+```
+
+**Arguments:**
+- `TASK_ID` - Task ID to release from hold (required)
+
+**Examples:**
+```bash
+sugar release task-abc123
+```
+
+**What it does:**
+- Sets the task status back to `pending`
+- Clears the hold reason and timestamp from the task context
+- Records a `released_at` timestamp in the task context
+- Returns an error if the task is not currently on hold
+
+---
+
 ### `sugar debug`
 
 Generate comprehensive diagnostic information for troubleshooting Sugar issues.
@@ -443,6 +497,47 @@ sugar debug --include-sensitive --format yaml
 
 **Privacy Note:** 
 By default, sensitive information (file paths, tokens, repository URLs) is redacted. Use `--include-sensitive` only when necessary and never share sensitive diagnostics publicly.
+
+---
+
+### `sugar logs`
+
+View Sugar's execution logs for debugging and monitoring.
+
+```bash
+sugar logs [OPTIONS]
+```
+
+**Options:**
+- `-n, --lines, --tail INTEGER` - Number of log lines to show (default: 50)
+- `-f, --follow` - Follow log output in real time (like `tail -f`)
+- `--level [DEBUG|INFO|WARNING|ERROR]` - Filter output by log level
+
+**Examples:**
+```bash
+# Show last 50 log lines (default)
+sugar logs
+
+# Show last 100 lines
+sugar logs --lines 100
+
+# Follow logs in real time
+sugar logs --follow
+
+# Show only errors
+sugar logs --level ERROR
+
+# Show last 200 lines filtered to warnings and above
+sugar logs --lines 200 --level WARNING
+```
+
+**What it does:**
+- Reads the log file configured in `.sugar/config.yaml` (defaults to `.sugar/sugar.log`)
+- When `--follow` is used, streams new log entries until interrupted with Ctrl+C
+- When `--level` is used, filters to lines containing that log level string
+- Exits with an error if the log file does not exist
+
+**Tip:** The log file path can also be checked at `.sugar/sugar.log` directly, or set via the `SUGAR_LOG_LEVEL` environment variable to control verbosity.
 
 ---
 
@@ -1010,15 +1105,155 @@ See [Task Hooks Guide](../task-hooks.md) for full documentation on hooks.
 
 ---
 
+## OpenCode Integration Commands
+
+Sugar integrates with [OpenCode](https://opencode.ai), an open-source AI coding agent. These commands manage that integration.
+
+### `sugar opencode`
+
+Entry point for all OpenCode integration subcommands.
+
+```bash
+sugar opencode COMMAND [OPTIONS]
+```
+
+**Subcommands:** `status`, `test`, `notify`, `setup`
+
+---
+
+### `sugar opencode status`
+
+Check the current OpenCode integration configuration and dependency status.
+
+```bash
+sugar opencode status
+```
+
+**Examples:**
+```bash
+sugar opencode status
+```
+
+**What it shows:**
+- Whether the integration is enabled
+- Whether the `aiohttp` dependency is installed
+- The configured OpenCode server URL
+- Auto-inject and notification settings
+
+---
+
+### `sugar opencode test`
+
+Test connectivity to the OpenCode server.
+
+```bash
+sugar opencode test [OPTIONS]
+```
+
+**Options:**
+- `--server TEXT` - OpenCode server URL to test (overrides configured URL)
+
+**Examples:**
+```bash
+# Test the configured server
+sugar opencode test
+
+# Test a specific server URL
+sugar opencode test --server http://localhost:3000
+```
+
+**What it does:**
+- Connects to the OpenCode server and performs a health check
+- Reports success or a descriptive error if the server is unreachable
+- Exits with code 0 on success, 1 on failure
+
+**Requires:** `aiohttp` - install with `pip install 'sugarai[opencode]'`
+
+---
+
+### `sugar opencode notify`
+
+Send a test notification to the OpenCode server.
+
+```bash
+sugar opencode notify MESSAGE [OPTIONS]
+```
+
+**Arguments:**
+- `MESSAGE` - Notification message body (required)
+
+**Options:**
+- `--title TEXT` - Notification title (default: `Sugar Notification`)
+- `--level [info|success|warning|error]` - Notification severity level (default: `info`)
+
+**Examples:**
+```bash
+# Send a basic notification
+sugar opencode notify "Task queue is idle"
+
+# Send a success notification with a custom title
+sugar opencode notify "All tests passed" --title "CI Complete" --level success
+
+# Send an error alert
+sugar opencode notify "Build failed on main" --level error
+```
+
+**Requires:** `aiohttp` - install with `pip install 'sugarai[opencode]'`
+
+---
+
+### `sugar opencode setup`
+
+Configure OpenCode to use Sugar's MCP servers for memory and task management. Automatically locates your OpenCode config file and adds the Sugar MCP server entries.
+
+```bash
+sugar opencode setup [OPTIONS]
+```
+
+**Options:**
+- `-y, --yes` - Skip confirmation prompts and apply changes automatically
+- `--dry-run` - Show what would be changed without modifying any files
+- `--config PATH` - Path to the OpenCode config file (auto-detected if omitted)
+- `--memory / --no-memory` - Include the Sugar memory MCP server (default: include)
+- `--tasks / --no-tasks` - Include the Sugar tasks MCP server (default: include)
+
+**Examples:**
+```bash
+# Interactive setup (shows changes, asks for confirmation)
+sugar opencode setup
+
+# Non-interactive - apply changes immediately
+sugar opencode setup --yes
+
+# Preview changes without writing anything
+sugar opencode setup --dry-run
+
+# Skip memory MCP, tasks MCP only
+sugar opencode setup --no-memory
+
+# Point to a specific config file
+sugar opencode setup --config ~/.config/opencode/opencode.json
+```
+
+**Config file search order:**
+1. `--config` flag value
+2. `OPENCODE_CONFIG` environment variable
+3. `OPENCODE_CONFIG_DIR` environment variable (appends `opencode.json`)
+4. `.opencode/opencode.json` or `.opencode/opencode.jsonc` in the current directory
+5. `~/.config/opencode/opencode.json` or `~/.config/opencode/opencode.jsonc`
+
+---
+
 ## Task Status Lifecycle
 
 ```
 pending → active → completed
-            ↓
-         failed
+   ↑         ↓
+  hold     failed
 ```
 
 - **pending** - Task added but not yet started
+- **hold** - Task paused manually; excluded from autonomous execution until released
 - **active** - Task currently being executed by Claude
 - **completed** - Task finished successfully
 - **failed** - Task execution failed (can be retried)

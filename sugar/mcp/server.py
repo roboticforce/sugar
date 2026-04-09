@@ -299,11 +299,22 @@ class SugarMCPServer:
         file_pattern: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Search the codebase"""
+        import re
         import subprocess
 
-        cmd = ["grep", "-r", "-n", query, "."]
+        # Validate file_pattern to prevent injection via glob argument
         if file_pattern:
-            cmd = ["grep", "-r", "-n", "--include", file_pattern, query, "."]
+            if not re.match(r"^[a-zA-Z0-9*._\-]+$", file_pattern):
+                raise ValueError(
+                    f"Invalid file pattern: {file_pattern}. "
+                    "Only alphanumeric characters, *, ., _, and - are allowed."
+                )
+
+        # Use -- to separate options from the query argument,
+        # preventing flag injection if query starts with -
+        cmd = ["grep", "-r", "-n", "--", query, "."]
+        if file_pattern:
+            cmd = ["grep", "-r", "-n", "--include", file_pattern, "--", query, "."]
 
         try:
             result = subprocess.run(

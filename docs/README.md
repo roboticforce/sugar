@@ -19,7 +19,6 @@ Documentation for developers who want to **use** Sugar in their projects:
 - **[Task Hooks Guide](task-hooks.md)** - Pre/post execution hooks for automation
 - **[Thinking Capture Guide](thinking-capture.md)** - View Claude's reasoning during execution
 - **[Model Routing Guide](dev/model-routing-guide.md)** - Intelligent model selection by task
-- **[Billing & Pricing](user/billing.md)** - Pricing tiers and API key management
 - **[Configuration Reference](user/configuration.md)** - Complete configuration options
 - **[Troubleshooting](user/troubleshooting.md)** - Common issues and solutions
 - **[FAQ](user/faq.md)** - Frequently asked questions

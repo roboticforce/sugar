@@ -124,7 +124,6 @@ sugar/
 │   ├── hooks.py     # Quality gate hooks
 │   ├── subagent_manager.py  # Sub-agent spawning
 │   └── tools.py     # Custom tools
-├── billing/         # SaaS billing (usage, API keys, tiers)
 ├── config/          # Configuration management
 ├── core/            # Main loop and orchestration
 │   └── loop.py      # Primary execution loop

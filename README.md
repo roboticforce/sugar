@@ -1,19 +1,50 @@
-# 🍰 Sugar
+# Sugar
 
-Persistent memory for AI coding agents.
+Autonomous issue resolution for AI-assisted development.
 
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
-Sugar gives your AI agents memory that persists across sessions and projects. It remembers your decisions, patterns, and preferences so you stop re-explaining context every time you open a new session. The task queue builds on top of that memory layer to run work autonomously while you focus on other things.
+Security scanners find vulnerabilities. Dependabot opens issues. Copilot flags problems.
+Sugar reads the issue, writes the fix, runs the tests, and opens the PR.
+
+- **Discovers** - watches your GitHub repo for labeled issues (security, bug, dependabot)
+- **Resolves** - reads each issue and implements a fix using Claude
+- **Verifies** - runs your test suite and quality gates before committing
+- **Ships** - opens a PR referencing the original issue, ready for your review
+
+No issue left sitting in a backlog waiting for someone to have time.
+
+## How Sugar Compares
+
+Most AI dev tools stop at the discovery layer:
+
+```
+GitHub Copilot CLI  ->  scan  ->  open issues
+Snyk                ->  scan  ->  open issues
+Dependabot          ->  scan  ->  open issues
+```
+
+Sugar is the resolution layer:
+
+```
+Labeled issue appears on GitHub
+  -> Sugar picks it up (label filter: "security", "dependabot", "bug")
+  -> AI agent reads the issue, analyzes the affected code
+  -> Fix implemented, tests run locally
+  -> PR opened - you review and merge
+```
+
+Configure which labels Sugar watches, point it at your repo, and run `sugar run`.
+
+See [workflow examples](docs/workflows/) for security auto-fix, bug triage, test coverage, and more.
 
 ## What Sugar Does
 
-Every AI coding session starts cold. You explain the same architectural decisions, re-describe the same error patterns, and re-establish the same preferences - over and over.
-
-Sugar fixes that. It stores what matters and surfaces it when relevant:
+Sugar combines persistent memory with autonomous task execution:
 
 - **Project memory** - Decisions, preferences, error patterns, and research stored per-project
 - **Global memory** - Standards and guidelines shared across every project you work on
+- **GitHub integration** - Watches for labeled issues and resolves them autonomously
 - **Semantic search** - Retrieve relevant context by meaning, not just keywords
 - **MCP integration** - Your AI agent reads and writes memory directly during sessions
 - **Task queue** - Hand off work to run autonomously, powered by the same memory layer
@@ -68,7 +99,7 @@ goose configure
 sugar opencode setup
 ```
 
-## Global Memory (New in 3.8)
+## Global Memory (New in 3.9)
 
 Some knowledge belongs to you, not just one project. Coding standards, preferred patterns, security practices - these should follow you everywhere.
 
@@ -89,13 +120,67 @@ sugar recall "database queries"
 # Returns: project-specific memories + relevant global guidelines
 ```
 
-Global memory lives at `~/.sugar/memory.db`. Project memory lives at `.sugar/sugar.db`. When you search, project context wins - but `guideline` type memories from global always appear in results so your standards stay visible.
+Global memory lives at `~/.sugar/memory.db`. Project memory lives at `.sugar/memory.db`. When you search, project context wins - but `guideline` type memories from global always appear in results so your standards stay visible.
 
 **Via MCP**, pass `scope: "global"` to `store_learning` to save cross-project knowledge directly from your AI session.
 
 **Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`, `guideline`
 
 Full docs: [Memory System Guide](docs/user/memory.md)
+
+## How Memory Works
+
+Sugar uses two SQLite databases and a tiered search strategy.
+
+**Two stores:**
+- **Project store** (`.sugar/memory.db`) - context specific to one project
+- **Global store** (`~/.sugar/memory.db`) - knowledge that applies everywhere
+
+**Seven memory types**, each with different retrieval behavior:
+
+| Type | Purpose | TTL |
+|------|---------|-----|
+| `decision` | Architecture and implementation choices | Never |
+| `preference` | How you like things done | Never |
+| `file_context` | What files and modules do | Never |
+| `error_pattern` | Bugs and their fixes | 90 days |
+| `research` | API docs, library findings | 60 days |
+| `outcome` | What worked, what didn't | 30 days |
+| `guideline` | Cross-project standards and best practices | Never |
+
+**Search strategy - project-first with reserved guideline slots:**
+
+1. Search the project store first (local context always wins)
+2. Reserve slots for global guidelines (cross-project standards always surface)
+3. Fill remaining slots with other global results
+4. Deduplicate across both stores
+
+This means a mature project's local context dominates results. A new project with no local memory gets global knowledge automatically. And your guidelines are always visible regardless.
+
+**Search engine:** Semantic search via sentence-transformers (all-MiniLM-L6-v2, 384-dim vectors) with sqlite-vec. Falls back to SQLite FTS5 keyword search, then LIKE queries. No external API calls - everything runs locally.
+
+```bash
+# Install with semantic search (recommended)
+pipx install 'sugarai[memory]'
+
+# Works without it too - just uses keyword matching
+pipx install sugarai
+```
+
+**MCP tools available to your AI agent:**
+
+| Tool | What it does |
+|------|-------------|
+| `search_memory` | Search both stores, returns results with scope labels |
+| `store_learning` | Save a memory (pass `scope: "global"` for cross-project) |
+| `recall` | Get formatted markdown context for a topic |
+| `get_project_context` | Full project summary including global guidelines |
+| `list_recent_memories` | Browse recent memories by type |
+
+**MCP resources:**
+- `sugar://project/context` - project summary
+- `sugar://preferences` - coding preferences
+- `sugar://global/guidelines` - cross-project standards
 
 ## Task Queue
 

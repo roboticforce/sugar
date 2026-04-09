@@ -5,9 +5,105 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.7.0] - Unreleased
+## [Unreleased]
 
-### 🔗 MINOR RELEASE: OpenCode Integration Improvements
+_Development in progress._
+
+---
+
+## [3.9.1] - 2026-04-09
+
+### Security
+- Fix SQL injection via dynamic column names in `WorkQueue.update_work()` - added column allowlist
+- Fix grep flag injection in MCP `_search_codebase` - added `--` end-of-options separator
+- Fix shell injection in `HookExecutor` - added `shlex.quote()` on task field substitutions
+
+### Fixed
+- Add missing `self._lock` to `MemoryStore.list_memories`, `count`, and `prune_expired` methods
+- Replace silent `except: pass` with `logger.warning()` for vector deletion and unknown memory types
+- Remove no-op `.replace('AND', 'AND')` in keyword search fallback
+- Fix `.gitignore` duplicate entries and add `.fastembed_cache/`
+- Raise `ValueError` on missing `SUGAR_SIGNING_SECRET` instead of silently generating random secret
+
+### Changed
+- Pin all dependencies to exact versions in pyproject.toml (replace `>=` ranges with `==` exact pins)
+- Reposition Sugar as "Autonomous issue resolution for AI-assisted development"
+- Update tagline across CLI help, plugin README, and pyproject.toml description
+
+### Added
+- `docs/ARCHITECTURE.md` - contributor-focused architecture overview with system diagram
+- `docs/workflows/` - 5 real-world workflow examples (security auto-fix, bug triage, test coverage, code quality, feature development)
+- Document `hold`, `release`, `logs`, and `opencode` CLI commands in cli-reference.md
+
+### Removed
+- Remove unused `billing` module (api_keys, tiers, usage) and associated tests/fixtures
+
+---
+
+## [3.9.0] - 2026-03-17
+
+### MINOR RELEASE: Global Memory Layer and Concurrency Fixes
+
+Cross-project memory with a shared global store, project-first search strategy, and thread-safety improvements across the storage and agent layers.
+
+### Added
+
+#### Global Memory Layer
+- **`~/.sugar/memory.db`** - Global memory store that works alongside project-local memory
+- **`GlobalMemoryManager`** - Wraps project and global `MemoryStore` instances, merging results by relevance
+- **`guideline` memory type** - New type for cross-project standards and rules
+- **`--global` flag** - Available on `remember`, `recall`, `memories`, `forget`, and `memory-stats` CLI commands
+- **`sugar://global/guidelines` MCP resource** - Exposes global guidelines to any connected agent
+- **`scope` parameter on `store_learning` MCP tool** - Store memories at project or global scope
+- **MCP server global-only mode** - Server now functions outside Sugar project directories using global memory
+- Search results labeled with scope (`project`/`global`) so origin is always clear
+
+#### Search Strategy
+- Project-first tiered search: local context wins, global guidelines get reserved slots, remaining slots filled from other global results, results deduplicated across both stores
+
+#### Tests
+- 62 new tests for global memory (978 total passing)
+
+### Changed
+- README rewritten to lead with memory capabilities; task queue positioned as secondary feature
+- New tagline: "Persistent memory for AI coding agents"
+- CLI help text updated to reflect memory-first positioning
+- Memory docs expanded with global memory section, `guideline` type, and `--global` flag
+- CLI reference, installation guide, and quick-start updated accordingly
+- Technical "How Memory Works" section added to README
+
+### Fixed
+- **Concurrency - subagent manager**: Snapshot `active_subagents` dict before iteration in `cancel_all` to prevent `RuntimeError` on dict size change during iteration
+- **Concurrency - main loop**: Proper shutdown event handling with fallback force exit
+- **Concurrency - memory store**: Replace connection caching with per-operation connections for thread safety
+- **Concurrency - issue_response_manager**: Row-level locking and retry logic
+- **Concurrency - task_type_manager**: Row-level locking and retry logic
+- **Concurrency - work_queue**: WAL mode, busy timeout, and immediate transactions
+
+### Tests
+- 16-test concurrency suite added (`tests/test_concurrency.py`)
+- Benchmark suite added (`tests/benchmarks/bench_concurrency.py`)
+- Throughput test floor lowered to 30 ops/sec for CI runners
+- Benchmark tests excluded from standard CI runs via pytest markers
+
+---
+
+## [3.8.0] - 2026-01-22
+
+### PATCH RELEASE: Goose Integration Guide
+
+Documentation release adding a dedicated Goose integration guide and improving MCP setup instructions across the docs.
+
+### Added
+- **`docs/user/goose.md`** - Dedicated integration guide for Goose AI agent
+- Goose setup instructions added to README, installation guide, and quick-start guide
+- FAQ updated with correct Goose MCP configuration (replaces outdated instructions)
+
+---
+
+## [3.7.0] - 2026-01-21
+
+### MINOR RELEASE: OpenCode Integration Improvements
 
 One-command setup for OpenCode integration and new memory slash commands.
 
