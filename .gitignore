@@ -106,6 +106,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
 .venv
 env/
 venv/
@@ -140,12 +141,19 @@ dmypy.json
 
 # macOS
 .DS_Store
+.DS_Store?
 .AppleDouble
 .LSOverride
+._*
+.Spotlight-V100
+.Trashes
 
 # Windows
 Thumbs.db
+Thumbs.db:encryptable
 Desktop.ini
+ehthumbs.db
+ehthumbs_vista.db
 
 # Sugar specific
 .sugar/
@@ -155,26 +163,20 @@ logs/
 
 # Claude CLI
 .claude/
+.mcp.json
 sugar_context.json
 sugar-context.json
 
-# Testing and development (additional)
+# Testing and development
 test-results/
-
-# Build artifacts (additional)
-*.egg-info/
 
 # Development tools
 .pre-commit-cache/
-.mypy_cache/
 .ruff_cache/
 
 # Temporary files
 *.tmp
 *.temp
-*.swp
-*.swo
-*~
 .#*
 
 # Backup files
@@ -182,21 +184,12 @@ test-results/
 *.backup
 *.orig
 
-# OS specific
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-ehthumbs_vista.db
-Thumbs.db
-Thumbs.db:encryptable
-
 # Documentation builds
-docs/_build/
 docs/build/
 site/
+
+# ML model cache
+.fastembed_cache/
 
 # Research (local only)
 research/.mcpregistry_github_token
