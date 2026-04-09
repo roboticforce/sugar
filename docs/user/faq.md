@@ -17,7 +17,7 @@ Sugar adds:
 
 ### Is Sugar free?
 
-Self-hosted Sugar is completely free. You only pay for Claude API usage directly to Anthropic. SaaS pricing starts with a free tier. See [Billing](billing.md) for details.
+Sugar is completely free and open-source. You only pay for Claude API usage directly to Anthropic.
 
 ## Installation
 
@@ -266,4 +266,3 @@ Open a discussion on [GitHub Discussions](https://github.com/roboticforce/sugar/
 - GitHub Discussions
 - Email: contact@roboticforce.io
 
-For Enterprise support, see [Billing](billing.md#enterprise-contact).
