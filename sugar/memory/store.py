@@ -593,7 +593,9 @@ class MemoryStore:
         try:
             memory_type = MemoryType(memory_type)
         except ValueError:
-            logger.warning(f"Unknown memory_type '{memory_type}', defaulting to DECISION")
+            logger.warning(
+                f"Unknown memory_type '{memory_type}', defaulting to DECISION"
+            )
             memory_type = MemoryType.DECISION
 
         created_at = row["created_at"]
