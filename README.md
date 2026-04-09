@@ -1,19 +1,50 @@
-# 🍰 Sugar
+# Sugar
 
-Persistent memory for AI coding agents.
+Autonomous issue resolution for AI-assisted development.
 
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
-Sugar gives your AI agents memory that persists across sessions and projects. It remembers your decisions, patterns, and preferences so you stop re-explaining context every time you open a new session. The task queue builds on top of that memory layer to run work autonomously while you focus on other things.
+Security scanners find vulnerabilities. Dependabot opens issues. Copilot flags problems.
+Sugar reads the issue, writes the fix, runs the tests, and opens the PR.
+
+- **Discovers** - watches your GitHub repo for labeled issues (security, bug, dependabot)
+- **Resolves** - reads each issue and implements a fix using Claude
+- **Verifies** - runs your test suite and quality gates before committing
+- **Ships** - opens a PR referencing the original issue, ready for your review
+
+No issue left sitting in a backlog waiting for someone to have time.
+
+## How Sugar Compares
+
+Most AI dev tools stop at the discovery layer:
+
+```
+GitHub Copilot CLI  ->  scan  ->  open issues
+Snyk                ->  scan  ->  open issues
+Dependabot          ->  scan  ->  open issues
+```
+
+Sugar is the resolution layer:
+
+```
+Labeled issue appears on GitHub
+  -> Sugar picks it up (label filter: "security", "dependabot", "bug")
+  -> AI agent reads the issue, analyzes the affected code
+  -> Fix implemented, tests run locally
+  -> PR opened - you review and merge
+```
+
+Configure which labels Sugar watches, point it at your repo, and run `sugar run`.
+
+See [workflow examples](docs/workflows/) for security auto-fix, bug triage, test coverage, and more.
 
 ## What Sugar Does
 
-Every AI coding session starts cold. You explain the same architectural decisions, re-describe the same error patterns, and re-establish the same preferences - over and over.
-
-Sugar fixes that. It stores what matters and surfaces it when relevant:
+Sugar combines persistent memory with autonomous task execution:
 
 - **Project memory** - Decisions, preferences, error patterns, and research stored per-project
 - **Global memory** - Standards and guidelines shared across every project you work on
+- **GitHub integration** - Watches for labeled issues and resolves them autonomously
 - **Semantic search** - Retrieve relevant context by meaning, not just keywords
 - **MCP integration** - Your AI agent reads and writes memory directly during sessions
 - **Task queue** - Hand off work to run autonomously, powered by the same memory layer
