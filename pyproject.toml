@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sugarai"
-version = "3.9.2.dev0"
-description = "Autonomous issue resolution for AI-assisted development. Persistent memory, cross-session context, and autonomous task execution."
+version = "3.9.2.dev1"
+description = "Persistent memory for AI coding agents. Local-first, cross-session context, global knowledge, and optional autonomous task execution."
 
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license = {text = "AGPL-3.0-or-later"}
 authors = [
     {name = "Steven Leggett", email = "contact@roboticforce.io"}
 ]
-keywords = ["claude", "autonomous", "development", "ai", "automation"]
+keywords = ["claude", "memory", "ai", "coding-agent", "mcp", "context"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers", 

@@ -1,6 +1,6 @@
 # Sugar Documentation
 
-Welcome to the Sugar documentation! Sugar is an AI-powered autonomous development system that works with Claude Code CLI to provide 24/7 autonomous development capabilities.
+Welcome to the Sugar documentation! Sugar is a local-first memory layer for AI coding agents. It stores your decisions, conventions, and patterns so your AI agent (Claude Code, Goose, OpenCode, or any MCP client) recalls them in every session, across every project - without sending your knowledge to a vendor's cloud.
 
 ## 📚 Documentation Structure
 
@@ -55,5 +55,5 @@ Documentation for developers who want to **contribute** to Sugar:
 
 ---
 
-**Sugar** - Autonomous development powered by Claude Agent SDK
+**Sugar** - Persistent memory for AI coding agents
 Created by [Steven Leggett](https://github.com/cdnsteve) | [RoboticForce](https://roboticforce.io)

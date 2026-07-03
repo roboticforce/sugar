@@ -1,30 +1,32 @@
 # Sugar
 
-Autonomous issue resolution for AI-assisted development.
+Persistent memory for AI coding agents.
 
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
-Security scanners find vulnerabilities. Dependabot opens issues. Copilot flags problems.
-Sugar reads the issue, writes the fix, runs the tests, and opens the PR.
+Your AI agent starts every session with amnesia. The architecture decisions, conventions,
+and gotchas you explained last week are gone. Sugar is the local-first memory layer that
+remembers them for you - per project, across projects, on your machine.
 
-- **Discovers** - watches your GitHub repo for labeled issues (security, bug, dependabot)
-- **Resolves** - reads each issue and implements a fix using Claude
-- **Verifies** - runs your test suite and quality gates before committing
-- **Ships** - opens a PR referencing the original issue, ready for your review
+Your memory. Your machine. Your data.
 
-No issue left sitting in a backlog waiting for someone to have time.
+## What Sugar Does
 
-## How Sugar Compares
+Sugar is a memory layer your AI coding agent can read and write directly:
 
-Most AI dev tools stop at the discovery layer:
+- **Project memory** - Decisions, preferences, error patterns, and research stored per-project
+- **Global memory** - Standards and guidelines shared across every project you work on
+- **Semantic search** - Retrieve relevant context by meaning, not just keywords
+- **MCP integration** - Your AI agent reads and writes memory directly during sessions
+- **Local-first** - SQLite on your disk, no API keys, fully offline-capable
+- **Task queue** - Optional autonomous execution, powered by the same memory layer
 
-```
-GitHub Copilot CLI  ->  scan  ->  open issues
-Snyk                ->  scan  ->  open issues
-Dependabot          ->  scan  ->  open issues
-```
+## Autonomous Issue Resolution (optional)
 
-Sugar is the resolution layer:
+Because Sugar remembers your codebase and conventions, it can also resolve routine issues
+autonomously. Point it at a GitHub repo, configure which labels to act on
+(`security`, `bug`, `dependabot`), and Sugar will read each issue, implement the fix, run your
+tests, and open a PR.
 
 ```
 Labeled issue appears on GitHub
@@ -34,20 +36,9 @@ Labeled issue appears on GitHub
   -> PR opened - you review and merge
 ```
 
-Configure which labels Sugar watches, point it at your repo, and run `sugar run`.
-
-See [workflow examples](docs/workflows/) for security auto-fix, bug triage, test coverage, and more.
-
-## What Sugar Does
-
-Sugar combines persistent memory with autonomous task execution:
-
-- **Project memory** - Decisions, preferences, error patterns, and research stored per-project
-- **Global memory** - Standards and guidelines shared across every project you work on
-- **GitHub integration** - Watches for labeled issues and resolves them autonomously
-- **Semantic search** - Retrieve relevant context by meaning, not just keywords
-- **MCP integration** - Your AI agent reads and writes memory directly during sessions
-- **Task queue** - Hand off work to run autonomously, powered by the same memory layer
+This is one application of the memory layer, not the headline. Use Sugar purely as memory,
+or enable resolution - your choice. See [workflow examples](docs/workflows/) for security
+auto-fix, bug triage, test coverage, and more.
 
 ## Quick Start
 

@@ -1,6 +1,6 @@
 # Workflow Examples
 
-Practical, copy-pasteable guides for common Sugar use cases.
+Practical, copy-pasteable guides for common Sugar use cases. These are **applications of the memory layer** - Sugar remembers your codebase and conventions, and can optionally act on that context autonomously. You can also use Sugar purely as memory and never run a single task.
 
 | Workflow | Description |
 |----------|-------------|

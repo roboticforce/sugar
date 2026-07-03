@@ -2,6 +2,8 @@
 
 Contributor-focused overview of how Sugar works internally.
 
+Sugar is a local-first **memory layer** for AI coding agents. The architecture below covers the full system - the memory store is the core; the task queue and GitHub resolution loop are optional execution layers built on top of it.
+
 ## System Overview
 
 ```
