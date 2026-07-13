@@ -1,5 +1,12 @@
 # Task Orchestration System
 
+> **Status: Implemented (v3.10+).** Orchestration is wired into the live Sugar
+> loop - `sugar add "..." --orchestrate` then `sugar run` decomposes the task,
+> runs all four stages, persists and executes subtasks in dependency order, and
+> `sugar orchestrate <id>` / `sugar context <id>` show the live persisted state.
+> Subtasks execute in dependency order, sequentially within each wave;
+> intra-wave parallelism is planned (see [Out of scope](#out-of-scope)).
+
 Sugar's Task Orchestration system enables intelligent decomposition and execution of complex features through staged workflows and specialist agent routing.
 
 ## Overview
@@ -10,7 +17,8 @@ When Sugar encounters a large feature request, the orchestration system:
 2. **Researches** context via web search and codebase analysis
 3. **Plans** the implementation and generates sub-tasks
 4. **Routes** each sub-task to the appropriate specialist agent
-5. **Executes** sub-tasks with parallelism where possible
+5. **Executes** sub-tasks in dependency order (sequentially within each wave;
+   intra-wave parallelism is planned)
 6. **Reviews** the completed work before marking done
 
 ```mermaid
@@ -768,3 +776,26 @@ flowchart TB
 ```
 
 This architecture enables Sugar to handle everything from simple one-liner fixes to complex multi-day feature implementations, automatically choosing the right level of sophistication for each task.
+
+## Out of scope
+
+The following are intentionally deferred (tracked as follow-ups):
+
+- **Intra-wave parallel subtask execution.** Subtasks run sequentially within each
+  dependency wave because the cached `SugarAgent` mutates shared instance state
+  during execution. Per-subtask agent isolation is required before subtasks in the
+  same wave can run concurrently.
+- **Queue-driven parent-wake (Model B).** Today orchestration runs synchronously
+  within a single loop slot (Model A): the parent is claimed, all four stages run,
+  and subtasks are persisted as `hold`-status rows the orchestrator executes
+  itself. A queue-driven model where the parent holds while children run as
+  independent queue items (better for long-running/crash-recovery) is future work.
+- **Quality-gate integration in review.** `WorkflowOrchestrator.quality_gates` are
+  not yet wired into the review stage; review runs the routed reviewer and
+  optionally the project test suite (`run_tests` / `require_passing`).
+- **Real Claude-Code subagent-type dispatch.** Specialist agent names
+  (`backend-developer`, etc.) prime the subtask prompt with a role header and are
+  stored on the row for visibility; they are not yet dispatched as native
+  subagent types.
+- **Robust plan parser.** `generate_subtasks` uses a regex parser; a more
+  tolerant parser is a follow-up.

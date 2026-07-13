@@ -18,8 +18,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..agent.subagent_manager import SubAgentManager
-
 logger = logging.getLogger(__name__)
 
 
@@ -331,7 +329,9 @@ class TaskOrchestrator:
         Run full orchestration workflow for a task.
 
         Executes all enabled stages in sequence, accumulating context
-        and generating subtasks for implementation.
+        and generating subtasks for implementation. The parent task's
+        ``stage`` and ``context_path`` are persisted to the work queue so
+        ``sugar orchestrate`` / ``sugar context`` show live progress.
 
         Args:
             task: Task dictionary to orchestrate
@@ -346,6 +346,18 @@ class TaskOrchestrator:
             f"Starting orchestration for task {task_id}: {task.get('title', 'Untitled')}"
         )
 
+        # Stages the user asked to skip (set via `sugar add --skip-stages`)
+        task_context = task.get("context") or {}
+        if not isinstance(task_context, dict):
+            task_context = {}
+        skip_stages = task_context.get("skip_stages", []) or []
+
+        # Persist the context_path (a file) and initial stage on the parent
+        context_path = self._get_context_path(task_id)
+        if self.work_queue:
+            await self.work_queue.update_work(task_id, {"context_path": context_path})
+            await self.work_queue.update_orchestration_stage(task_id, "research")
+
         stages_completed = []
         context = self._initialize_context(task)
         subtasks = []
@@ -353,7 +365,14 @@ class TaskOrchestrator:
 
         try:
             # Stage 1: Research
-            if self.orchestration_config["stages"]["research"]["enabled"]:
+            if (
+                self.orchestration_config["stages"]["research"]["enabled"]
+                and "research" not in skip_stages
+            ):
+                if self.work_queue:
+                    await self.work_queue.update_orchestration_stage(
+                        task_id, OrchestrationStage.RESEARCH.value
+                    )
                 research_result = await self.run_stage(
                     OrchestrationStage.RESEARCH, task, context
                 )
@@ -362,12 +381,22 @@ class TaskOrchestrator:
                 if research_result.success:
                     context.update(research_result.context_additions)
                     await self._save_stage_output(task_id, research_result)
+                    await self._append_to_context_file(
+                        task_id, OrchestrationStage.RESEARCH, research_result
+                    )
                 else:
                     logger.warning(f"Research stage failed: {research_result.error}")
                     # Continue anyway - research is informational
 
             # Stage 2: Planning
-            if self.orchestration_config["stages"]["planning"]["enabled"]:
+            if (
+                self.orchestration_config["stages"]["planning"]["enabled"]
+                and "planning" not in skip_stages
+            ):
+                if self.work_queue:
+                    await self.work_queue.update_orchestration_stage(
+                        task_id, OrchestrationStage.PLANNING.value
+                    )
                 planning_result = await self.run_stage(
                     OrchestrationStage.PLANNING, task, context
                 )
@@ -376,6 +405,9 @@ class TaskOrchestrator:
                 if planning_result.success:
                     context.update(planning_result.context_additions)
                     await self._save_stage_output(task_id, planning_result)
+                    await self._append_to_context_file(
+                        task_id, OrchestrationStage.PLANNING, planning_result
+                    )
 
                     # Generate subtasks from plan
                     subtasks = await self.generate_subtasks(
@@ -388,27 +420,68 @@ class TaskOrchestrator:
                     raise Exception(error)
 
             # Stage 3: Implementation
-            if subtasks and self.orchestration_config["stages"]["implementation"].get(
-                "parallel"
+            impl_config = self.orchestration_config["stages"]["implementation"]
+            if (
+                subtasks
+                and impl_config.get("enabled", True)
+                and "implementation" not in skip_stages
             ):
+                if self.work_queue:
+                    await self.work_queue.update_orchestration_stage(
+                        task_id, OrchestrationStage.IMPLEMENTATION.value
+                    )
                 impl_result = await self._run_implementation_stage(
                     subtasks, task, context
                 )
                 stages_completed.append(OrchestrationStage.IMPLEMENTATION)
+                context.update(impl_result.context_additions)
+                await self._append_to_context_file(
+                    task_id, OrchestrationStage.IMPLEMENTATION, impl_result
+                )
 
                 if not impl_result.success:
                     error = f"Implementation stage failed: {impl_result.error}"
                     logger.error(error)
 
             # Stage 4: Review
-            if self.orchestration_config["stages"]["review"]["enabled"]:
+            review_config = self.orchestration_config["stages"]["review"]
+            if review_config["enabled"] and "review" not in skip_stages:
+                if self.work_queue:
+                    await self.work_queue.update_orchestration_stage(
+                        task_id, OrchestrationStage.REVIEW.value
+                    )
                 review_result = await self.run_stage(
                     OrchestrationStage.REVIEW, task, context
                 )
                 stages_completed.append(OrchestrationStage.REVIEW)
+                await self._append_to_context_file(
+                    task_id, OrchestrationStage.REVIEW, review_result
+                )
+
+                # Run the project test suite if configured
+                if review_config.get("run_tests"):
+                    tests_pass, test_detail = await self._run_project_tests()
+                    if not tests_pass:
+                        review_result.output = (
+                            review_result.output or ""
+                        ) + f"\n\n## Test Results (FAILED)\n{test_detail}"
+                        if review_config.get("require_passing"):
+                            review_result.success = False
+                            review_result.error = f"Review tests failed:\n{test_detail}"
+                            logger.warning("Review stage failed: tests did not pass")
+                        else:
+                            logger.warning(
+                                "Review tests failed but require_passing is false"
+                            )
 
                 if not review_result.success:
-                    logger.warning(f"Review stage found issues: {review_result.error}")
+                    if review_config.get("require_passing") and review_result.error:
+                        error = f"Review stage failed: {review_result.error}"
+                        logger.error(error)
+                    else:
+                        logger.warning(
+                            f"Review stage found issues: {review_result.error}"
+                        )
 
             total_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
@@ -418,7 +491,7 @@ class TaskOrchestrator:
                 stages_completed=stages_completed,
                 subtasks=subtasks,
                 total_execution_time=total_time,
-                context_path=self._get_context_path(task_id),
+                context_path=context_path,
                 error=error,
             )
 
@@ -432,7 +505,7 @@ class TaskOrchestrator:
                 stages_completed=stages_completed,
                 subtasks=subtasks,
                 total_execution_time=total_time,
-                context_path=self._get_context_path(task_id),
+                context_path=context_path,
                 error=str(e),
             )
 
@@ -537,15 +610,20 @@ class TaskOrchestrator:
         # 1. **Title** - Description (Agent: agent-name)
         #    Dependencies: task-1, task-2
 
-        # Simple regex-based parsing
-        subtask_pattern = (
-            r"(\d+)\.\s+\*\*(.+?)\*\*\s*-?\s*(.+?)(?=\n(?:\d+\.|\Z)|Agent:)"
-        )
+        # Simple regex-based parsing. The description group extends until the
+        # next numbered subtask (or end of input) so the Agent: and Dependencies:
+        # lines that belong to this subtask are captured within it.
+        subtask_pattern = r"(\d+)\.\s+\*\*(.+?)\*\*\s*-?\s*(.+?)(?=\n\d+\.\s+\*\*|\Z)"
         agent_pattern = r"Agent:\s*(\S+)"
         deps_pattern = r"Dependencies?:\s*(.+?)(?=\n|$)"
 
         matches = re.finditer(subtask_pattern, plan_output, re.DOTALL)
 
+        parent_id = task.get("id", "unknown")
+
+        # First pass: parse raw subtask rows and capture their numbers so
+        # dependency references can be normalized to placeholder ids.
+        raw_rows = []
         for match in matches:
             task_num = match.group(1)
             title = match.group(2).strip()
@@ -562,20 +640,48 @@ class TaskOrchestrator:
                 dep_text = deps_match.group(1)
                 dependencies = [d.strip() for d in dep_text.split(",")]
 
+            raw_rows.append(
+                {
+                    "num": task_num,
+                    "title": title,
+                    "description": description,
+                    "agent": agent,
+                    "deps": dependencies,
+                }
+            )
+
+        # Map a subtask number (and common reference forms) to its placeholder
+        # id so blocked_by can be resolved by _run_implementation_stage's
+        # placeholder -> real id remap.
+        num_to_placeholder = {
+            row["num"]: f"{parent_id}-sub-{row['num']}" for row in raw_rows
+        }
+
+        def _normalize_dep(dep: str) -> str:
+            dep = dep.strip()
+            if dep in num_to_placeholder:
+                return num_to_placeholder[dep]
+            # "task-1" / "sub-1" / "{parent}-sub-1" style references -> try the
+            # trailing number against the parsed subtasks.
+            m = re.search(r"(\d+)$", dep)
+            if m and m.group(1) in num_to_placeholder:
+                return num_to_placeholder[m.group(1)]
+            return dep
+
+        for row in raw_rows:
             subtask = {
-                "id": f"{task.get('id', 'unknown')}-sub-{task_num}",
-                "parent_task_id": task.get("id"),
-                "title": title,
-                "description": description,
+                "id": f"{parent_id}-sub-{row['num']}",
+                "parent_task_id": parent_id,
+                "title": row["title"],
+                "description": row["description"],
                 "type": task.get("type", "feature"),
                 "priority": task.get("priority", 3),
-                "assigned_agent": agent,
-                "blocked_by": dependencies,
+                "assigned_agent": row["agent"],
+                "blocked_by": [_normalize_dep(d) for d in row["deps"]],
                 "status": "pending",
             }
-
             subtasks.append(subtask)
-            logger.debug(f"Generated subtask {task_num}: {title}")
+            logger.debug(f"Generated subtask {row['num']}: {row['title']}")
 
         # If parsing failed, create a single subtask
         if not subtasks:
@@ -584,8 +690,8 @@ class TaskOrchestrator:
             )
             subtasks.append(
                 {
-                    "id": f"{task.get('id', 'unknown')}-sub-1",
-                    "parent_task_id": task.get("id"),
+                    "id": f"{parent_id}-sub-1",
+                    "parent_task_id": parent_id,
                     "title": f"Implement: {task.get('title', 'Unknown')}",
                     "description": plan_output[:500],  # Use plan as context
                     "type": task.get("type", "feature"),
@@ -600,7 +706,15 @@ class TaskOrchestrator:
         self, subtasks: List[Dict], parent_task: Dict[str, Any], context: Dict[str, Any]
     ) -> StageResult:
         """
-        Run implementation stage with parallel subtask execution.
+        Run implementation stage executing subtasks in dependency order.
+
+        Subtasks are persisted to the work queue with ``status='hold'`` so the
+        main loop's ``get_next_work`` (which only claims ``pending`` items) never
+        picks them up - the orchestrator executes them itself. Subtasks run in
+        dependency waves: each wave executes all subtasks whose blockers are
+        complete, sequentially (the cached SugarAgent mutates shared instance
+        state during execution, so intra-wave parallelism is unsafe without
+        per-subtask agent isolation).
 
         Args:
             subtasks: List of subtasks to execute
@@ -611,54 +725,142 @@ class TaskOrchestrator:
             StageResult for implementation stage
         """
         start_time = datetime.now(timezone.utc)
-        impl_config = self.orchestration_config["stages"]["implementation"]
+        parent_id = parent_task.get("id")
+        context_path = self._get_context_path(parent_id)
 
         try:
-            # Use SubAgentManager for parallel execution
-            manager = SubAgentManager(
-                parent_config=self._get_agent_config(),
-                max_concurrent=impl_config.get("max_concurrent", 3),
-                default_timeout=impl_config.get("timeout_per_task", 1800),
-            )
+            if not self.work_queue:
+                raise RuntimeError(
+                    "A work_queue is required to persist and execute subtasks"
+                )
+            if not self.agent_executor:
+                raise RuntimeError("An agent_executor is required to execute subtasks")
 
-            # Prepare tasks for parallel execution
-            # For now, execute all without dependency resolution
-            # TODO: Add dependency resolution for sequential execution
-            tasks_to_execute = []
+            # 1. Persist subtasks as hold-status rows.
+            #    generate_subtasks emits placeholder ids like "{parent}-sub-{n}";
+            #    map those to the real DB ids returned by add_work so blocked_by
+            #    can be remapped before the first wave (else nothing unblocks).
+            placeholder_to_real: Dict[str, str] = {}
             for subtask in subtasks:
-                # Route subtask to appropriate agent
-                agent = self.router.route(subtask)
+                agent_name = subtask.get("assigned_agent") or self.router.route(subtask)
+                subtask["assigned_agent"] = agent_name
 
-                task_data = {
-                    "task_id": subtask["id"],
-                    "prompt": self._build_subtask_prompt(subtask, context),
-                    "context": json.dumps(context),
-                    "timeout": impl_config.get("timeout_per_task", 1800),
+                subtask_work = {
+                    "type": subtask.get("type", parent_task.get("type", "feature")),
+                    "title": subtask.get("title", "Untitled subtask"),
+                    "description": self._build_subtask_prompt(subtask, context),
+                    "priority": subtask.get("priority", parent_task.get("priority", 3)),
+                    "status": "hold",
+                    "orchestrate": False,
+                    "parent_task_id": parent_id,
+                    "stage": "implementation",
+                    "blocked_by": [],
+                    "context_path": context_path,
+                    "assigned_agent": agent_name,
+                    "context": {
+                        "orchestration_agent": agent_name,
+                        "parent_task_id": parent_id,
+                        "subtask_placeholder_id": subtask.get("id"),
+                    },
                 }
+                real_id = await self.work_queue.add_work(subtask_work)
+                placeholder_to_real[subtask["id"]] = real_id
+                subtask["_real_id"] = real_id
 
-                tasks_to_execute.append(task_data)
+            # 2. Remap blocked_by placeholder ids -> real DB ids now that all
+            #    rows exist. Must happen before wave 1 or get_ready_subtasks
+            #    never resolves a blocker.
+            for subtask in subtasks:
+                real_blocked_by = [
+                    placeholder_to_real.get(dep, dep)
+                    for dep in (subtask.get("blocked_by") or [])
+                ]
+                if real_blocked_by:
+                    await self.work_queue.update_work(
+                        subtask["_real_id"], {"blocked_by": real_blocked_by}
+                    )
 
-            # Execute in parallel
-            results = await manager.spawn_parallel(tasks_to_execute)
-
-            # Aggregate results
-            all_files = []
+            # 3. Wave loop: execute ready subtasks sequentially until none remain.
+            all_files: List[str] = []
             all_success = True
-            errors = []
+            errors: List[str] = []
+            subtask_results: List[Dict[str, Any]] = []
+            executed_ids: set = set()
 
-            for result in results:
-                if not result.success:
-                    all_success = False
-                    errors.append(f"{result.task_id}: {result.error}")
-                all_files.extend(result.files_modified)
+            while True:
+                ready = await self.work_queue.get_ready_subtasks(parent_id)
+                # get_ready_subtasks ignores status, so filter to unexecuted
+                # subtasks still waiting to run.
+                ready = [
+                    s
+                    for s in ready
+                    if s["id"] not in executed_ids
+                    and s.get("status") in ("hold", "pending")
+                ]
+                if not ready:
+                    break
+
+                for subtask_row in ready:
+                    sid = subtask_row["id"]
+                    executed_ids.add(sid)
+                    await self.work_queue.update_work(sid, {"status": "active"})
+
+                    agent_name = subtask_row.get("assigned_agent") or "general-purpose"
+                    # Prime the role header into the description for routing.
+                    desc = subtask_row.get("description", "") or ""
+                    if agent_name and agent_name != "general-purpose":
+                        if not desc.startswith("## Acting as:"):
+                            desc = f"## Acting as: {agent_name}\n\n{desc}"
+                        subtask_row["description"] = desc
+                    row_ctx = subtask_row.get("context") or {}
+                    if isinstance(row_ctx, dict):
+                        row_ctx["orchestration_agent"] = agent_name
+                    subtask_row["context"] = row_ctx
+
+                    try:
+                        result = await self.agent_executor.execute_work(subtask_row)
+                    except Exception as e:  # noqa: BLE001
+                        result = {"success": False, "error": str(e)}
+
+                    if result.get("success", False):
+                        await self.work_queue.complete_work(sid, result)
+                        subtask_results.append(
+                            {
+                                "subtask_id": sid,
+                                "title": subtask_row.get("title"),
+                                "agent": agent_name,
+                                "success": True,
+                                "output": result.get("output", ""),
+                                "files_changed": result.get("files_changed", []),
+                            }
+                        )
+                        all_files.extend(result.get("files_changed", []) or [])
+                    else:
+                        all_success = False
+                        err = result.get("error") or "Subtask execution failed"
+                        errors.append(f"{subtask_row.get('title', sid)}: {err}")
+                        # max_retries=0 -> permanent failure (attempts starts at
+                        # 0 and is never incremented for hold subtasks). Avoids
+                        # recycling the subtask back to 'pending' where the main
+                        # loop could claim it.
+                        await self.work_queue.fail_work(sid, err, max_retries=0)
+                        subtask_results.append(
+                            {
+                                "subtask_id": sid,
+                                "title": subtask_row.get("title"),
+                                "agent": agent_name,
+                                "success": False,
+                                "error": err,
+                            }
+                        )
 
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             return StageResult(
                 stage=OrchestrationStage.IMPLEMENTATION,
                 success=all_success,
-                output=f"Completed {len(results)} subtasks",
-                context_additions={"subtask_results": [r.to_dict() for r in results]},
+                output=f"Completed {len(subtask_results)} subtasks",
+                context_additions={"subtask_results": subtask_results},
                 files_modified=all_files,
                 execution_time=execution_time,
                 error="; ".join(errors) if errors else None,
@@ -721,9 +923,7 @@ class TaskOrchestrator:
 """
 
         if stage == OrchestrationStage.RESEARCH:
-            return (
-                base_prompt
-                + """
+            return base_prompt + """
 ## Your Role
 You are conducting research for this task. Your goals:
 1. Search for relevant best practices and documentation
@@ -738,7 +938,6 @@ Provide a research summary covering:
 - Technical requirements
 - Recommendations for implementation
 """
-            )
 
         elif stage == OrchestrationStage.PLANNING:
             research_context = ""
@@ -747,10 +946,7 @@ Provide a research summary covering:
                     f"\n## Research Findings\n{context['research_output']}\n"
                 )
 
-            return (
-                base_prompt
-                + research_context
-                + """
+            return base_prompt + research_context + """
 ## Your Role
 You are creating an implementation plan for this task. Your goals:
 1. Break down the task into manageable subtasks
@@ -775,15 +971,12 @@ Create a plan with subtasks in this format:
 ## Dependencies
 Explain the order of execution and why.
 """
-            )
 
         elif stage == OrchestrationStage.REVIEW:
             impl_results = context.get("subtask_results", [])
             files_modified = context.get("files_modified", [])
 
-            return (
-                base_prompt
-                + f"""
+            return base_prompt + f"""
 ## Implementation Complete
 The following subtasks have been completed:
 {json.dumps(impl_results, indent=2)}
@@ -806,7 +999,6 @@ Provide a review covering:
 - Recommendations for improvement
 - Overall assessment (pass/fail)
 """
-            )
 
         else:
             return base_prompt
@@ -844,15 +1036,18 @@ This is part of a larger orchestrated task. Focus on completing your specific su
 
     def _get_context_path(self, task_id: str) -> str:
         """
-        Get path to orchestration context directory.
+        Get path to the orchestration context file for a task.
+
+        The ``sugar context`` command opens this path as a file, so it must be
+        a file (context.md), not a directory.
 
         Args:
             task_id: Task ID
 
         Returns:
-            Path string
+            Path string to context.md
         """
-        return f".sugar/orchestration/{task_id}/"
+        return f".sugar/orchestration/{task_id}/context.md"
 
     async def _save_stage_output(self, task_id: str, result: StageResult) -> None:
         """
@@ -884,6 +1079,70 @@ This is part of a larger orchestrated task. Focus on completing your specific su
         except Exception as e:
             logger.warning(f"Failed to save stage output: {e}")
 
+    async def _append_to_context_file(
+        self, task_id: str, stage: OrchestrationStage, result: StageResult
+    ) -> None:
+        """
+        Append a stage's output to the accumulated context.md file.
+
+        This is what ``sugar context <id>`` displays, so each stage's output
+        is appended in order to build up the full orchestration context.
+
+        Args:
+            task_id: Task ID
+            stage: Stage that produced the output
+            result: Stage result to append
+        """
+        try:
+            context_path = Path(self._get_context_path(task_id))
+            context_path.parent.mkdir(parents=True, exist_ok=True)
+
+            header = f"\n\n## Stage: {stage.value}\n\n"
+            body = result.output or "(no output)"
+            if result.error:
+                body += f"\n\n**Error:** {result.error}"
+
+            # Append (create if missing)
+            mode = "a" if context_path.exists() else "w"
+            with open(context_path, mode) as f:
+                f.write(header + body)
+
+            logger.debug(f"Appended {stage.value} output to {context_path}")
+        except Exception as e:
+            logger.warning(f"Failed to append to context file: {e}")
+
+    async def _run_project_tests(self) -> tuple:
+        """
+        Run the project test suite via pytest and capture pass/fail.
+
+        Returns:
+            Tuple of (passed: bool, detail: str)
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "pytest",
+                "-q",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
+            stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+            if process.returncode == 0:
+                return True, stdout_text.strip() or "Tests passed"
+            else:
+                detail = (stdout_text + "\n" + stderr_text).strip()
+                return False, detail or "Tests failed"
+        except FileNotFoundError:
+            # pytest not installed - treat as a pass to avoid blocking on
+            # projects without a pytest suite
+            logger.warning("pytest not found, skipping test run")
+            return True, "pytest not installed - skipped"
+        except Exception as e:
+            logger.warning(f"Failed to run tests: {e}")
+            return False, str(e)
+
     def _extract_context_additions(
         self, stage: OrchestrationStage, result: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -910,44 +1169,36 @@ This is part of a larger orchestrated task. Focus on completing your specific su
         """
         Execute a task using the agent executor.
 
+        The agent name primes the prompt with a role header and is recorded in
+        the work item context for visibility. Specialist names (e.g.
+        backend-developer) are not built-in Claude Code subagent types, so they
+        influence behaviour through the prompt rather than subagent dispatch.
+
         Args:
-            agent_name: Name of agent to use
+            agent_name: Name of agent to use (role primer)
             prompt: Task prompt
             timeout: Timeout in seconds
 
         Returns:
             Execution result dictionary
         """
+        # Prime the prompt with a role header when a specialist agent is routed
+        if agent_name and agent_name != "general-purpose":
+            primed_prompt = f"## Acting as: {agent_name}\n\n{prompt}"
+        else:
+            primed_prompt = prompt
+
         # Build a minimal work item for agent execution
         work_item = {
             "id": f"orchestration-{datetime.now(timezone.utc).timestamp()}",
-            "title": f"Orchestration stage",
-            "description": prompt,
+            "title": f"Orchestration stage ({agent_name or 'general-purpose'})",
+            "description": primed_prompt,
             "type": "orchestration",
             "priority": 5,
+            "context": ({"orchestration_agent": agent_name} if agent_name else {}),
         }
 
-        # Execute using agent executor
-        result = await self.agent_executor.execute_work_item(work_item)
+        # Execute using agent executor (AgentSDKExecutor exposes execute_work)
+        result = await self.agent_executor.execute_work(work_item)
 
         return result
-
-    def _get_agent_config(self):
-        """
-        Get agent configuration for SubAgentManager.
-
-        Returns:
-            Agent configuration object
-        """
-        from ..agent.base import SugarAgentConfig
-
-        # Extract relevant config
-        return SugarAgentConfig(
-            model=self.config.get("model", "claude-sonnet-4-20250514"),
-            max_tokens=self.config.get("max_tokens", 8192),
-            permission_mode=self.config.get("permission_mode", "acceptEdits"),
-            quality_gates_enabled=self.config.get("quality_gates", {}).get(
-                "enabled", True
-            ),
-            working_directory=self.config.get("working_directory"),
-        )
