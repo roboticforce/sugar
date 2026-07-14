@@ -151,6 +151,7 @@ class TaskOrchestrator:
                     "timeout": 600,
                     "actions": ["web_search", "codebase_analysis", "doc_gathering"],
                     "output_to_context": True,
+                    "read_only": True,
                     "output_path": ".sugar/orchestration/{task_id}/research.md",
                 },
                 "planning": {
@@ -159,6 +160,7 @@ class TaskOrchestrator:
                     "timeout": 300,
                     "depends_on": ["research"],
                     "creates_subtasks": True,
+                    "read_only": True,
                     "output_path": ".sugar/orchestration/{task_id}/plan.md",
                 },
                 "implementation": {
@@ -537,8 +539,29 @@ class TaskOrchestrator:
 
             # Execute using agent executor if available
             if self.agent_executor:
+                # Research and planning are analysis stages: their output is the
+                # agent's text response (findings / plan), consumed by the
+                # orchestrator. They must not write files - an unrestricted
+                # research agent was observed jumping ahead to implementation
+                # during e2e. Restrict to read-only tools unless the config
+                # opts out (read_only: false) or supplies an explicit tool set.
+                allowed = None
+                disallowed = None
+                if stage in (OrchestrationStage.RESEARCH, OrchestrationStage.PLANNING):
+                    if stage_config.get("allowed_tools"):
+                        allowed = stage_config["allowed_tools"]
+                    elif stage_config.get("read_only", True):
+                        allowed = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+                else:
+                    allowed = stage_config.get("allowed_tools")
+                    disallowed = stage_config.get("disallowed_tools")
+
                 result = await self._execute_with_agent(
-                    agent_name, prompt, stage_config.get("timeout", 300)
+                    agent_name,
+                    prompt,
+                    stage_config.get("timeout", 300),
+                    allowed_tools=allowed,
+                    disallowed_tools=disallowed,
                 )
 
                 execution_time = (
@@ -1341,7 +1364,12 @@ This is part of a larger orchestrated task. Focus on completing your specific su
         return additions
 
     async def _execute_with_agent(
-        self, agent_name: str, prompt: str, timeout: int
+        self,
+        agent_name: str,
+        prompt: str,
+        timeout: int,
+        allowed_tools: Optional[List[str]] = None,
+        disallowed_tools: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Execute a task using the agent executor.
@@ -1355,6 +1383,10 @@ This is part of a larger orchestrated task. Focus on completing your specific su
             agent_name: Name of agent to use (role primer)
             prompt: Task prompt
             timeout: Timeout in seconds
+            allowed_tools: Optional whitelist passed to the executor's
+                task_type_info so the agent runs with a restricted tool set
+                (e.g. read-only for the research/planning stages).
+            disallowed_tools: Optional blacklist, same channel.
 
         Returns:
             Execution result dictionary
@@ -1375,13 +1407,23 @@ This is part of a larger orchestrated task. Focus on completing your specific su
             "context": ({"orchestration_agent": agent_name} if agent_name else {}),
         }
 
+        # Tool restrictions are plumbed via task_type_info, which
+        # AgentSDKExecutor.execute_work forwards to _get_agent as
+        # tool_restrictions (creating a per-call agent with the whitelist).
+        task_type_info: Dict[str, Any] = {}
+        if allowed_tools:
+            task_type_info["allowed_tools"] = allowed_tools
+        if disallowed_tools:
+            task_type_info["disallowed_tools"] = disallowed_tools
+
         # Execute using agent executor (AgentSDKExecutor exposes execute_work).
         # Enforce the configured stage timeout so a hung agent call cannot hang
         # the whole orchestration; the underlying SDK/subprocess is cancelled
         # (a leaked subprocess is preferable to an indefinite hang).
         try:
             result = await asyncio.wait_for(
-                self.agent_executor.execute_work(work_item), timeout=timeout
+                self.agent_executor.execute_work(work_item, task_type_info or None),
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             result = {

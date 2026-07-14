@@ -484,6 +484,103 @@ class TestOrchestrate:
         assert subtask_calls[1]["title"] == "Frontend UI"
 
     @pytest.mark.asyncio
+    async def test_analysis_stages_run_read_only(
+        self, orchestration_config, mock_work_queue
+    ):
+        # Research and planning are analysis stages whose output is the agent's
+        # text response; they must not write files. The executor must receive a
+        # read-only allowed_tools whitelist for those stages, while subtask
+        # (implementation) calls run unrestricted.
+        class RecordingExecutor(FakeExecutor):
+            def __init__(self):
+                super().__init__()
+                self.type_infos = []
+
+            async def execute_work(self, work_item, task_type_info=None):
+                self.type_infos.append(
+                    {
+                        "title": work_item.get("title"),
+                        "description": work_item.get("description", ""),
+                        "task_type_info": task_type_info,
+                    }
+                )
+                return await super().execute_work(work_item, task_type_info)
+
+        executor = RecordingExecutor()
+        orch = TaskOrchestrator(
+            config=orchestration_config,
+            work_queue=mock_work_queue,
+            agent_executor=executor,
+        )
+        parent = await _add_parent(mock_work_queue)
+        await orch.orchestrate(parent)
+
+        def info_for(marker):
+            matches = [c for c in executor.type_infos if marker in c["description"]]
+            assert matches, f"no call matched {marker}"
+            return matches[0]["task_type_info"]
+
+        research_info = info_for("Orchestration Stage: RESEARCH")
+        planning_info = info_for("Orchestration Stage: PLANNING")
+        assert research_info and "allowed_tools" in research_info
+        assert "Write" not in research_info["allowed_tools"]
+        assert "Read" in research_info["allowed_tools"]
+        assert planning_info and "allowed_tools" in planning_info
+        assert "Write" not in planning_info["allowed_tools"]
+
+        # Subtask (implementation) calls run unrestricted.
+        subtask_infos = [
+            c["task_type_info"]
+            for c in executor.type_infos
+            if "# Subtask:" in c["description"]
+        ]
+        assert subtask_infos, "expected subtask execution calls"
+        for ti in subtask_infos:
+            # No read-only whitelist applied to implementation subtasks.
+            assert not (ti and ti.get("allowed_tools"))
+
+    @pytest.mark.asyncio
+    async def test_read_only_can_be_disabled_per_stage(
+        self, orchestration_config, mock_work_queue
+    ):
+        # read_only: false on the research stage must lift the restriction.
+        orchestration_config["orchestration"]["stages"]["research"]["read_only"] = False
+
+        class RecordingExecutor(FakeExecutor):
+            def __init__(self):
+                super().__init__()
+                self.type_infos = []
+
+            async def execute_work(self, work_item, task_type_info=None):
+                self.type_infos.append(
+                    {
+                        "description": work_item.get("description", ""),
+                        "task_type_info": task_type_info,
+                    }
+                )
+                return await super().execute_work(work_item, task_type_info)
+
+        executor = RecordingExecutor()
+        orch = TaskOrchestrator(
+            config=orchestration_config,
+            work_queue=mock_work_queue,
+            agent_executor=executor,
+        )
+        parent = await _add_parent(mock_work_queue)
+        await orch.orchestrate(parent)
+
+        research = [
+            c
+            for c in executor.type_infos
+            if "Orchestration Stage: RESEARCH" in c["description"]
+        ][0]
+        # No allowed_tools whitelist when read_only is false.
+        assert not (
+            research["task_type_info"]
+            and research["task_type_info"].get("allowed_tools")
+        )
+
+    @pytest.mark.asyncio
     async def test_failed_subtask_cascade_fails_dependents(
         self, orchestration_config, mock_work_queue
     ):

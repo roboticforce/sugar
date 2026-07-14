@@ -2648,6 +2648,7 @@ orchestration:
         - codebase_analysis
         - doc_gathering
       output_to_context: true
+      read_only: true             # analysis only - no file writes
       output_path: ".sugar/orchestration/{{task_id}}/research.md"
 
     planning:
@@ -2656,6 +2657,7 @@ orchestration:
       timeout: 300                # 5 minutes
       depends_on: ["research"]
       creates_subtasks: true
+      read_only: true             # analysis only - no file writes
       output_path: ".sugar/orchestration/{{task_id}}/plan.md"
 
     implementation:

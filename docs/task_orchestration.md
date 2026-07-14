@@ -249,6 +249,12 @@ The Explore agent:
 - Checks for existing user models
 - Reviews dependencies (existing auth libraries)
 
+> **Read-only stage.** Research (and planning) run with a restricted,
+> read-only tool set (`Read`, `Glob`, `Grep`, `WebSearch`, `WebFetch`) so the
+> agent gathers context and cannot jump ahead to writing files. Set
+> `read_only: false` on the stage (or supply an explicit `allowed_tools`
+> list) in `.sugar/config.yaml` to lift this.
+
 Output saved to `.sugar/orchestration/{task_id}/research.md`:
 
 ```markdown
