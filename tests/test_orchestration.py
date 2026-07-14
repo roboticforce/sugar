@@ -293,6 +293,93 @@ class TestGenerateSubtasks:
         for st in subtasks:
             assert st["blocked_by"] == []
 
+    @pytest.mark.asyncio
+    async def test_unbolded_titles_parse(self, real_orchestrator):
+        # The previous parser required **bold** titles; an unbolded
+        # "1. Title - desc" silently fell back to a single subtask, losing all
+        # decomposition. Unbolded titles must now parse.
+        plan = """## Sub-tasks
+
+1. Backend API - Build the API endpoint
+   Agent: backend-developer
+
+2. Frontend UI - Build the login UI
+   Dependencies: 1
+   Agent: frontend-designer
+"""
+        subtasks = await real_orchestrator.generate_subtasks(
+            plan, {"id": "p4", "type": "feature"}
+        )
+        assert len(subtasks) == 2
+        assert subtasks[0]["title"] == "Backend API"
+        assert subtasks[1]["title"] == "Frontend UI"
+        assert subtasks[1]["blocked_by"] == ["p4-sub-1"]
+
+    @pytest.mark.asyncio
+    async def test_deps_with_and_resolve_all(self, real_orchestrator):
+        # "Dependencies: 1 and 2" previously split on commas only, leaving a
+        # single "1 and 2" token whose trailing-number match grabbed only "2"
+        # and silently dropped the "1" dependency. Both must resolve.
+        plan = """## Sub-tasks
+
+1. First - a
+   Agent: general-purpose
+
+2. Second - b
+   Agent: general-purpose
+
+3. Third - depends on both
+   Dependencies: 1 and 2
+   Agent: general-purpose
+"""
+        subtasks = await real_orchestrator.generate_subtasks(
+            plan, {"id": "p5", "type": "feature"}
+        )
+        third = [s for s in subtasks if s["title"] == "Third"][0]
+        assert sorted(third["blocked_by"]) == ["p5-sub-1", "p5-sub-2"]
+
+    @pytest.mark.asyncio
+    async def test_deps_range_expanded(self, real_orchestrator):
+        # "Dependencies: 1-3" must expand to 1, 2, 3 rather than grabbing only 3.
+        plan = """## Sub-tasks
+
+1. A - a
+   Agent: general-purpose
+
+2. B - b
+   Agent: general-purpose
+
+3. C - c
+   Agent: general-purpose
+
+4. D - depends on the first three
+   Dependencies: 1-3
+   Agent: general-purpose
+"""
+        subtasks = await real_orchestrator.generate_subtasks(
+            plan, {"id": "p6", "type": "feature"}
+        )
+        d = [s for s in subtasks if s["title"] == "D"][0]
+        assert sorted(d["blocked_by"]) == ["p6-sub-1", "p6-sub-2", "p6-sub-3"]
+
+    @pytest.mark.asyncio
+    async def test_description_excludes_metadata_lines(self, real_orchestrator):
+        # Agent: / Dependencies: lines must not leak into the subtask
+        # description (which becomes the subtask prompt body).
+        plan = """## Sub-tasks
+
+1. **Backend API** - Build the endpoint
+   Agent: backend-developer
+   Dependencies: none
+"""
+        subtasks = await real_orchestrator.generate_subtasks(
+            plan, {"id": "p7", "type": "feature"}
+        )
+        desc = subtasks[0]["description"]
+        assert "Agent:" not in desc
+        assert "Dependencies:" not in desc
+        assert "Build the endpoint" in desc
+
 
 # ----------------------------------------------------------------------------
 # AgentRouter

@@ -589,6 +589,31 @@ class TaskOrchestrator:
                 error=str(e),
             )
 
+    @staticmethod
+    def _split_dep_refs(dep_text: str) -> List[str]:
+        """Tokenize a Dependencies: value into individual reference tokens.
+
+        Handles the common separators an LLM may use: commas, "and", "&",
+        semicolons, and "N-M" / "N to M" ranges. Sentinel values ("none",
+        "n/a", ...) are returned as-is so _normalize_dep can drop them.
+        """
+        text = dep_text.strip()
+        # " and " / "&" / ";" -> comma
+        text = re.sub(r"\s+and\s+", ",", text, flags=re.IGNORECASE)
+        text = text.replace("&", ",").replace(";", ",")
+        # "N to M" -> "N-M" before range expansion
+        text = re.sub(r"\s+to\s+", "-", text, flags=re.IGNORECASE)
+
+        # Expand numeric ranges "N-M" into N,N+1,...,M (capped to stay sane).
+        def _expand_range(m: "re.Match[str]") -> str:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a <= b and 0 < (b - a) < 20:
+                return ",".join(str(i) for i in range(a, b + 1))
+            return m.group(0)
+
+        text = re.sub(r"\b(\d+)\s*-\s*(\d+)\b", _expand_range, text)
+        return [t.strip() for t in text.split(",") if t.strip()]
+
     async def generate_subtasks(
         self, plan_output: str, task: Dict[str, Any]
     ) -> List[Dict]:
@@ -604,51 +629,64 @@ class TaskOrchestrator:
         """
         subtasks = []
 
-        # Parse plan output for subtask definitions
+        # Parse plan output for subtask definitions.
         # Expected format:
         # ## Sub-tasks
         # 1. **Title** - Description (Agent: agent-name)
         #    Dependencies: task-1, task-2
 
-        # Simple regex-based parsing. The description group extends until the
-        # next numbered subtask (or end of input) so the Agent: and Dependencies:
-        # lines that belong to this subtask are captured within it.
-        subtask_pattern = r"(\d+)\.\s+\*\*(.+?)\*\*\s*-?\s*(.+?)(?=\n\d+\.\s+\*\*|\Z)"
-        agent_pattern = r"Agent:\s*(\S+)"
-        deps_pattern = r"Dependencies?:\s*(.+?)(?=\n|$)"
-
-        matches = re.finditer(subtask_pattern, plan_output, re.DOTALL)
-
         parent_id = task.get("id", "unknown")
 
-        # First pass: parse raw subtask rows and capture their numbers so
-        # dependency references can be normalized to placeholder ids.
+        # Line-based parsing. The previous single-regex approach required the
+        # title to be **bold** and split dependencies only on commas, so common
+        # LLM variants (unbolded "1. Title - desc", "Dependencies: 1 and 2")
+        # silently fell back to a single subtask or dropped dependencies. Parse
+        # header lines for the number + title, then scan body lines for the
+        # Agent:/Dependencies: metadata, keeping the description free of that
+        # metadata so it does not leak into the subtask prompt.
+        agent_pattern = r"Agent:\s*(\S+)"
+        deps_pattern = r"Dependencies?:\s*(.+)"
+
         raw_rows = []
-        for match in matches:
-            task_num = match.group(1)
-            title = match.group(2).strip()
-            description = match.group(3).strip()
-
-            # Extract agent if specified
-            agent_match = re.search(agent_pattern, description)
-            agent = agent_match.group(1) if agent_match else None
-
-            # Extract dependencies if specified
-            deps_match = re.search(deps_pattern, description)
-            dependencies = []
-            if deps_match:
-                dep_text = deps_match.group(1)
-                dependencies = [d.strip() for d in dep_text.split(",")]
-
-            raw_rows.append(
-                {
-                    "num": task_num,
-                    "title": title,
-                    "description": description,
-                    "agent": agent,
-                    "deps": dependencies,
+        current = None
+        for line in plan_output.splitlines():
+            header = re.match(r"\s*(\d+)\.\s+(.+)", line)
+            if header:
+                if current is not None:
+                    raw_rows.append(current)
+                num = header.group(1)
+                rest = header.group(2).strip().replace("**", "")
+                if " - " in rest:
+                    title, inline_desc = rest.split(" - ", 1)
+                else:
+                    title, inline_desc = rest, ""
+                current = {
+                    "num": num,
+                    "title": title.strip(),
+                    "description": inline_desc.strip(),
+                    "agent": None,
+                    "deps": [],
                 }
-            )
+                continue
+            if current is None:
+                continue
+            agent_match = re.search(agent_pattern, line)
+            if agent_match:
+                current["agent"] = agent_match.group(1)
+                continue
+            deps_match = re.search(deps_pattern, line)
+            if deps_match:
+                current["deps"] = self._split_dep_refs(deps_match.group(1))
+                continue
+            # Non-empty body line: fold into the description for context.
+            if line.strip():
+                current["description"] = (
+                    (current["description"] + "\n" + line.strip()).strip()
+                    if current["description"]
+                    else line.strip()
+                )
+        if current is not None:
+            raw_rows.append(current)
 
         # Map a subtask number (and common reference forms) to its placeholder
         # id so blocked_by can be resolved by _run_implementation_stage's
