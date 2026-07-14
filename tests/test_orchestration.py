@@ -265,6 +265,32 @@ class TestGenerateSubtasks:
         assert len(subtasks) == 1
         assert subtasks[0]["id"] == "p2-sub-1"
 
+    @pytest.mark.asyncio
+    async def test_dependency_sentinels_treated_as_no_dep(self, real_orchestrator):
+        # A planning agent may write "Dependencies: none" / "n/a" / "-".
+        # These must NOT be stored as literal blocked_by ids, or the subtask
+        # deadlocks waiting for a non-existent task to complete.
+        plan = """## Sub-tasks
+
+1. **Standalone task** - does a thing
+   Dependencies: none
+   Agent: general-purpose
+
+2. **Other task** - also standalone
+   Dependencies: n/a
+   Agent: general-purpose
+
+3. **Third** - no deps
+   Dependencies: -
+   Agent: general-purpose
+"""
+        subtasks = await real_orchestrator.generate_subtasks(
+            plan, {"id": "p3", "type": "feature"}
+        )
+        assert len(subtasks) == 3
+        for st in subtasks:
+            assert st["blocked_by"] == []
+
 
 # ----------------------------------------------------------------------------
 # AgentRouter

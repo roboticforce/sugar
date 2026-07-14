@@ -657,8 +657,29 @@ class TaskOrchestrator:
             row["num"]: f"{parent_id}-sub-{row['num']}" for row in raw_rows
         }
 
-        def _normalize_dep(dep: str) -> str:
-            dep = dep.strip()
+        # Sentinel values a planning agent may write to mean "no dependency".
+        # If stored verbatim these would block the subtask forever (the wave
+        # executor waits for a task with that id to complete, and it never
+        # will), so they are dropped entirely.
+        _NO_DEP_SENTINELS = {
+            "",
+            "none",
+            "n/a",
+            "na",
+            "nil",
+            "null",
+            "-",
+            "0",
+            "no",
+            "none specified",
+            "no dependencies",
+            "none required",
+        }
+
+        def _normalize_dep(dep: str) -> Optional[str]:
+            dep = dep.strip().lower()
+            if dep in _NO_DEP_SENTINELS:
+                return None
             if dep in num_to_placeholder:
                 return num_to_placeholder[dep]
             # "task-1" / "sub-1" / "{parent}-sub-1" style references -> try the
@@ -677,7 +698,9 @@ class TaskOrchestrator:
                 "type": task.get("type", "feature"),
                 "priority": task.get("priority", 3),
                 "assigned_agent": row["agent"],
-                "blocked_by": [_normalize_dep(d) for d in row["deps"]],
+                "blocked_by": [
+                    d for d in (_normalize_dep(x) for x in row["deps"]) if d
+                ],
                 "status": "pending",
             }
             subtasks.append(subtask)

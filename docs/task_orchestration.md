@@ -77,18 +77,14 @@ flowchart TB
         R2["Maps to specialist agents"]
     end
 
-    subgraph Manager["SubAgentManager"]
-        M1["Concurrency control"]
-        M2["Isolated execution"]
-    end
-
     subgraph Executor["AgentSDKExecutor"]
         E1["Agent SDK integration"]
+        E2["Dependency-wave execution"]
     end
 
     Orchestrator -->|"Specialist selection"| Router
-    Router -->|"Parallel execution"| Manager
-    Manager -->|"Task execution"| Executor
+    Orchestrator -->|"Sequential waves"| Executor
+    Router -->|"Agent routing"| Executor
 ```
 
 ## Configuration
@@ -143,7 +139,7 @@ orchestration:
       output_path: ".sugar/orchestration/{task_id}/plan.md"
 
     implementation:
-      parallel: true
+      parallel: true              # planned: intra-wave parallelism (not yet honored)
       max_concurrent: 3
       timeout_per_task: 1800  # 30 minutes per sub-task
       agent_routing:
@@ -346,6 +342,13 @@ Execution order:
 3. When 2, 3, 4 complete → Task 5 starts
 4. When all complete → Stage 4 triggers
 
+> **Implementation note (v3.10).** The shipped executor runs subtasks
+> **sequentially within each dependency wave** - it does not run a wave's
+> tasks concurrently. The ordering above (dependency waves) is honored; the
+> "in parallel" wording describes the target design, not the current
+> behavior. Intra-wave parallelism is tracked as future work
+> (see [Out of scope](#out-of-scope)).
+
 ### Stage 4: Review
 
 The code-reviewer agent:
@@ -483,45 +486,44 @@ orchestration:
         - vulnerability_check
 ```
 
-## Relationship to SubAgentManager
+## Execution Architecture
 
-SubAgentManager is the **low-level execution primitive** used by the orchestration system:
+The orchestration system reuses the live executor for every stage and subtask.
+There is no separate parallel-execution primitive; subtasks run through the same
+`AgentSDKExecutor` used for ordinary tasks, so model routing, hooks, quality
+gates, and thinking capture all apply.
 
 | Layer | Component | Responsibility |
 |-------|-----------|----------------|
-| High | TaskOrchestrator | Workflow stages, context |
-| Mid | AgentRouter | Specialist selection |
-| Low | SubAgentManager | Parallel execution |
-| Base | AgentSDKExecutor | Individual task execution |
+| High | TaskOrchestrator | Workflow stages, context accumulation |
+| Mid | AgentRouter | Specialist selection (role-priming) |
+| Base | AgentSDKExecutor | Individual stage + subtask execution |
 
-The orchestration system uses SubAgentManager when:
-- Running multiple sub-tasks in parallel during implementation stage
-- Executing parallel research queries
-- Running multiple review checks simultaneously
+The implementation stage runs subtasks in **dependency waves**: each wave
+collects the subtasks whose blockers are all completed, executes them
+**sequentially** (the cached per-model `SugarAgent` holds mutable session
+state, so concurrent calls on it would race), marks each completed or
+failed, then advances to the next wave until none remain.
 
 ```python
-# Orchestrator using SubAgentManager for parallel execution
-async def run_implementation_stage(self, subtasks: List[Task]) -> List[Result]:
-    manager = SubAgentManager(
-        parent_config=self.config,
-        max_concurrent=self.stages["implementation"]["max_concurrent"]
-    )
-
-    # Group subtasks by dependency level
-    ready_tasks = [t for t in subtasks if not t.blocked_by]
-
-    # Execute ready tasks in parallel
-    results = await manager.spawn_parallel([
-        {
-            "task_id": t.id,
-            "prompt": t.to_prompt(),
-            "agent": self.router.route(t)
-        }
-        for t in ready_tasks
-    ])
-
-    return results
+# Simplified: dependency-wave execution via the live executor
+async def run_implementation_stage(self, parent_id, subtasks):
+    # 1. persist subtasks (status="hold") + remap placeholder -> real ids
+    # 2. wave loop:
+    while remaining:
+        ready = [s for s in remaining if blockers_complete(s)]
+        if not ready:
+            break  # nothing runnable (e.g. all remaining are deadlocked)
+        for subtask in ready:           # sequential within the wave
+            await self.agent_executor.execute_work(subtask)
+            await self.work_queue.complete_work(subtask["id"], result)
+        remaining = [s for s in remaining if s not in ready]
 ```
+
+> Specialist agent names (`backend-developer`, `frontend-designer`, etc.)
+> are not built-in Claude Code subagent types. They prime the subtask prompt
+> with a `## Acting as: {agent}` role header and are stored on the subtask for
+> visibility. Real subagent-type dispatch is future work.
 
 ## Real-World Example Scenarios
 
