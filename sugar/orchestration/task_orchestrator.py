@@ -759,6 +759,13 @@ class TaskOrchestrator:
             if not self.agent_executor:
                 raise RuntimeError("An agent_executor is required to execute subtasks")
 
+            # Per-subtask timeout from the implementation stage config. Enforced
+            # via asyncio.wait_for in the wave loop below.
+            impl_cfg = self.orchestration_config.get("stages", {}).get(
+                "implementation", {}
+            )
+            timeout_per_task = int(impl_cfg.get("timeout_per_task", 1800))
+
             # 1. Persist subtasks as hold-status rows.
             #    generate_subtasks emits placeholder ids like "{parent}-sub-{n}";
             #    map those to the real DB ids returned by add_work so blocked_by
@@ -841,7 +848,15 @@ class TaskOrchestrator:
                     subtask_row["context"] = row_ctx
 
                     try:
-                        result = await self.agent_executor.execute_work(subtask_row)
+                        result = await asyncio.wait_for(
+                            self.agent_executor.execute_work(subtask_row),
+                            timeout=timeout_per_task,
+                        )
+                    except asyncio.TimeoutError:
+                        result = {
+                            "success": False,
+                            "error": f"Subtask timed out after {timeout_per_task}s",
+                        }
                     except Exception as e:  # noqa: BLE001
                         result = {"success": False, "error": str(e)}
 
@@ -1322,7 +1337,19 @@ This is part of a larger orchestrated task. Focus on completing your specific su
             "context": ({"orchestration_agent": agent_name} if agent_name else {}),
         }
 
-        # Execute using agent executor (AgentSDKExecutor exposes execute_work)
-        result = await self.agent_executor.execute_work(work_item)
+        # Execute using agent executor (AgentSDKExecutor exposes execute_work).
+        # Enforce the configured stage timeout so a hung agent call cannot hang
+        # the whole orchestration; the underlying SDK/subprocess is cancelled
+        # (a leaked subprocess is preferable to an indefinite hang).
+        try:
+            result = await asyncio.wait_for(
+                self.agent_executor.execute_work(work_item), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            result = {
+                "success": False,
+                "error": f"Agent timed out after {timeout}s",
+                "output": "",
+            }
 
         return result

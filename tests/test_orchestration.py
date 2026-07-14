@@ -6,6 +6,8 @@ These tests exercise the real implementation against an in-process WorkQueue
 Claude SDK call cannot run in CI (the executor).
 """
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, patch
@@ -566,3 +568,69 @@ class TestOrchestrationConfiguration:
         assert research["timeout"] == 999
         # Default keys retained
         assert research["agent"] == "Explore"
+
+
+# ----------------------------------------------------------------------------
+# Timeout enforcement (configured timeouts must actually fire)
+# ----------------------------------------------------------------------------
+
+
+class TestTimeoutEnforcement:
+    @pytest.mark.asyncio
+    async def test_stage_call_is_bounded_by_timeout(self, mock_work_queue):
+        # A hung agent call must be cancelled at the configured timeout, not
+        # awaited forever. _execute_with_agent is the live stage-execution path.
+        class HangingExecutor:
+            async def execute_work(self, work_item, task_type_info=None):
+                await asyncio.sleep(30)  # far beyond the timeout
+                return {"success": True, "output": "should not reach"}
+
+        import time
+
+        orch = TaskOrchestrator(
+            config={},
+            work_queue=mock_work_queue,
+            agent_executor=HangingExecutor(),
+        )
+        start = time.monotonic()
+        result = await orch._execute_with_agent(
+            "general-purpose", "do thing", timeout=0
+        )
+        elapsed = time.monotonic() - start
+        # timeout=0 -> fires immediately (wait_for(., timeout=0) raises at once)
+        assert result["success"] is False
+        assert "timed out" in result["error"]
+        assert elapsed < 5  # did not wait for the 30s sleep
+
+    @pytest.mark.asyncio
+    async def test_subtask_call_is_bounded_by_timeout_per_task(
+        self, orchestration_config, mock_work_queue
+    ):
+        # timeout_per_task in the implementation stage config must bound each
+        # subtask's execute_work; a hung subtask is failed, not awaited forever.
+        orchestration_config["orchestration"]["stages"]["implementation"][
+            "timeout_per_task"
+        ] = 0
+
+        class HangingSubtask(FakeExecutor):
+            async def execute_work(self, work_item, task_type_info=None):
+                desc = work_item.get("description", "")
+                if "# Subtask:" in desc:
+                    await asyncio.sleep(30)
+                return await super().execute_work(work_item)
+
+        orch = TaskOrchestrator(
+            config=orchestration_config,
+            work_queue=mock_work_queue,
+            agent_executor=HangingSubtask(),
+        )
+        parent = await _add_parent(mock_work_queue)
+        result = await orch.orchestrate(parent)
+
+        subtasks = await mock_work_queue.get_subtasks(parent["id"])
+        # The first subtask (no deps) hangs and is failed with a timeout error.
+        first = subtasks[0]
+        assert first["status"] == "failed"
+        assert "timed out" in (first.get("error_message") or "")
+        # Orchestration did not hang waiting for the 30s sleep.
+        assert result.success is False
