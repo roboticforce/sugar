@@ -395,6 +395,42 @@ class TestOrchestrate:
         assert subtask_calls[1]["title"] == "Frontend UI"
 
     @pytest.mark.asyncio
+    async def test_failed_subtask_cascade_fails_dependents(
+        self, orchestration_config, mock_work_queue
+    ):
+        # Subtask 1 (Backend API, no deps) fails. Subtask 2 (Frontend UI,
+        # depends on 1) must be cascade-failed, not left ghosting in 'hold'.
+        class FailBackend(FakeExecutor):
+            async def execute_work(self, work_item, task_type_info=None):
+                desc = work_item.get("description", "")
+                if "# Subtask:" in desc and work_item.get("title") == "Backend API":
+                    return {"success": False, "error": "backend blew up"}
+                return await super().execute_work(work_item, task_type_info)
+
+        orch = TaskOrchestrator(
+            config=orchestration_config,
+            work_queue=mock_work_queue,
+            agent_executor=FailBackend(),
+        )
+        parent = await _add_parent(mock_work_queue)
+        result = await orch.orchestrate(parent)
+
+        # Implementation stage had a failure, so orchestration is not successful
+        # (review still runs, but impl success=False surfaces in result).
+        subtasks = await mock_work_queue.get_subtasks(parent["id"])
+        by_title = {s["title"]: s for s in subtasks}
+        assert by_title["Backend API"]["status"] == "failed"
+        # The dependent must NOT be left in 'hold' - it must be failed with a
+        # skip reason referencing the failed blocker.
+        frontend = by_title["Frontend UI"]
+        assert frontend["status"] == "failed"
+        assert "blocked by failed" in (frontend.get("error_message") or "")
+        # No subtask remains in a non-terminal status.
+        assert all(s["status"] in ("completed", "failed") for s in subtasks), [
+            s["title"] for s in subtasks if s["status"] not in ("completed", "failed")
+        ]
+
+    @pytest.mark.asyncio
     async def test_context_file_written(
         self, real_orchestrator, mock_work_queue, tmp_path, monkeypatch
     ):

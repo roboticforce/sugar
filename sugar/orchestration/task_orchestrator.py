@@ -877,6 +877,18 @@ class TaskOrchestrator:
                             }
                         )
 
+            # 4. Orphan sweep. get_ready_subtasks only unblocks a dependent
+            # when its blocker is 'completed' - a 'failed' blocker leaves
+            # dependents stranded in 'hold' forever. Cascade-fail any remaining
+            # non-terminal subtask whose direct blocker failed (to a fixed
+            # point), then fail any still-stranded subtasks as a dependency
+            # cycle so they don't ghost in `sugar orchestrate <id>`.
+            stranded = await self._cascade_fail_orphans(
+                parent_id, executed_ids, subtask_results, errors
+            )
+            if stranded:
+                all_success = False
+
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             return StageResult(
@@ -902,6 +914,95 @@ class TaskOrchestrator:
                 execution_time=execution_time,
                 error=str(e),
             )
+
+    async def _cascade_fail_orphans(
+        self,
+        parent_id: str,
+        executed_ids: set,
+        subtask_results: List[Dict[str, Any]],
+        errors: List[str],
+    ) -> bool:
+        """Fail subtasks stranded by a failed blocker or a dependency cycle.
+
+        After the wave loop, any subtask still in a non-terminal status
+        ('hold'/'pending') is either blocked by a failed subtask or part of a
+        dependency cycle. Cascade-fail blocked-by-failed subtasks to a fixed
+        point, then fail any still-stranded subtasks as a cycle. Returns True
+        if any subtask was stranded (indicating the stage did not fully
+        succeed).
+        """
+        stranded_any = False
+
+        # Fixed-point cascade: a subtask whose direct blocker failed becomes
+        # failed, which may in turn strand its own dependents.
+        while True:
+            remaining = await self.work_queue.get_subtasks(parent_id)
+            orphans = [
+                s
+                for s in remaining
+                if s.get("status") in ("hold", "pending")
+                and s["id"] not in executed_ids
+            ]
+            if not orphans:
+                break
+
+            progressed = False
+            for st in orphans:
+                blockers = st.get("blocked_by", []) or []
+                if not blockers:
+                    # No blockers but still unexecuted and not ready - shouldn't
+                    # happen post-wave, but fail defensively rather than ghost.
+                    continue
+                # Look up blocker statuses; bail on the first failed blocker.
+                failed_blocker = None
+                for bid in blockers:
+                    blocker = await self.work_queue.get_work_by_id(bid)
+                    if blocker and blocker.get("status") == "failed":
+                        failed_blocker = bid
+                        break
+                if failed_blocker:
+                    reason = f"skipped: blocked by failed subtask {failed_blocker}"
+                    await self.work_queue.fail_work(st["id"], reason, max_retries=0)
+                    errors.append(f"{st.get('title', st['id'])}: {reason}")
+                    subtask_results.append(
+                        {
+                            "subtask_id": st["id"],
+                            "title": st.get("title"),
+                            "agent": st.get("assigned_agent") or "general-purpose",
+                            "success": False,
+                            "error": reason,
+                        }
+                    )
+                    stranded_any = True
+                    progressed = True
+
+            if not progressed:
+                break
+
+        # Anything still stranded is a dependency cycle (no failed blocker to
+        # blame, yet never becomes ready). Fail it so it doesn't ghost.
+        remaining = await self.work_queue.get_subtasks(parent_id)
+        cycle_orphans = [
+            s
+            for s in remaining
+            if s.get("status") in ("hold", "pending") and s["id"] not in executed_ids
+        ]
+        for st in cycle_orphans:
+            reason = "skipped: dependency cycle detected"
+            await self.work_queue.fail_work(st["id"], reason, max_retries=0)
+            errors.append(f"{st.get('title', st['id'])}: {reason}")
+            subtask_results.append(
+                {
+                    "subtask_id": st["id"],
+                    "title": st.get("title"),
+                    "agent": st.get("assigned_agent") or "general-purpose",
+                    "success": False,
+                    "error": reason,
+                }
+            )
+            stranded_any = True
+
+        return stranded_any
 
     def _initialize_context(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
