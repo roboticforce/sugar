@@ -11,6 +11,30 @@ _Development in progress._
 
 ---
 
+## [3.10.0] - 2026-07-18
+
+### Added
+- **Task Orchestration**: 4-stage workflow (research, plan, implement, review) for decomposing and executing complex features, wired into the live execution path
+- `orchestration:` config block emitted by `sugar init` (detection rules, per-stage agents/timeouts, agent routing patterns)
+- `--orchestrate` and `--skip-stages` flags on `sugar add` (and the MCP `sugar_add_task` tool)
+- `sugar orchestrate [TASK_ID]` and `sugar context TASK_ID` CLI commands
+- Specialist agent routing (frontend-designer, backend-developer, qa-engineer, security-engineer, devops-engineer, code-reviewer, tech-lead, general-purpose)
+- Dependency-wave executor: sub-tasks persist to the queue and execute in dependency order, sequentially within each wave
+- Read-only research and planning stages (Read, Glob, Grep, WebSearch, WebFetch); configurable via `read_only: false`
+- Review stage runs the project test suite and fails the orchestration when `require_passing: true`
+- Orchestration exposed over MCP: `sugar_add_task` gains `orchestrate`/`skip_stages`; `sugar_view_task` surfaces `stage`, `context_path`, `parent_task_id`, `assigned_agent`, and sub-tasks
+
+### Fixed
+- Wire `TaskOrchestrator` into `SugarLoop` - orchestration previously fell through to simulated output and sub-tasks were never persisted
+- Latent `execute_work_item` -> `execute_work` executor call bug, and the `*ui*`-matches-"build" router wildcard bug
+- Cascade-fail orphaned sub-tasks: dependents of a failed sub-task are no longer stranded in `hold`
+- Enforce configured per-stage and per-subtask timeouts (previously dead config) via `asyncio.wait_for`
+- Harden the plan parser: line-based parsing handles unbolded titles and dependency refs like "1 and 2", "1-3", "1 to 3"
+- Drop sentinel "none" dependency values that could strand a sub-task forever
+- One failed task no longer aborts the whole loop cycle
+
+---
+
 ## [3.9.1] - 2026-04-09
 
 ### Security

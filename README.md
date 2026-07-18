@@ -21,25 +21,6 @@ Sugar is a memory layer your AI coding agent can read and write directly:
 - **Local-first** - SQLite on your disk, no API keys, fully offline-capable
 - **Task queue** - Optional autonomous execution, powered by the same memory layer
 
-## Autonomous Issue Resolution (optional)
-
-Because Sugar remembers your codebase and conventions, it can also resolve routine issues
-autonomously. Point it at a GitHub repo, configure which labels to act on
-(`security`, `bug`, `dependabot`), and Sugar will read each issue, implement the fix, run your
-tests, and open a PR.
-
-```
-Labeled issue appears on GitHub
-  -> Sugar picks it up (label filter: "security", "dependabot", "bug")
-  -> AI agent reads the issue, analyzes the affected code
-  -> Fix implemented, tests run locally
-  -> PR opened - you review and merge
-```
-
-This is one application of the memory layer, not the headline. Use Sugar purely as memory,
-or enable resolution - your choice. See [workflow examples](docs/workflows/) for security
-auto-fix, bug triage, test coverage, and more.
-
 ## Quick Start
 
 ```bash
@@ -90,7 +71,7 @@ goose configure
 sugar opencode setup
 ```
 
-## Global Memory (New in 3.9)
+## Global Memory
 
 Some knowledge belongs to you, not just one project. Coding standards, preferred patterns, security practices - these should follow you everywhere.
 
@@ -194,8 +175,9 @@ Sugar picks up tasks, executes them with your configured AI agent, runs tests, c
 ```
 
 **Advanced task options:**
+New in 3.10: Task Orchestration decomposes large features into a 4-stage workflow (research, plan, implement, review) with specialist agent routing and dependency-ordered sub-tasks.
 ```bash
-# Orchestrated execution (research -> plan -> implement -> review)
+# Orchestrated execution - 4-stage workflow (New in 3.10)
 sugar add "Add OAuth authentication" --type feature --orchestrate
 
 # Iterative mode - loops until tests pass
@@ -207,6 +189,25 @@ sugar status
 ```
 
 Full docs: [Task Orchestration](docs/task_orchestration.md)
+
+## Autonomous Issue Resolution (optional)
+
+Because Sugar remembers your codebase and conventions, it can also resolve routine issues
+autonomously. Point it at a GitHub repo, configure which labels to act on
+(`security`, `bug`, `dependabot`), and Sugar will read each issue, implement the fix, run your
+tests, and open a PR.
+
+```
+Labeled issue appears on GitHub
+  -> Sugar picks it up (label filter: "security", "dependabot", "bug")
+  -> AI agent reads the issue, analyzes the affected code
+  -> Fix implemented, tests run locally
+  -> PR opened - you review and merge
+```
+
+This is one application of the memory layer, not the headline. Use Sugar purely as memory,
+or enable resolution - your choice. See [workflow examples](docs/workflows/) for security
+auto-fix, bug triage, test coverage, and more.
 
 ## Supported AI Tools
 
