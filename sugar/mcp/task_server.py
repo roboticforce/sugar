@@ -86,6 +86,8 @@ def create_task_mcp_server() -> "FastMCP":
         priority: int = 3,
         status: str = "pending",
         acceptance_criteria: Optional[str] = None,
+        orchestrate: bool = False,
+        skip_stages: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add a new task to the Sugar work queue for autonomous execution.
@@ -100,6 +102,12 @@ def create_task_mcp_server() -> "FastMCP":
             priority: Priority 1-5 where 1=urgent, 5=minimal (default: 3)
             status: Initial status - pending or hold (default: pending)
             acceptance_criteria: JSON string of acceptance criteria list
+            orchestrate: When true, Sugar decomposes this task through the
+                4-stage orchestration workflow (research -> plan -> implement ->
+                review) instead of executing it as a single task. Use for
+                complex, multi-part features.
+            skip_stages: Comma-separated orchestration stages to skip
+                (e.g. "research,review"). Only meaningful when orchestrate=true.
 
         Returns:
             Task creation result with task_id
@@ -139,6 +147,14 @@ def create_task_mcp_server() -> "FastMCP":
                     # Treat as single criterion
                     criteria_list = [{"description": acceptance_criteria}]
 
+            context = {"added_via": "sugar_mcp_tasks"}
+            if orchestrate:
+                context["orchestrate"] = True
+                if skip_stages:
+                    context["skip_stages"] = [
+                        s.strip() for s in skip_stages.split(",") if s.strip()
+                    ]
+
             task_data = {
                 "type": type,
                 "title": title.strip(),
@@ -146,9 +162,11 @@ def create_task_mcp_server() -> "FastMCP":
                 "priority": priority,
                 "status": status,
                 "source": "mcp",
-                "context": {"added_via": "sugar_mcp_tasks"},
+                "context": context,
                 "acceptance_criteria": criteria_list,
             }
+            if orchestrate:
+                task_data["orchestrate"] = True
 
             task_id = await queue.add_work(task_data)
 
@@ -159,6 +177,7 @@ def create_task_mcp_server() -> "FastMCP":
                 "type": type,
                 "priority": priority,
                 "status": status,
+                "orchestrate": orchestrate,
             }
         except Exception as e:
             logger.error(f"sugar_add_task failed: {e}")
@@ -230,6 +249,10 @@ def create_task_mcp_server() -> "FastMCP":
         """
         Get detailed information about a specific task.
 
+        For orchestrated (parent) tasks, the response includes the orchestration
+        stage, context_path, and the list of subtasks with their status,
+        assigned agent, and dependencies.
+
         Args:
             task_id: Task ID (full UUID or short 8-char prefix)
 
@@ -257,6 +280,28 @@ def create_task_mcp_server() -> "FastMCP":
                     "error": f"Task not found: {task_id}",
                 }
 
+            # If this is an orchestrated parent, surface its subtasks.
+            subtasks = []
+            is_parent = bool(task.get("orchestrate")) or bool(
+                task.get("parent_task_id") is None and task.get("stage")
+            )
+            if is_parent:
+                try:
+                    raw_subtasks = await queue.get_subtasks(task["id"])
+                    subtasks = [
+                        {
+                            "id": st.get("id", ""),
+                            "title": st.get("title", ""),
+                            "status": st.get("status", ""),
+                            "assigned_agent": st.get("assigned_agent"),
+                            "blocked_by": st.get("blocked_by", []),
+                            "stage": st.get("stage"),
+                        }
+                        for st in raw_subtasks
+                    ]
+                except Exception as sub_err:
+                    logger.debug(f"get_subtasks failed for {task['id']}: {sub_err}")
+
             return {
                 "success": True,
                 "task": {
@@ -279,6 +324,13 @@ def create_task_mcp_server() -> "FastMCP":
                     "error_message": task.get("error_message"),
                     "acceptance_criteria": task.get("acceptance_criteria", []),
                     "commit_sha": task.get("commit_sha"),
+                    # Orchestration fields
+                    "orchestrate": bool(task.get("orchestrate")),
+                    "stage": task.get("stage"),
+                    "context_path": task.get("context_path"),
+                    "parent_task_id": task.get("parent_task_id"),
+                    "assigned_agent": task.get("assigned_agent"),
+                    "subtasks": subtasks,
                 },
             }
         except Exception as e:

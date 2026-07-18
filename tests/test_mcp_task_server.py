@@ -178,6 +178,52 @@ class TestSugarAddTask:
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")
+    async def test_add_task_orchestrate_enabled(self, mock_get_queue, mock_queue):
+        """orchestrate=True sets the flag + context so the loop routes it."""
+        mock_get_queue.return_value = mock_queue
+
+        mcp = create_task_mcp_server()
+        tool_func = get_tool_function(mcp, "sugar_add_task")
+
+        result = await tool_func(
+            title="Build OAuth feature",
+            type="feature",
+            orchestrate=True,
+        )
+
+        assert result["success"] is True
+        assert result["orchestrate"] is True
+        sent = mock_queue.add_work.call_args[0][0]
+        assert sent["orchestrate"] is True
+        assert sent["context"].get("orchestrate") is True
+
+    @pytest.mark.asyncio
+    @patch("sugar.mcp.task_server.get_work_queue")
+    async def test_add_task_orchestrate_skip_stages(self, mock_get_queue, mock_queue):
+        """skip_stages is parsed into context when orchestrate=True."""
+        mock_get_queue.return_value = mock_queue
+
+        mcp = create_task_mcp_server()
+        tool_func = get_tool_function(mcp, "sugar_add_task")
+
+        result = await tool_func(
+            title="Build OAuth feature",
+            type="feature",
+            orchestrate=True,
+            skip_stages="research, review",
+        )
+
+        assert result["success"] is True
+        sent = mock_queue.add_work.call_args[0][0]
+        assert sent["context"]["skip_stages"] == ["research", "review"]
+        # skip_stages without orchestrate is ignored (not an orchestrated task)
+        mock_queue.add_work.reset_mock()
+        result2 = await tool_func(title="Plain", type="bug_fix", skip_stages="review")
+        sent2 = mock_queue.add_work.call_args[0][0]
+        assert "skip_stages" not in sent2["context"]
+
+    @pytest.mark.asyncio
+    @patch("sugar.mcp.task_server.get_work_queue")
     async def test_add_task_invalid_type(self, mock_get_queue, mock_queue):
         """Test task addition with invalid type"""
         mock_get_queue.return_value = mock_queue
@@ -518,6 +564,61 @@ class TestSugarViewTask:
         assert result["task"]["title"] == "Fix critical bug"
         assert result["task"]["status"] == "completed"
         assert result["task"]["commit_sha"] == "abc123"
+
+    @pytest.mark.asyncio
+    @patch("sugar.mcp.task_server.get_work_queue")
+    async def test_view_task_surfaces_orchestration_and_subtasks(self, mock_get_queue):
+        """An orchestrated parent surfaces stage/context_path/subtasks."""
+        parent = {
+            "id": "parent-1",
+            "title": "Build feature",
+            "type": "feature",
+            "status": "active",
+            "orchestrate": 1,
+            "stage": "implementation",
+            "context_path": ".sugar/orchestration/parent-1/context.md",
+            "parent_task_id": None,
+            "assigned_agent": None,
+            "context": {},
+        }
+        subtasks = [
+            {
+                "id": "sub-1",
+                "title": "Backend API",
+                "status": "completed",
+                "assigned_agent": "backend-developer",
+                "blocked_by": [],
+                "stage": "implementation",
+            },
+            {
+                "id": "sub-2",
+                "title": "Frontend UI",
+                "status": "hold",
+                "assigned_agent": "frontend-designer",
+                "blocked_by": ["sub-1"],
+                "stage": "implementation",
+            },
+        ]
+        mock_queue = AsyncMock()
+        mock_queue.initialize = AsyncMock()
+        mock_queue.get_work_item = AsyncMock(return_value=parent)
+        mock_queue.get_subtasks = AsyncMock(return_value=subtasks)
+        mock_get_queue.return_value = mock_queue
+
+        mcp = create_task_mcp_server()
+        tool_func = get_tool_function(mcp, "sugar_view_task")
+
+        result = await tool_func(task_id="parent-1")
+
+        assert result["success"] is True
+        task = result["task"]
+        assert task["orchestrate"] is True
+        assert task["stage"] == "implementation"
+        assert task["context_path"].endswith("context.md")
+        assert len(task["subtasks"]) == 2
+        assert task["subtasks"][0]["assigned_agent"] == "backend-developer"
+        assert task["subtasks"][1]["blocked_by"] == ["sub-1"]
+        mock_queue.get_subtasks.assert_awaited_once_with("parent-1")
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")

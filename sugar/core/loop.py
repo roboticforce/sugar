@@ -16,6 +16,7 @@ from ..discovery.error_monitor import ErrorLogMonitor
 from ..discovery.github_watcher import GitHubWatcher
 from ..discovery.test_coverage import TestCoverageAnalyzer
 from ..executor.agent_sdk_executor import AgentSDKExecutor
+from ..orchestration.task_orchestrator import TaskOrchestrator
 from ..executor.claude_wrapper import ClaudeWrapper
 from ..learning.adaptive_scheduler import AdaptiveScheduler
 from ..learning.feedback_processor import FeedbackProcessor
@@ -49,6 +50,13 @@ class SugarLoop:
         # Initialize workflow orchestrator
         self.workflow_orchestrator = WorkflowOrchestrator(
             self.config, self.git_ops, self.work_queue
+        )
+
+        # Initialize task orchestrator for staged execution of complex tasks
+        self.task_orchestrator = TaskOrchestrator(
+            config=self.config,
+            work_queue=self.work_queue,
+            agent_executor=self.executor,
         )
 
         # Initialize work discovery modules
@@ -324,16 +332,98 @@ class SugarLoop:
 
             logger.info(f"⚡ Executing work [{work_item['id']}]: {work_item['title']}")
 
-            # Prepare unified workflow (replaces GitHub-specific workflow)
-            workflow = await self.workflow_orchestrator.prepare_work_execution(
-                work_item
-            )
-
             # Track execution timing
             from datetime import datetime
 
             start_time = datetime.now(timezone.utc)
             execution_time = 0.0
+
+            # Orchestration path: complex tasks run the 4-stage workflow within
+            # this loop slot, then complete via the normal commit/complete path.
+            try:
+                if await self.task_orchestrator.should_orchestrate(work_item):
+                    orch_result = await self.task_orchestrator.orchestrate(work_item)
+                    execution_time = (
+                        datetime.now(timezone.utc) - start_time
+                    ).total_seconds()
+
+                    # Build a result dict compatible with the workflow path
+                    result = {
+                        **orch_result.to_dict(),
+                        "success": orch_result.success,
+                        "output": (
+                            f"Orchestrated {len(orch_result.stages_completed)} "
+                            f"stages, {len(orch_result.subtasks)} subtasks"
+                        ),
+                        "files_changed": [],  # subtasks own their file changes
+                        "actions_taken": [
+                            f"Stage: {s.value}" for s in orch_result.stages_completed
+                        ],
+                        "summary": (
+                            f"Orchestration {'succeeded' if orch_result.success else 'failed'}"
+                        ),
+                        "execution_time": orch_result.total_execution_time,
+                    }
+                    if orch_result.error:
+                        result["error"] = orch_result.error
+
+                    if not orch_result.success:
+                        error_msg = orch_result.error or "Orchestration failed"
+                        logger.warning(
+                            f"⚠️ Orchestration failed [{work_item['id']}]: {error_msg}"
+                        )
+                        await self.work_queue.fail_work(
+                            work_item["id"], error_msg, execution_time=execution_time
+                        )
+                        # No branch/PR workflow started for orchestrated tasks
+                        await self._handle_failed_workflow(
+                            work_item, {"branch_name": None}, error_msg
+                        )
+                        continue
+
+                    # Prepare + complete the unified workflow (commit/branch/PR)
+                    workflow = await self.workflow_orchestrator.prepare_work_execution(
+                        work_item
+                    )
+                    workflow_success = (
+                        await self.workflow_orchestrator.complete_work_execution(
+                            work_item, workflow, result
+                        )
+                    )
+                    if not workflow_success:
+                        logger.warning(
+                            f"⚠️ Workflow completion had issues for [{work_item['id']}]"
+                        )
+
+                    await self.work_queue.complete_work(work_item["id"], result)
+
+                    if work_item.get("source_type") == "github_watcher":
+                        await self._update_github_issue(work_item, result)
+
+                    logger.info(
+                        f"✅ Orchestration completed [{work_item['id']}]: "
+                        f"{work_item['title']}"
+                    )
+                    continue
+
+            except Exception as e:
+                execution_time = (
+                    datetime.now(timezone.utc) - start_time
+                ).total_seconds()
+                logger.error(f"❌ Orchestration failed [{work_item['id']}]: {e}")
+                await self.work_queue.fail_work(
+                    work_item["id"], str(e), execution_time=execution_time
+                )
+                await self._handle_failed_workflow(
+                    work_item, {"branch_name": None}, str(e)
+                )
+                continue
+
+            # Standard (non-orchestrated) execution path
+            # Prepare unified workflow (replaces GitHub-specific workflow)
+            workflow = await self.workflow_orchestrator.prepare_work_execution(
+                work_item
+            )
 
             try:
                 # Execute with Claude Code
@@ -362,7 +452,7 @@ class SugarLoop:
                         work_item["id"], error_msg, execution_time=execution_time
                     )
                     await self._handle_failed_workflow(work_item, workflow, error_msg)
-                    return
+                    continue
 
                 # Complete unified workflow (commit, branch, PR, issues)
                 workflow_success = (

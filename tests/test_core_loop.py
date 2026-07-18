@@ -216,6 +216,63 @@ class TestSugarLoop:
             loop.workflow_orchestrator.complete_work_execution.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_execute_work_orchestration_path(self, sugar_config_file):
+        """An orchestrate=True task is handled by TaskOrchestrator, not executor."""
+        with (
+            patch("sugar.core.loop.WorkQueue"),
+            patch("sugar.core.loop.ClaudeWrapper"),
+            patch("sugar.core.loop.AgentSDKExecutor"),
+            patch("sugar.core.loop.ErrorLogMonitor"),
+            patch("sugar.core.loop.WorkflowOrchestrator"),
+            patch("sugar.core.loop.TaskOrchestrator"),
+        ):
+            loop = SugarLoop(str(sugar_config_file))
+
+            # Replace the orchestrator with an AsyncMock that claims the task
+            mock_orch = AsyncMock()
+            mock_orch.should_orchestrate = AsyncMock(return_value=True)
+            orch_result = MagicMock(
+                success=True,
+                stages_completed=[],
+                subtasks=[],
+                total_execution_time=1.0,
+                error=None,
+            )
+            orch_result.to_dict = MagicMock(return_value={"success": True})
+            mock_orch.orchestrate = AsyncMock(return_value=orch_result)
+            loop.task_orchestrator = mock_orch
+
+            orch_task = {
+                "id": "orch-1",
+                "type": "feature",
+                "title": "Build thing",
+                "description": "implement",
+                "priority": 3,
+                "orchestrate": True,
+            }
+            loop.work_queue = AsyncMock()
+            loop.work_queue.get_next_work = AsyncMock(side_effect=[orch_task, None])
+            loop.work_queue.complete_work = AsyncMock()
+            loop.work_queue.fail_work = AsyncMock()
+            loop.workflow_orchestrator = AsyncMock()
+            loop.workflow_orchestrator.prepare_work_execution = AsyncMock(
+                return_value={}
+            )
+            loop.workflow_orchestrator.complete_work_execution = AsyncMock(
+                return_value=True
+            )
+            loop.executor = AsyncMock()
+            loop.executor.execute_work = AsyncMock()
+
+            await loop._execute_work()
+
+            # Orchestration path taken: orchestrate called, executor bypassed
+            mock_orch.orchestrate.assert_called_once()
+            loop.executor.execute_work.assert_not_called()
+            loop.workflow_orchestrator.complete_work_execution.assert_called_once()
+            loop.work_queue.complete_work.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_execute_work_failure(self, sugar_config_file):
         """Test work execution with failure"""
         with (

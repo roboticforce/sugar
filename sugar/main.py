@@ -1886,8 +1886,7 @@ def status(ctx):
 def help():
     """Show comprehensive Sugar help and getting started guide"""
 
-    click.echo(
-        """
+    click.echo("""
 🍰 Sugar - The Autonomous Layer for AI Coding Agents
 =====================================================
 
@@ -1998,8 +1997,7 @@ Complete documentation: docs/README.md
 • By using Sugar, you agree to these terms and conditions
 
 Ready to supercharge your development workflow? 🚀
-"""
-    )
+""")
 
 
 @cli.command()
@@ -2609,6 +2607,82 @@ sugar:
     require_completion_criteria: true  # Require <promise> tags or --max-iterations
     quality_gates_enabled: true     # Run quality gates between iterations
     stop_on_gate_failure: false     # Keep trying even if gates fail
+
+# Task Orchestration (staged execution of complex tasks)
+# Decomposes complex work into research -> plan -> implement -> review,
+# routing each piece to a specialist agent. See docs/task_orchestration.md.
+orchestration:
+  enabled: true
+
+  # When to trigger orchestration
+  # - auto: System detects complex tasks automatically
+  # - explicit: Only when task has orchestrate: true flag
+  # - disabled: Never orchestrate, run tasks directly
+  auto_decompose: "auto"
+
+  # Detection rules for auto mode
+  detection:
+    # Task types that always trigger orchestration
+    task_types: ["feature", "epic"]
+
+    # Keywords in title/description that trigger orchestration
+    keywords:
+      - "implement"
+      - "build"
+      - "create full"
+      - "add complete"
+      - "redesign"
+      - "refactor entire"
+
+    # Minimum estimated complexity (low, medium, high)
+    min_complexity: "high"
+
+  # Stage definitions
+  stages:
+    research:
+      enabled: true
+      agent: "Explore"
+      timeout: 600                # 10 minutes
+      actions:
+        - web_search
+        - codebase_analysis
+        - doc_gathering
+      output_to_context: true
+      read_only: true             # analysis only - no file writes
+      output_path: ".sugar/orchestration/{{task_id}}/research.md"
+
+    planning:
+      enabled: true
+      agent: "Plan"
+      timeout: 300                # 5 minutes
+      depends_on: ["research"]
+      creates_subtasks: true
+      read_only: true             # analysis only - no file writes
+      output_path: ".sugar/orchestration/{{task_id}}/plan.md"
+
+    implementation:
+      enabled: true
+      parallel: true              # planned: intra-wave parallelism
+      max_concurrent: 3
+      timeout_per_task: 1800      # 30 minutes per sub-task
+      agent_routing:
+        # Pattern -> Agent mapping
+        "*ui*|*frontend*|*component*|*design*": "frontend-designer"
+        "*api*|*backend*|*endpoint*|*service*": "backend-developer"
+        "*test*|*spec*|*coverage*": "qa-engineer"
+        "*security*|*auth*|*permission*": "security-engineer"
+        "*devops*|*deploy*|*ci*|*docker*": "devops-engineer"
+        "*doc*|*readme*|*guide*": "general-purpose"
+        "default": "general-purpose"
+
+    review:
+      enabled: true
+      depends_on: ["implementation"]
+      agents:
+        - "code-reviewer"
+        - "qa-engineer"
+      run_tests: true
+      require_passing: true
 """
 
 
@@ -3006,8 +3080,7 @@ def dedupe(ctx, dry_run):
 
         async with aiosqlite.connect(work_queue.db_path) as db:
             # Find duplicates - keep the earliest created one for each source_file
-            cursor = await db.execute(
-                """
+            cursor = await db.execute("""
                 WITH ranked_items AS (
                     SELECT id, source_file, title, created_at,
                            ROW_NUMBER() OVER (PARTITION BY source_file ORDER BY created_at ASC) as rn
@@ -3018,8 +3091,7 @@ def dedupe(ctx, dry_run):
                 FROM ranked_items 
                 WHERE rn > 1
                 ORDER BY source_file, created_at
-            """
-            )
+            """)
 
             duplicates = await cursor.fetchall()
 

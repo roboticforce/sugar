@@ -1,5 +1,12 @@
 # Task Orchestration System
 
+> **Status: Implemented (v3.10+).** Orchestration is wired into the live Sugar
+> loop - `sugar add "..." --orchestrate` then `sugar run` decomposes the task,
+> runs all four stages, persists and executes subtasks in dependency order, and
+> `sugar orchestrate <id>` / `sugar context <id>` show the live persisted state.
+> Subtasks execute in dependency order, sequentially within each wave;
+> intra-wave parallelism is planned (see [Out of scope](#out-of-scope)).
+
 Sugar's Task Orchestration system enables intelligent decomposition and execution of complex features through staged workflows and specialist agent routing.
 
 ## Overview
@@ -10,7 +17,8 @@ When Sugar encounters a large feature request, the orchestration system:
 2. **Researches** context via web search and codebase analysis
 3. **Plans** the implementation and generates sub-tasks
 4. **Routes** each sub-task to the appropriate specialist agent
-5. **Executes** sub-tasks with parallelism where possible
+5. **Executes** sub-tasks in dependency order (sequentially within each wave;
+   intra-wave parallelism is planned)
 6. **Reviews** the completed work before marking done
 
 ```mermaid
@@ -69,18 +77,14 @@ flowchart TB
         R2["Maps to specialist agents"]
     end
 
-    subgraph Manager["SubAgentManager"]
-        M1["Concurrency control"]
-        M2["Isolated execution"]
-    end
-
     subgraph Executor["AgentSDKExecutor"]
         E1["Agent SDK integration"]
+        E2["Dependency-wave execution"]
     end
 
     Orchestrator -->|"Specialist selection"| Router
-    Router -->|"Parallel execution"| Manager
-    Manager -->|"Task execution"| Executor
+    Orchestrator -->|"Sequential waves"| Executor
+    Router -->|"Agent routing"| Executor
 ```
 
 ## Configuration
@@ -135,7 +139,7 @@ orchestration:
       output_path: ".sugar/orchestration/{task_id}/plan.md"
 
     implementation:
-      parallel: true
+      parallel: true              # planned: intra-wave parallelism (not yet honored)
       max_concurrent: 3
       timeout_per_task: 1800  # 30 minutes per sub-task
       agent_routing:
@@ -245,6 +249,12 @@ The Explore agent:
 - Checks for existing user models
 - Reviews dependencies (existing auth libraries)
 
+> **Read-only stage.** Research (and planning) run with a restricted,
+> read-only tool set (`Read`, `Glob`, `Grep`, `WebSearch`, `WebFetch`) so the
+> agent gathers context and cannot jump ahead to writing files. Set
+> `read_only: false` on the stage (or supply an explicit `allowed_tools`
+> list) in `.sugar/config.yaml` to lift this.
+
 Output saved to `.sugar/orchestration/{task_id}/research.md`:
 
 ```markdown
@@ -337,6 +347,13 @@ Execution order:
 2. When 1 completes → Tasks 2, 3, 4 start in parallel
 3. When 2, 3, 4 complete → Task 5 starts
 4. When all complete → Stage 4 triggers
+
+> **Implementation note (v3.10).** The shipped executor runs subtasks
+> **sequentially within each dependency wave** - it does not run a wave's
+> tasks concurrently. The ordering above (dependency waves) is honored; the
+> "in parallel" wording describes the target design, not the current
+> behavior. Intra-wave parallelism is tracked as future work
+> (see [Out of scope](#out-of-scope)).
 
 ### Stage 4: Review
 
@@ -475,45 +492,44 @@ orchestration:
         - vulnerability_check
 ```
 
-## Relationship to SubAgentManager
+## Execution Architecture
 
-SubAgentManager is the **low-level execution primitive** used by the orchestration system:
+The orchestration system reuses the live executor for every stage and subtask.
+There is no separate parallel-execution primitive; subtasks run through the same
+`AgentSDKExecutor` used for ordinary tasks, so model routing, hooks, quality
+gates, and thinking capture all apply.
 
 | Layer | Component | Responsibility |
 |-------|-----------|----------------|
-| High | TaskOrchestrator | Workflow stages, context |
-| Mid | AgentRouter | Specialist selection |
-| Low | SubAgentManager | Parallel execution |
-| Base | AgentSDKExecutor | Individual task execution |
+| High | TaskOrchestrator | Workflow stages, context accumulation |
+| Mid | AgentRouter | Specialist selection (role-priming) |
+| Base | AgentSDKExecutor | Individual stage + subtask execution |
 
-The orchestration system uses SubAgentManager when:
-- Running multiple sub-tasks in parallel during implementation stage
-- Executing parallel research queries
-- Running multiple review checks simultaneously
+The implementation stage runs subtasks in **dependency waves**: each wave
+collects the subtasks whose blockers are all completed, executes them
+**sequentially** (the cached per-model `SugarAgent` holds mutable session
+state, so concurrent calls on it would race), marks each completed or
+failed, then advances to the next wave until none remain.
 
 ```python
-# Orchestrator using SubAgentManager for parallel execution
-async def run_implementation_stage(self, subtasks: List[Task]) -> List[Result]:
-    manager = SubAgentManager(
-        parent_config=self.config,
-        max_concurrent=self.stages["implementation"]["max_concurrent"]
-    )
-
-    # Group subtasks by dependency level
-    ready_tasks = [t for t in subtasks if not t.blocked_by]
-
-    # Execute ready tasks in parallel
-    results = await manager.spawn_parallel([
-        {
-            "task_id": t.id,
-            "prompt": t.to_prompt(),
-            "agent": self.router.route(t)
-        }
-        for t in ready_tasks
-    ])
-
-    return results
+# Simplified: dependency-wave execution via the live executor
+async def run_implementation_stage(self, parent_id, subtasks):
+    # 1. persist subtasks (status="hold") + remap placeholder -> real ids
+    # 2. wave loop:
+    while remaining:
+        ready = [s for s in remaining if blockers_complete(s)]
+        if not ready:
+            break  # nothing runnable (e.g. all remaining are deadlocked)
+        for subtask in ready:           # sequential within the wave
+            await self.agent_executor.execute_work(subtask)
+            await self.work_queue.complete_work(subtask["id"], result)
+        remaining = [s for s in remaining if s not in ready]
 ```
+
+> Specialist agent names (`backend-developer`, `frontend-designer`, etc.)
+> are not built-in Claude Code subagent types. They prime the subtask prompt
+> with a `## Acting as: {agent}` role header and are stored on the subtask for
+> visibility. Real subagent-type dispatch is future work.
 
 ## Real-World Example Scenarios
 
@@ -768,3 +784,26 @@ flowchart TB
 ```
 
 This architecture enables Sugar to handle everything from simple one-liner fixes to complex multi-day feature implementations, automatically choosing the right level of sophistication for each task.
+
+## Out of scope
+
+The following are intentionally deferred (tracked as follow-ups):
+
+- **Intra-wave parallel subtask execution.** Subtasks run sequentially within each
+  dependency wave because the cached `SugarAgent` mutates shared instance state
+  during execution. Per-subtask agent isolation is required before subtasks in the
+  same wave can run concurrently.
+- **Queue-driven parent-wake (Model B).** Today orchestration runs synchronously
+  within a single loop slot (Model A): the parent is claimed, all four stages run,
+  and subtasks are persisted as `hold`-status rows the orchestrator executes
+  itself. A queue-driven model where the parent holds while children run as
+  independent queue items (better for long-running/crash-recovery) is future work.
+- **Quality-gate integration in review.** `WorkflowOrchestrator.quality_gates` are
+  not yet wired into the review stage; review runs the routed reviewer and
+  optionally the project test suite (`run_tests` / `require_passing`).
+- **Real Claude-Code subagent-type dispatch.** Specialist agent names
+  (`backend-developer`, etc.) prime the subtask prompt with a role header and are
+  stored on the row for visibility; they are not yet dispatched as native
+  subagent types.
+- **Robust plan parser.** `generate_subtasks` uses a regex parser; a more
+  tolerant parser is a follow-up.

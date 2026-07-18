@@ -87,14 +87,22 @@ class AgentRouter:
         agent_routing = impl_config.get("agent_routing", {})
 
         if agent_routing:
-            # Convert config patterns (with wildcards) to regex patterns
+            # Convert config glob patterns to word-boundary regexes.
+            # "*ui*|*frontend*" -> r"\b(?:ui|frontend)\b" so that "ui" matches
+            # as a word but does NOT match the "ui" inside "build" (which a
+            # naive .*ui.* substring conversion would, mis-routing every
+            # "Build ..." task to the frontend agent).
             for pattern, agent in agent_routing.items():
                 if pattern == "default":
                     continue
-                # Convert wildcard pattern to regex
-                # "*ui*|*frontend*" -> ".*ui.*|.*frontend.*"
-                regex_pattern = pattern.replace("*", ".*")
-                patterns[regex_pattern] = agent
+                terms = []
+                for alt in pattern.split("|"):
+                    cleaned = alt.strip().replace("*", "")
+                    if cleaned:
+                        terms.append(re.escape(cleaned))
+                if terms:
+                    regex_pattern = r"\b(?:" + "|".join(terms) + r")\b"
+                    patterns[regex_pattern] = agent
         else:
             # Use defaults
             patterns = self.DEFAULT_PATTERNS.copy()
