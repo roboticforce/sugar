@@ -7,13 +7,13 @@
     "url": "https://github.com/roboticforce/sugar",
     "source": "github"
   },
-  "version": "3.5.0.dev0",
+  "version": "3.10.0",
   "websiteUrl": "https://github.com/roboticforce/sugar",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "sugarai",
-      "version": "3.5.0.dev0",
+      "version": "3.10.0",
       "name": "sugar-memory",
       "description": "Sugar Memory MCP Server - semantic memory for AI coding sessions",
       "packageArguments": [
@@ -28,7 +28,7 @@
     {
       "registryType": "pypi",
       "identifier": "sugarai",
-      "version": "3.5.0.dev0",
+      "version": "3.10.0",
       "name": "sugar-tasks",
       "description": "Sugar Task Queue MCP Server - autonomous task management",
       "packageArguments": [
