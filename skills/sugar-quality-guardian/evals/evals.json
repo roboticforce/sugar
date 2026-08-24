@@ -1,0 +1,64 @@
+{
+  "skill_name": "sugar-quality-guardian",
+  "evals": [
+    {
+      "id": "sugar-quality-guardian-001",
+      "prompt": "Review this pull request before it merges. The change adds a user lookup endpoint. Here is the new code:\n\n```python\nfrom flask import Flask, request, jsonify\nimport sqlite3\n\napp = Flask(__name__)\n\n@app.route('/api/users/<int:user_id>')\ndef get_user(user_id):\n    conn = sqlite3.connect('app.db')\n    cur = conn.cursor()\n    cur.execute(f\"SELECT * FROM users WHERE id = {user_id}\")\n    row = cur.fetchone()\n    conn.close()\n    if row:\n        return jsonify({'user': row})\n    return jsonify({'error': 'not found'}), 404\n\nif __name__ == '__main__':\n    app.run()\n```\n\nGive me a structured review with a clear verdict.",
+      "expected_output": "The review must evaluate the code against the four dimensions (code quality, testing, security, performance). It MUST identify the SQL injection vulnerability from the f-string interpolation of user_id directly into the query. It MUST note the missing authentication/authorization on the endpoint. It MUST note the absence of any tests. It MUST end with a clear verdict in the structured format (PASS / CONDITIONAL PASS / FAIL) with specific, actionable findings, and the verdict must be FAIL or REJECT given the security issues.",
+      "assertions": [
+        "Identifies the SQL injection vulnerability (f-string interpolation into SQL query)",
+        "Notes missing authentication or authorization on the endpoint",
+        "Notes missing tests for the new endpoint",
+        "Reviews at least three of the four dimensions (quality, testing, security, performance)",
+        "Provides a clear structured verdict (PASS / CONDITIONAL PASS / FAIL)",
+        "The verdict reflects that critical security issues exist (FAIL/REJECT)",
+        "Findings are specific and actionable, not vague"
+      ],
+      "expected_skill": "sugar-quality-guardian",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-quality-guardian-002",
+      "prompt": "Our QA flagged test coverage dropping below target after the latest feature. The payment processing module now sits at 45% coverage. Here's the diff summary: a new checkout function was added with no error-path tests, and the existing payment gateway call has no test for a timeout. Review the change and tell me whether it's ready to ship and what to fix.",
+      "expected_output": "The review must apply the coverage targets from the skill (business logic >90%, overall >80%). It MUST flag that 45% is far below the 80% overall target and below the 90% business-logic target. It MUST specifically call out the missing error-path tests for checkout and the missing payment gateway timeout test. It MUST provide a clear verdict (CONDITIONAL PASS or FAIL) with specific recommended tests. It MUST be specific and actionable rather than vague.",
+      "assertions": [
+        "Flags coverage 45% as below the 80% overall target",
+        "References the specific coverage targets from the skill",
+        "Calls out missing error-path tests for checkout",
+        "Calls out missing payment gateway timeout test",
+        "Provides a clear verdict (CONDITIONAL PASS or FAIL)",
+        "Gives specific, actionable test recommendations",
+        "Uses the structured verdict format"
+      ],
+      "expected_skill": "sugar-quality-guardian",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-quality-guardian-003",
+      "prompt": "Do a quality review of this function that was just added to our codebase:\n\n```python\ndef process_user_request(request):\n    user = db.query(User).get(request['user_id'])\n    data = request['data']\n    result = user.account.balance - data['amount']\n    if result < 0:\n        raise ValueError('insufficient funds')\n    user.account.balance = result\n    db.session.commit()\n    return result\n```\n\nWhat issues do you see and is it ready to merge?",
+      "expected_output": "The review must identify concrete code quality and error-handling issues: no null/not-found handling for the user lookup (user could be None), no input validation on the amount (could be non-numeric or negative), no handling of database errors or rollback on exception, and the direct nested attribute access assumes data shape. It must consider testing (no tests shown), and provide a clear verdict with specific findings. It should NOT claim there are no issues.",
+      "assertions": [
+        "Identifies missing null/not-found handling for the user lookup",
+        "Identifies missing input validation on the amount field",
+        "Identifies missing transaction rollback or database error handling",
+        "Provides specific, actionable findings",
+        "Gives a clear verdict (PASS / CONDITIONAL PASS / FAIL)",
+        "Does not claim the code has no issues"
+      ],
+      "expected_skill": "sugar-quality-guardian",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-quality-guardian-neg-001",
+      "prompt": "Can you write a new REST API endpoint that returns a user's order history? I need the implementation code, not a review.",
+      "expected_output": "This is a code-writing task, not a review task. The sugar-quality-guardian skill is for reviewing existing code and should NOT be the primary skill used here. The agent should proceed to write the implementation or clarify, not force a code review verdict on code that does not exist yet. The response should not present a review verdict (PASS/FAIL) as if reviewing the request itself.",
+      "assertions": [
+        "Does not force a code review verdict (PASS/FAIL) on a writing request",
+        "Recognizes this is an implementation request, not a review request",
+        "Does not misapply the review skill to a code-writing task"
+      ],
+      "expected_skill": null,
+      "expected_script": null
+    }
+  ]
+}

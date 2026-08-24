@@ -1,0 +1,4 @@
+[[mcp_servers]]
+name = "sugar-memory"
+command = "sugar mcp memory"
+transport = "stdio"

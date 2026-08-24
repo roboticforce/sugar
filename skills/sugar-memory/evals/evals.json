@@ -1,0 +1,87 @@
+{
+  "skill_name": "sugar-memory",
+  "evals": [
+    {
+      "id": "sugar-memory-001",
+      "prompt": "We're adding a new list endpoint to expose user activity logs. The endpoint will return potentially thousands of rows. Before you write the implementation, check what we've learned about building list endpoints in this project and reflect that in your plan or implementation notes. What pagination approach should we use and why?",
+      "expected_output": "The agent should use Sugar memory (recall/search_memory/get_project_context) before answering, and surface the stored decision: list endpoints must use CURSOR pagination (cursor + limit), never offset pagination, via the repository pattern. It should reference the outcome that cursor pagination cut p95 latency from 400ms to 90ms. It should NOT propose offset pagination or ask the user which to use as if it were an open question - the project already decided.",
+      "assertions": [
+        "Checks Sugar memory for prior context (recall, search_memory, or get_project_context)",
+        "Recommends cursor pagination over offset pagination",
+        "References the stored decision that list endpoints use cursor pagination",
+        "References the outcome (cursor pagination cut p95 latency)",
+        "Does NOT treat pagination choice as an open question the user must answer",
+        "Explains the 'why' (stable query performance, avoids page skew)"
+      ],
+      "expected_skill": "sugar-memory",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-memory-002",
+      "prompt": "CI just started failing with 'database is locked' errors on our test suite. We haven't changed anything recently. What should we investigate, and what do we already know about this?",
+      "expected_output": "The agent should search Sugar memory for this error pattern and surface the stored error_pattern: SQLite 'database is locked' in CI happens because tests run in parallel on a single shared connection; fix is serializing test DB access or using a separate DB file per test worker. It should lead with that known fix rather than re-diagnosing from scratch, and reference that it's a recurring issue since March 2026.",
+      "assertions": [
+        "Searches Sugar memory for the error pattern",
+        "Surfaces the known cause (parallel tests on shared SQLite connection)",
+        "Provides the known fix (serialize test DB access or per-worker DB)",
+        "References that this is a recurring issue, not a new one",
+        "Does NOT start re-diagnosing from scratch as if there's no prior context"
+      ],
+      "expected_skill": "sugar-memory",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-memory-003",
+      "prompt": "I'm about to add a new dependency to the project. What's our policy on dependency versions? Also, what formatting/style tools does this project standardize on?",
+      "expected_output": "The agent should recall the stored guideline: pin every dependency to an exact version, never use range specifiers (^, ~, >=), upgrades are intentional via PRs. And the stored preference: black + isort for formatting, mypy strict for typing, pathlib for paths, async for I/O. It should answer from memory rather than asking or guessing.",
+      "assertions": [
+        "Recalls the dependency pinning policy (exact versions, no ranges)",
+        "Recalls the code style conventions (black, isort, mypy strict, pathlib)",
+        "Answers from stored memory rather than guessing or asking",
+        "Correctly identifies the project's standards"
+      ],
+      "expected_skill": "sugar-memory",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-memory-004",
+      "prompt": "We just decided to move our notification sending to the outbox pattern, but the old emails are going out directly from the request handler and we're seeing duplicates under load. Before suggesting a fix, check what we already know about the notifications service in this project.",
+      "expected_output": "The agent should recall the stored file_context: app/services/notifications.py is the notification service, sends email via SMTP and webhooks via the outbox pattern, outbox table drained by a background worker every 5 seconds, tests in tests/services/test_notifications.py. It should use that knowledge to ground its recommendation (the outbox pattern already exists; the fix is to route through it, not re-architect).",
+      "assertions": [
+        "Recalls the file_context about the notifications service",
+        "References the outbox pattern already in place",
+        "References the background worker that drains the outbox",
+        "Grounds the recommendation in existing project structure, not a from-scratch design",
+        "Uses memory rather than asking the user what the service does"
+      ],
+      "expected_skill": "sugar-memory",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-memory-005",
+      "prompt": "We picked pgvector as our embeddings store over Qdrant. Capture this decision so future sessions know why, and note the conditions under which we should revisit it.",
+      "expected_output": "The agent should use store_learning to persist the decision as a memory with type=decision, appropriate scope, and a detailed content string that includes the rationale (keeps everything in one Postgres database) and the revisit condition (e.g., if vector queries exceed a scale threshold). It should confirm the storage happened.",
+      "assertions": [
+        "Calls store_learning (or equivalent store tool) to persist the decision",
+        "Uses decision memory type",
+        "Records the rationale (why pgvector over Qdrant)",
+        "Records a revisit condition or boundary",
+        "Confirms the memory was stored"
+      ],
+      "expected_skill": "sugar-memory",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-memory-neg-001",
+      "prompt": "What is the capital city of Australia?",
+      "expected_output": "This is a generic factual question with no project context. The agent should answer directly (Canberra) and must NOT force memory tools onto a trivial factual question.",
+      "assertions": [
+        "Answers the factual question directly",
+        "Does not force memory tools onto a generic fact question",
+        "Does not misapply the memory skill where it is not needed"
+      ],
+      "expected_skill": null,
+      "expected_script": null
+    }
+  ]
+}

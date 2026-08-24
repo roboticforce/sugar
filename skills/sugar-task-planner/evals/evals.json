@@ -1,0 +1,63 @@
+{
+  "skill_name": "sugar-task-planner",
+  "evals": [
+    {
+      "id": "sugar-task-planner-001",
+      "prompt": "We need to add user authentication to our app (email/password plus Google and GitHub OAuth2), with session management, rate limiting, and 90%+ test coverage on the auth code. Create a detailed execution plan for this feature.",
+      "expected_output": "The plan must follow the sugar-task-planner framework: a subtask breakdown with an execution sequence and dependencies, effort estimates as time ranges (not exact single times), a critical path, risks with mitigations, and SMART measurable success criteria. Success criteria should be concrete and measurable (e.g., users can log in with email/password, OAuth2 with Google and GitHub, session expiry, rate limiting thresholds, coverage target), not vague statements like 'add authentication'.",
+      "assertions": [
+        "Produces a subtask breakdown with an execution sequence",
+        "Identifies dependencies between subtasks",
+        "Uses effort estimates as time ranges, not single exact times",
+        "Identifies a critical path",
+        "Lists risks with mitigations",
+        "Defines measurable, SMART success criteria (concrete thresholds, not vague)",
+        "Covers the requested scope (email/password, OAuth2, sessions, rate limiting, coverage)"
+      ],
+      "expected_skill": "sugar-task-planner",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-task-planner-002",
+      "prompt": "Split the refactor of our payment processing module into smaller tasks, estimate the effort, and identify the risks. The module handles payments, refunds, and reconciliation, and it currently has tight coupling to the legacy billing system.",
+      "expected_output": "The plan must decompose the refactor into discrete subtasks (e.g., architecture analysis, database schema, core logic, integration, testing, documentation) with an execution sequence, effort estimates as ranges, a critical path, and risk analysis with mitigations (e.g., migration/backward-compatibility risks, testing risks). Success criteria should be measurable.",
+      "assertions": [
+        "Decomposes the refactor into discrete subtasks",
+        "Provides an execution sequence and dependencies",
+        "Includes effort estimates as time ranges",
+        "Identifies a critical path",
+        "Identifies risks with mitigations (e.g., backward compatibility, data migration)",
+        "Defines measurable success criteria"
+      ],
+      "expected_skill": "sugar-task-planner",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-task-planner-003",
+      "prompt": "Our team wants to roll out a new analytics dashboard next quarter. Plan the work including milestones, required resources, and how we'll know it's successful.",
+      "expected_output": "The plan must structure the rollout using the planning framework: phases or milestones with an execution sequence, required resources, dependencies, effort estimates, risk analysis, a critical path, and measurable success criteria for the dashboard (e.g., load time, adoption, accuracy of metrics). It should not just list features; it should define how success is measured.",
+      "assertions": [
+        "Structures the plan into phases or milestones",
+        "Specifies required resources",
+        "Includes effort estimates and dependencies",
+        "Identifies risks with mitigations",
+        "Defines measurable success criteria for the dashboard",
+        "Identifies a critical path or key timeline dependencies"
+      ],
+      "expected_skill": "sugar-task-planner",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-task-planner-004",
+      "prompt": "What's the capital city of Australia?",
+      "expected_output": "This is a simple factual question that does not require task planning. The agent should answer directly (Canberra) and must NOT force a task breakdown, estimates, or success criteria onto a trivial question.",
+      "assertions": [
+        "Answers the factual question directly",
+        "Does not force a task breakdown or estimates onto a trivial question",
+        "Does not misapply the planning skill where it is not needed"
+      ],
+      "expected_skill": null,
+      "expected_script": null
+    }
+  ]
+}

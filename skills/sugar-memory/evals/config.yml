@@ -1,0 +1,22 @@
+schema_version: 1
+
+harbor:
+  task_source: auto
+  n_attempts: 1
+  pass_threshold: 0.50
+  n_concurrent: 2
+  timeout_multiplier: 1.5
+  agent_workdir: /workspace
+  pre_agent_setup:
+    - test -f /workspace/.sugar/memory.db && echo "seeded memory present"
+    - |
+      INJECT=$(find / -name inject_mcp.py -path '*sugar-memory*' 2>/dev/null | head -1)
+      echo "inject script at: $INJECT"
+      test -n "$INJECT" && python3 "$INJECT" --background &
+      sleep 1
+
+skill_workspace:
+  mode: isolated
+
+grading:
+  mode: default

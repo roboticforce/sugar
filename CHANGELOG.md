@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Development in progress._
+### Added
+- **Agent Skills**: four Agent-Skills-spec skills under `skills/` that teach coding agents to apply Sugar's methodology:
+  - `sugar-memory` - store and surface project context via the memory MCP server
+  - `sugar-task-planner` - decompose tasks into plans with estimates, risks, and success criteria
+  - `sugar-quality-guardian` - structured code review across quality, testing, security, performance
+  - `sugar-orchestrator` - coordinate multi-step workflows and role assignment
+- **Skill evaluation datasets**: each skill ships `evals/evals.json` for NVIDIA SkillEvaluator Tier 3 live evaluation
+- **Skill benchmarks**: measured Skill Lift for all four skills on the OpenCode harness (`docs/dev/skill-benchmarks.md`); `sugar-memory` (+0.16) and `sugar-task-planner` (+0.10) show positive lift
 
 ---
 

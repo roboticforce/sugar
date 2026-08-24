@@ -198,3 +198,7 @@ research/.mcpregistry_github_token
 # External plugin clones
 claude-plugins-official/
 .mcpregistry_github_token
+
+# SkillEvaluator generated output (regenerate locally; never commit)
+skills/**/evals/results/
+reports/

@@ -71,6 +71,19 @@ goose configure
 sugar opencode setup
 ```
 
+## Skills
+
+Sugar ships Agent Skills - folders of instructions that teach coding agents to apply Sugar's methodology. Skills live under `skills/` and follow the [Agent Skills](https://agentskills.io) specification (a `SKILL.md` with name/description frontmatter plus instructions).
+
+| Skill | What it does |
+|-------|--------------|
+| `sugar-memory` | Store and surface project context via Sugar's memory MCP server: recall context at task start, search before deciding, store learnings after completing work |
+| `sugar-task-planner` | Turn a high-level task into a detailed execution plan: subtasks, dependencies, time estimates, risks, and measurable success criteria |
+| `sugar-quality-guardian` | Review code across quality, testing, security, and performance, ending with a structured verdict |
+| `sugar-orchestrator` | Coordinate multi-step workflows: analyze complexity, decompose tasks, assign roles, monitor execution |
+
+Each skill includes an evaluation dataset (`evals/evals.json`) and is measured with [NVIDIA SkillEvaluator](https://github.com/NVIDIA/SkillEvaluator) against the OpenCode harness. See [Skill Benchmarks](docs/dev/skill-benchmarks.md) for the Skill Lift results - sugar-memory and sugar-task-planner both show measured positive lift.
+
 ## Global Memory
 
 Some knowledge belongs to you, not just one project. Coding standards, preferred patterns, security practices - these should follow you everywhere.
@@ -311,6 +324,7 @@ discovery:
 
 - [Quick Start](docs/user/quick-start.md)
 - [Memory System](docs/user/memory.md)
+- [Skill Benchmarks](docs/dev/skill-benchmarks.md)
 - [CLI Reference](docs/user/cli-reference.md)
 - [Task Orchestration](docs/task_orchestration.md)
 - [Goose Integration](docs/user/goose.md)

@@ -1,0 +1,62 @@
+{
+  "skill_name": "sugar-orchestrator",
+  "evals": [
+    {
+      "id": "sugar-orchestrator-001",
+      "prompt": "We just got a request to fix a typo in our documentation (one word in one file). How should we handle this? Walk me through how you'd coordinate it.",
+      "expected_output": "The response should apply the orchestrator's task analysis framework: classify this as a SIMPLE task (single file, straightforward), decide that decomposition is NOT needed (does not meet the break-down criteria - not >500 words, no multiple deliverables, <1 day), and assign it to a single executor role with basic verification. It should NOT over-engineer by creating multiple subtasks or assigning a full QA/review pipeline to a one-word typo fix.",
+      "assertions": [
+        "Classifies the task as simple/low complexity",
+        "Decides decomposition is not needed for a trivial single-file fix",
+        "Assigns a single executor role rather than a multi-role pipeline",
+        "Applies the orchestrator's complexity assessment, not a generic response",
+        "Uses basic verification appropriate to the task size"
+      ],
+      "expected_skill": "sugar-orchestrator",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-orchestrator-002",
+      "prompt": "We need to build a full user dashboard redesign - new UX, frontend components, backend API changes, comprehensive testing. How should we orchestrate this?",
+      "expected_output": "The response should classify this as a COMPLEX task and apply the orchestrator's complex-feature pattern: break it into subtasks (planning/requirements, design, backend, frontend, testing, review), identify parallel work where possible (backend can run parallel with frontend), assign specialized roles (planner, UX, frontend, backend, QA, quality), include a review step, and note that it spans multiple steps and concerns so decomposition is appropriate.",
+      "assertions": [
+        "Classifies the task as complex",
+        "Decides decomposition is appropriate",
+        "Breaks work into multiple subtasks",
+        "Assigns specialized roles for different aspects",
+        "Identifies parallelizable work (e.g., backend parallel with frontend)",
+        "Includes testing and a final review/quality step"
+      ],
+      "expected_skill": "sugar-orchestrator",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-orchestrator-003",
+      "prompt": "A production database connection leak is causing timeouts. We need to coordinate a response. How would you orchestrate this?",
+      "expected_output": "The response should treat this as a critical/urgent bug and apply the orchestrator's critical-bug pattern: fast-track with quality focus, assign root-cause analysis to a tech lead, then implementation, then security/testing, then a review, and include a deployment recommendation. It should flag this as high priority/risk requiring escalation and appropriate oversight, not a routine task.",
+      "assertions": [
+        "Treats it as critical/urgent (not routine)",
+        "Starts with root-cause analysis (tech lead) before implementation",
+        "Includes testing/security validation",
+        "Includes a review/quality step",
+        "Recommends deployment or fast-track handling",
+        "Applies the orchestrator's escalation/priority logic"
+      ],
+      "expected_skill": "sugar-orchestrator",
+      "expected_script": null
+    },
+    {
+      "id": "sugar-orchestrator-neg-001",
+      "prompt": "Write the implementation code for a function that validates an email address and returns true if valid.",
+      "expected_output": "This is an implementation request, not a coordination request. The orchestrator skill is for coordinating multi-step workflows across roles, not for writing code directly. The agent should proceed to write the implementation (or clarify), and must NOT respond by describing role assignments, orchestration patterns, or a multi-agent workflow for a trivial single-function request. It should not force coordination structure onto a simple coding request.",
+      "assertions": [
+        "Recognizes this is an implementation task, not a coordination task",
+        "Does not force orchestration patterns (role assignment, decomposition) onto a trivial single-function request",
+        "Proceeds to write the implementation rather than describing a workflow",
+        "Does not misapply the orchestrator skill where it is not needed"
+      ],
+      "expected_skill": null,
+      "expected_script": null
+    }
+  ]
+}
