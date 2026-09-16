@@ -1,0 +1,5 @@
+name: sugar
+version: 0.1.0
+description: "Sugar - local-first persistent memory for coding agents. SQLite on your disk: decisions, preferences, error patterns, and guidelines with project + global scopes and guideline-aware search. No cloud, no API key."
+pip_dependencies:
+  - sugarai==3.10.1
