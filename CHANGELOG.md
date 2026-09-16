@@ -5,6 +5,18 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.2] - 2026-09-16
+
+### Added
+- **Hermes Agent memory-provider plugin** (`hermes-plugin/`): Sugar as a first-class memory provider for [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+  - Implements the `MemoryProvider` ABC: automatic recall via `prefetch`/`queue_prefetch` lifecycle with cached recall blocks, plus three agent tools (`sugar_store`, `sugar_search`, `sugar_list_recent`)
+  - Project and global scopes with project-to-global promotion when no `.sugar/` project is found; non-primary agent contexts (subagents, cron) are read-only
+  - Version-tolerant imports: works on Hermes 0.19 (PyPI) through current main (`RecallStatus`, `is_trivial_prompt`, `spawn_context_thread` fallbacks)
+  - Install via `hermes plugins install sugar`, activate with `memory.provider: sugar`
+- Plugin test suite (`tests/test_hermes_plugin.py`, 16 tests) covering the provider with stubbed Hermes modules
+
+---
+
 ## [3.10.1] - 2026-09-16
 
 ### Added
