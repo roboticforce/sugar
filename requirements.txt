@@ -4,7 +4,7 @@ pyyaml>=6.0
 watchdog>=3.0.0
 gitpython>=3.1.40
 structlog>=23.0.0
-click>=8.1.0
+click>=8.3.1,<9
 python-dotenv>=1.0.0
 
 # Claude Agent SDK (Sugar 3.0)
