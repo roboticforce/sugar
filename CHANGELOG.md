@@ -5,7 +5,7 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.10.6] - 2026-11-05
+## [Unreleased]
 
 ### Added
 - **Local real-time dashboard** (`sugar dashboard`, `sugar/dashboard/`): a loopback-only Starlette server (`127.0.0.1:7331` by default) that exposes the work queue as a REST API plus a Server-Sent Events stream, with a dependency-free browser UI at `/`. Reads use plain SQL; every write goes through `WorkQueue` (`add_work`, `update_work`, `complete_work`, `fail_work`, `hold_work`, `release_work`, `remove_work`) so hold/release/complete/fail semantics stay identical to the CLI and MCP server. `GET /api/events` sends `hello` + an authoritative `snapshot`, then `upsert` / `delete` / `stats` deltas; changes are detected by polling `PRAGMA data_version` every 400 ms, so writes made by `sugar add`, the MCP server or another process show up in under a second. Flags: `--host` (loopback only), `--port`, `--db`, `--open`, `--read-only`.
@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **macOS app: live updates never appeared.** Two bugs stacked. (1) `URLSession.AsyncBytes.lines` (Foundation's `AsyncLineSequence`) never yields the empty line that terminates an SSE event, so the parser waited for a separator that never came and no event was ever emitted; the client now splits the byte stream itself (`SSELineSplitter`, CRLF-tolerant, chunk-safe) and the parser also flushes a pending event when the next `event:` line starts. (2) In release builds `URLSession.bytes(for:)` buffered the live response indefinitely — all bytes reached the socket (verified with `nettop`) but none reached the loop — so the stream now uses a `URLSessionDataDelegate` (`SSEDataSource`) that forwards each chunk as it lands. Regression tests cover the splitter and the defensive parser flush.
 - **`apps/macos/build-app.sh` can no longer ship a stale binary.** SwiftPM's incremental build was observed to relink an old release product after a source change (with the custom cache/config paths), which silently produced an app without the fix above. The script now compares source mtimes against the release product and forces a clean rebuild when any source is newer.
+
+## [3.10.6] - 2026-11-05
+
+### Fixed
+- **Runtime dependency pins no longer block installation alongside host tools.** Hermes pins its own core dependencies exactly, and the memory-provider plugin pulls `sugarai` into that environment, so an exact `==` pin on our side is an unsatisfiable union for every Hermes user. `pyyaml`, `aiosqlite`, `sqlalchemy`, `python-dotenv`, `asyncio-throttle` and `claude-agent-sdk` now carry a floor plus an upper bound; `python-dotenv` is `>=1.2.2,<2`, which admits Hermes's `1.2.4`. `setuptools` is removed from runtime dependencies entirely - nothing imports it and it is already pinned in `[build-system]`. Reproduced on Python 3.14.9 (NousResearch/hermes-agent#149282, #91).
+- **Hermes plugin: the checkpoint message is accurate.** It claimed the full transcript was recoverable from `~/.sugar/memory.db`, but the write lands in the project store (or the global store when promoted) and is truncated at 4,000 characters. The message now names the store actually written and flags truncation (plugin `0.3.1`, #91).
+
+### Added
+- `tests/test_packaging.py` guards the dependency policy: no exact runtime pins, an upper bound on every dependency, no `setuptools` runtime dependency, and `python-dotenv` must admit the host tool's pin (#91).
 
 ## [3.10.5] - 2026-11-05
 
