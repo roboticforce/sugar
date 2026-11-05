@@ -18,6 +18,7 @@ stays cheap and ``hermes plugins validate`` can probe this file in a bare env.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -171,6 +172,59 @@ _SEARCH_LIMIT_MIN = 1
 _SEARCH_LIMIT_MAX = 20
 _DEFAULT_SEARCH_LIMIT = 5
 
+# Pre-compress checkpoint API v2: a successful on_pre_compress() return means the
+# durable checkpoint is committed, and any failure must raise rather than return
+# partial success. No provider bundled with Hermes advertises v2.
+_CHECKPOINT_API_VERSION = 2
+_CHECKPOINT_MAX_CHARS = 4000
+_CHECKPOINT_MAX_DIGESTS = 128
+_MIRRORED_MAX_DIGESTS = 256
+
+# Built-in memory-tool targets map onto Sugar's vocabulary. ``user`` is the
+# cross-project user profile (preferences); ``memory`` is the agent's own notes.
+_MIRROR_MEMORY_TYPES = {"user": "preference", "memory": "research"}
+_MIRROR_SCOPES = {"user": "global", "memory": "project"}
+
+_SKILL_PATH = Path(__file__).with_name("skills") / "sugar-memory" / "SKILL.md"
+
+
+def _message_text(content: Any) -> str:
+    """Flatten one message's content (string or content-block list) to text."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, (list, tuple)):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+        return " ".join(part.strip() for part in parts if part.strip()).strip()
+    return ""
+
+
+def _normalize_evidence(messages: Any) -> List[str]:
+    """User/assistant text rows only - the normalized evidence of checkpoint API v2.
+
+    The host already filters tool results, system messages and prior summaries for
+    v2 providers; this is defensive against a raw v1 transcript too.
+    """
+    lines: List[str] = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        if role not in ("user", "assistant"):
+            continue
+        text = _message_text(message.get("content"))
+        if text:
+            lines.append(f"{role}: {text}")
+    return lines
+
+
+def _short_digest(*parts: str) -> str:
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
+
 
 def _coerce_bool(value: Any) -> bool:
     if isinstance(value, bool):
@@ -252,6 +306,10 @@ class SugarMemoryProvider(MemoryProvider):
     the MemoryProvider contract ("recall in the background, return cache").
     """
 
+    # Opt into the fail-closed pre-compress checkpoint contract (API v2): every
+    # successful on_pre_compress() return means the archive is committed.
+    pre_compress_checkpoint_api_version = _CHECKPOINT_API_VERSION
+
     def __init__(self) -> None:
         self._manager: Any = None
         self._lock = threading.Lock()
@@ -263,6 +321,8 @@ class SugarMemoryProvider(MemoryProvider):
         self._cached_block: str = ""
         self._cached_count: int = 0
         self._last_status: Optional[Any] = None
+        self._checkpoint_digests: List[str] = []
+        self._mirrored_digests: List[str] = []
         self._unavailable: str = ""
 
     @property
@@ -451,6 +511,107 @@ class SugarMemoryProvider(MemoryProvider):
             logger.debug("Sugar project store path unavailable: %s", e)
         return [path for path in candidates if Path(path).exists()]
 
+    # -- Pre-compress checkpoint (API v2) -------------------------------------
+
+    def on_pre_compress(
+        self, messages: List[Dict[str, Any]], *, require_checkpoint: bool = False
+    ) -> str:
+        """Archive normalized transcript evidence before Hermes compresses it away.
+
+        Declares checkpoint API v2, so the host treats a normal return as "the
+        durable checkpoint is committed" and a raise as "keep the uncompressed
+        transcript". Retries replay the same transcript, so writes are keyed by a
+        content digest and deduplicated.
+        """
+        evidence = _normalize_evidence(messages)
+        if not evidence:
+            return ""
+        digest = _short_digest(*evidence)
+        short = digest[:12]
+        if self._digest_seen(self._checkpoint_digests, digest):
+            return f"Sugar checkpoint {short} already archived."
+
+        body = "\n".join(evidence)
+        truncated = len(body) > _CHECKPOINT_MAX_CHARS
+        if truncated:
+            body = body[:_CHECKPOINT_MAX_CHARS] + "\n[... truncated]"
+        try:
+            result = self._store(
+                content=(
+                    f"Session checkpoint {short} "
+                    f"({len(evidence)} messages{', truncated' if truncated else ''}):\n{body}"
+                ),
+                memory_type="research",
+                tags="hermes,checkpoint",
+                scope="project",
+                source_id=f"hermes:checkpoint:{digest}",
+                force=True,
+            )
+        except Exception as e:  # fail closed: never report partial success
+            raise RuntimeError(f"Sugar checkpoint archive failed: {e}") from e
+        if result.get("status") != "stored":
+            raise RuntimeError(
+                "Sugar checkpoint was not committed: "
+                f"{result.get('error') or result.get('reason') or result}"
+            )
+        self._remember_digest(self._checkpoint_digests, digest, _CHECKPOINT_MAX_DIGESTS)
+        flag = " (truncated)" if truncated else ""
+        return (
+            f"Sugar archived a {len(evidence)}-message checkpoint ({short}){flag} to "
+            "local memory; the full transcript is recoverable from ~/.sugar/memory.db."
+        )
+
+    # -- Built-in memory mirroring -------------------------------------------
+
+    def on_memory_write(
+        self,
+        action: str,
+        target: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Mirror built-in memory-tool writes into Sugar so the stores agree.
+
+        ``add``/``replace`` are stored with provenance; removals are deliberately
+        not mirrored - Sugar is an append-only archive and the native notification
+        does not carry a stable entry id, so guessing would delete real memories.
+        """
+        action = str(action or "").strip().lower()
+        target = str(target or "").strip().lower()
+        text = (content or "").strip()
+        if action not in ("add", "replace") or not text:
+            if action == "remove":
+                logger.debug("Sugar does not mirror built-in memory removals")
+            return
+        memory_type = _MIRROR_MEMORY_TYPES.get(target, "research")
+        scope = _MIRROR_SCOPES.get(target, "project")
+        digest = _short_digest(target, text)
+        if self._digest_seen(self._mirrored_digests, digest):
+            return
+        try:
+            result = self._store(
+                content=text,
+                memory_type=memory_type,
+                tags=f"hermes,builtin-memory,{target or 'memory'}",
+                scope=scope,
+                source_id=f"hermes:memory-write:{digest}",
+            )
+        except Exception as e:
+            logger.debug("Sugar built-in memory mirror failed: %s", e)
+            return
+        if result.get("status") == "stored":
+            self._remember_digest(self._mirrored_digests, digest, _MIRRORED_MAX_DIGESTS)
+
+    @staticmethod
+    def _digest_seen(digests: List[str], digest: str) -> bool:
+        return digest in digests
+
+    def _remember_digest(self, digests: List[str], digest: str, limit: int) -> None:
+        with self._lock:
+            digests.append(digest)
+            if len(digests) > limit:
+                del digests[: len(digests) - limit]
+
     # -- Recall ---------------------------------------------------------------
 
     def system_prompt_block(self) -> str:
@@ -591,6 +752,9 @@ class SugarMemoryProvider(MemoryProvider):
         memory_type: str = "decision",
         tags: Any = None,
         scope: str = "project",
+        *,
+        source_id: Optional[str] = None,
+        force: bool = False,
     ) -> Dict[str, Any]:
         import uuid
 
@@ -620,8 +784,10 @@ class SugarMemoryProvider(MemoryProvider):
         if self._session_id:
             metadata["session_id"] = self._session_id[:8]
 
-        # Non-primary agent contexts (subagents, cron, flush) never write.
-        if self._agent_context != "primary":
+        # Non-primary agent contexts (subagents, cron, flush) never write, unless
+        # the caller is a durability hook (pre-compress checkpoint) rather than
+        # background turn traffic.
+        if self._agent_context != "primary" and not force:
             return {
                 "status": "skipped",
                 "reason": f"agent_context={self._agent_context} is read-only",
@@ -633,6 +799,7 @@ class SugarMemoryProvider(MemoryProvider):
             memory_type=mem_type,
             content=content,
             summary=content[:100] if len(content) > 100 else None,
+            source_id=source_id,
             metadata=metadata,
         )
         actual_scope = mem_scope
@@ -699,6 +866,26 @@ class SugarMemoryProvider(MemoryProvider):
         ]
 
 
+def _register_skill(ctx) -> None:
+    """Bundle the Sugar memory skill (``sugar:memory``).
+
+    Skills are optional surface: older Hermes exposes no ``register_skill``, and a
+    skill that fails to register must never take the provider down with it.
+    """
+    register_skill = getattr(ctx, "register_skill", None)
+    if not callable(register_skill) or not _SKILL_PATH.is_file():
+        return
+    try:
+        register_skill(
+            "memory",
+            _SKILL_PATH,
+            "How to store and recall durable context with Sugar's local memory.",
+        )
+    except Exception as e:  # pragma: no cover - defensive against host changes
+        logger.debug("Sugar skill registration failed: %s", e)
+
+
 def register(ctx) -> None:
     """Hermes plugin entry point."""
     ctx.register_memory_provider(SugarMemoryProvider())
+    _register_skill(ctx)
