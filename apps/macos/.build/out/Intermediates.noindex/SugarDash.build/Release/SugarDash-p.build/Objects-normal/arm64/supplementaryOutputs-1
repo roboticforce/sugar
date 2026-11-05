@@ -1,0 +1,11 @@
+{
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/APIClient.swift" : {
+    "abi-baseline-json" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash.abi.json",
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.dia",
+    "swiftdoc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash.swiftdoc",
+    "swiftmodule" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash.swiftmodule",
+    "swiftsourceinfo" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash.swiftsourceinfo"
+  }
+}

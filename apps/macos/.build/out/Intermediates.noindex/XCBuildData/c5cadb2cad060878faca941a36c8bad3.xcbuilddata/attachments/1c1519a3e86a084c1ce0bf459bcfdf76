@@ -1,0 +1,4 @@
+module SugarDash {
+header "SugarDash-Swift.h"
+export *
+}

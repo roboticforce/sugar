@@ -555,10 +555,20 @@ class SugarMemoryProvider(MemoryProvider):
                 f"{result.get('error') or result.get('reason') or result}"
             )
         self._remember_digest(self._checkpoint_digests, digest, _CHECKPOINT_MAX_DIGESTS)
-        flag = " (truncated)" if truncated else ""
+        scope = str(result.get("scope") or "project")
+        store = (
+            "~/.sugar/memory.db"
+            if scope == "global"
+            else "the nearest project .sugar/memory.db"
+        )
+        note = (
+            f"; transcript truncated to the first {_CHECKPOINT_MAX_CHARS:,} characters"
+            if truncated
+            else ""
+        )
         return (
-            f"Sugar archived a {len(evidence)}-message checkpoint ({short}){flag} to "
-            "local memory; the full transcript is recoverable from ~/.sugar/memory.db."
+            f"Sugar archived a {len(evidence)}-message checkpoint ({short}) to the "
+            f"{scope} store ({store}){note}."
         )
 
     # -- Built-in memory mirroring -------------------------------------------
