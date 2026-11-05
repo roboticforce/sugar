@@ -398,6 +398,18 @@ def init(project_dir):
     default=None,
     help="JSON string or @file path with acceptance criteria for task completion",
 )
+@click.option(
+    "--actor",
+    default=None,
+    metavar="ID",
+    help="Who is creating this task (default: $SUGAR_ACTOR, $SUGAR_AGENT_ID, or $USER@host)",
+)
+@click.option(
+    "--actor-kind",
+    type=click.Choice(["human", "agent", "system"]),
+    default=None,
+    help="Kind of actor creating this task (default: inferred)",
+)
 @click.pass_context
 def add(
     ctx,
@@ -417,6 +429,8 @@ def add(
     completion_promise,
     triage,
     acceptance_criteria,
+    actor,
+    actor_kind,
 ):
     """Add a new task to Sugar work queue
 
@@ -503,6 +517,10 @@ def add(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
+        # Provenance: who asked for this work (see sugar/identity.py).
+        from .identity import resolve_actor
+
+        task_data.update(resolve_actor(actor, kind=actor_kind).as_task_fields())
 
         # Add orchestration metadata if enabled
         if orchestrate:
@@ -4614,6 +4632,221 @@ def memory_stats(ctx):
     except Exception as e:
         click.echo(f"❌ Error getting memory stats: {e}", err=True)
         sys.exit(1)
+
+
+# =============================================================================
+# Local Dashboard Command
+# =============================================================================
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return True when *host* resolves exclusively to loopback addresses."""
+    import ipaddress
+    import socket
+
+    candidate = (host or "").strip()
+    if not candidate:
+        return False
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(candidate, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    addresses = [info[4][0] for info in infos]
+    if not addresses:
+        return False
+    try:
+        return all(
+            ipaddress.ip_address(address.split("%")[0]).is_loopback
+            for address in addresses
+        )
+    except ValueError:
+        return False
+
+
+def _resolve_dashboard_db_path(db_option, config_file):
+    """Resolve the dashboard database path (``--db`` wins over config)."""
+    from pathlib import Path
+
+    if db_option:
+        return Path(db_option).expanduser().resolve()
+
+    config = _require_sugar_project(config_file)
+    try:
+        configured = config["sugar"]["storage"]["database"]
+    except (KeyError, TypeError):
+        configured = None
+    if not configured:
+        click.echo("❌ Could not determine the work queue database path.", err=True)
+        click.echo("   Pass --db PATH or check .sugar/config.yaml.", err=True)
+        sys.exit(1)
+
+    db_path = Path(str(configured)).expanduser()
+    if not db_path.is_absolute():
+        db_path = Path.cwd() / db_path
+    return db_path.resolve()
+
+
+@cli.command("dashboard")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Bind host (loopback only)",
+)
+@click.option(
+    "--port", default=7331, show_default=True, type=int, help="Port to listen on"
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Path to sugar.db (overrides .sugar/config.yaml)",
+)
+@click.option(
+    "--open", "open_browser", is_flag=True, help="Open the dashboard in a browser"
+)
+@click.option("--read-only", is_flag=True, help="Reject all writes with 403")
+@click.option(
+    "--board",
+    type=click.Choice(["sugar", "kanban"], case_sensitive=False),
+    default="sugar",
+    show_default=True,
+    help="Which board to serve: Sugar's work queue or a Hermes Kanban board",
+)
+@click.option(
+    "--kanban-board",
+    default=None,
+    metavar="SLUG",
+    help="Hermes Kanban board slug (--board kanban; default: Hermes' current board)",
+)
+@click.option(
+    "--hermes-bin",
+    default=None,
+    metavar="PATH",
+    help="Path to the hermes CLI (--board kanban; default: $HERMES_BIN or PATH)",
+)
+@click.option(
+    "--events-db",
+    "events_db",
+    default=None,
+    metavar="PATH",
+    help=(
+        "Event-spine database for the live activity feed "
+        "[default: ~/.sugar/events.db; pass '' to disable]"
+    ),
+)
+@click.pass_context
+def dashboard(
+    ctx,
+    host,
+    port,
+    db_path,
+    open_browser,
+    read_only,
+    board,
+    kanban_board,
+    hermes_bin,
+    events_db,
+):
+    """Start the local real-time dashboard for a work board
+
+    Serves the browser UI at / plus a REST + SSE API for the native macOS app.
+    The server binds to loopback only. Install the optional dependencies with:
+
+        pip install 'sugarai[dashboard]'
+
+    Use --board kanban to point the same UI at a shared Hermes Kanban board
+    (reads from kanban.db, writes through `hermes kanban`).
+    """
+    import asyncio
+
+    if not _is_loopback_host(host):
+        click.echo("❌ dashboard is local-only: bind to 127.0.0.1 or ::1", err=True)
+        sys.exit(1)
+
+    if not 1 <= port <= 65535:
+        click.echo(f"❌ Invalid port: {port}", err=True)
+        sys.exit(1)
+
+    try:
+        import starlette  # noqa: F401
+        import uvicorn  # noqa: F401
+
+        from .dashboard.server import run_dashboard
+    except ImportError:
+        click.echo(
+            "❌ Dashboard dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[dashboard]'",
+            err=True,
+        )
+        sys.exit(1)
+
+    board = (board or "sugar").lower()
+    if board == "kanban":
+        # Hermes resolves boards to their own database files; no Sugar config
+        # is required, so the dashboard can run from any directory.
+        from .dashboard.kanban.paths import kanban_db_path
+
+        database_path = kanban_db_path(kanban_board, explicit=db_path)
+        if not database_path.exists():
+            click.echo(
+                f"❌ Kanban database not found: {database_path}\n"
+                "   Initialize the board with 'hermes kanban init', or pass --db.",
+                err=True,
+            )
+            sys.exit(1)
+    else:
+        database_path = _resolve_dashboard_db_path(db_path, ctx.obj["config"])
+        try:
+            database_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            click.echo(f"❌ Could not create database directory: {exc}", err=True)
+            sys.exit(1)
+
+    url_host = f"[{host}]" if ":" in host else host
+    url = f"http://{url_host}:{port}"
+    if events_db is None:
+        from .dashboard.spine import default_events_db_path
+
+        events_db = str(default_events_db_path())
+    elif events_db == "":
+        events_db = None
+
+    click.echo("🍰 Sugar dashboard")
+    click.echo(f"   URL:      {url}")
+    click.echo(f"   Board:    {board}")
+    click.echo(f"   Database: {database_path}")
+    click.echo(f"   Activity: {events_db or 'disabled'}")
+    click.echo(f"   Mode:     {'read-only' if read_only else 'read/write'}")
+    if board == "kanban" and not hermes_bin:
+        from .dashboard.kanban.client import resolve_hermes_bin
+
+        resolved_bin = resolve_hermes_bin()
+        click.echo(
+            f"   Hermes:   {resolved_bin or 'not found — writes will fail (set --hermes-bin)'}"
+        )
+    click.echo("\nPress Ctrl+C to stop\n")
+
+    try:
+        asyncio.run(
+            run_dashboard(
+                str(database_path),
+                host=host,
+                port=port,
+                read_only=read_only,
+                open_browser=open_browser,
+                board=board,
+                kanban_board=kanban_board,
+                hermes_bin=hermes_bin,
+                events_db=events_db,
+            )
+        )
+    except KeyboardInterrupt:
+        click.echo("\n👋 Dashboard stopped")
 
 
 # =============================================================================

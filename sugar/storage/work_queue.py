@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
+from ..identity import DEFAULT_LEASE_SECONDS, lease_expiry, worker_actor
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,6 +83,7 @@ class WorkQueue:
                 await self._migrate_acceptance_criteria_column(db)
                 await self._migrate_verification_columns(db)
                 await self._migrate_thinking_columns(db)
+                await self._migrate_identity_columns(db)
 
                 await db.commit()
 
@@ -368,6 +371,31 @@ class WorkQueue:
         except Exception as e:
             logger.warning(f"Thinking columns migration warning (non-critical): {e}")
 
+    async def _migrate_identity_columns(self, db):
+        """Add provenance/lease columns (created_by, claimed_by, lease_expires_at).
+
+        Legacy rows keep NULL: "unknown" is a truthful value and is not
+        backfilled to a guess. See ``sugar.identity`` for the model.
+        """
+        try:
+            cursor = await db.execute("PRAGMA table_info(work_items)")
+            columns = {row[1] for row in await cursor.fetchall()}
+            additions = (
+                ("created_by", "TEXT"),
+                ("created_by_kind", "TEXT"),
+                ("created_by_session", "TEXT"),
+                ("claimed_by", "TEXT"),
+                ("lease_expires_at", "TIMESTAMP"),
+            )
+            for name, column_type in additions:
+                if name not in columns:
+                    await db.execute(
+                        f"ALTER TABLE work_items ADD COLUMN {name} {column_type}"
+                    )
+                    logger.info("Added %s column to existing database", name)
+        except Exception as e:
+            logger.warning(f"Identity migration warning (non-critical): {e}")
+
     async def close(self):
         """Close the work queue (for testing)"""
         # SQLite connections are closed automatically, but this method
@@ -426,8 +454,8 @@ class WorkQueue:
                 INSERT INTO work_items
                 (id, type, title, description, priority, status, source, source_file, context,
                  orchestrate, parent_task_id, stage, blocked_by, context_path, assigned_agent,
-                 acceptance_criteria)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 acceptance_criteria, created_by, created_by_kind, created_by_session)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     work_id,
@@ -446,6 +474,9 @@ class WorkQueue:
                     work_item.get("context_path"),
                     work_item.get("assigned_agent"),
                     acceptance_criteria_json,
+                    work_item.get("created_by"),
+                    work_item.get("created_by_kind"),
+                    work_item.get("created_by_session"),
                 ),
             )
             await db.commit()
@@ -455,11 +486,19 @@ class WorkQueue:
         )
         return work_id
 
-    async def get_next_work(self) -> Optional[Dict[str, Any]]:
+    async def get_next_work(
+        self,
+        worker_id: Optional[str] = None,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> Optional[Dict[str, Any]]:
         """Get the highest priority pending work item (atomic claim).
 
         Uses BEGIN IMMEDIATE to acquire an exclusive lock before SELECT,
         preventing two concurrent callers from claiming the same task.
+
+        The same UPDATE records *who* claimed it (``claimed_by``, from
+        ``worker_id`` or the resolved local actor) and a ``lease_expires_at``
+        so a crashed worker can be reclaimed instead of stranding the task.
         """
         async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
             db.row_factory = aiosqlite.Row
@@ -496,7 +535,12 @@ class WorkQueue:
                 else:
                     work_item["context"] = {}
 
-                # Mark as active and increment attempts
+                # A claim is made by a worker, not by the human who queued it.
+                actor = worker_actor(worker_id)
+                lease_until = lease_expiry(lease_seconds)
+
+                # Mark as active and increment attempts; the claimant + lease
+                # land in the same transaction, so a claim is one atomic step.
                 await db.execute(
                     """
                     UPDATE work_items
@@ -504,16 +548,20 @@ class WorkQueue:
                         attempts = attempts + 1,
                         last_attempt_at = CURRENT_TIMESTAMP,
                         started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+                        claimed_by = ?,
+                        lease_expires_at = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """,
-                    (work_item["id"],),
+                    (actor.id, lease_until, work_item["id"]),
                 )
 
                 await db.execute("COMMIT")
 
                 work_item["attempts"] += 1
                 work_item["status"] = "active"
+                work_item["claimed_by"] = actor.id
+                work_item["lease_expires_at"] = lease_until
                 logger.debug(
                     f"📋 Retrieved work item: {work_item['title']} (attempt #{work_item['attempts']})"
                 )
@@ -563,7 +611,9 @@ class WorkQueue:
                     ),
                     thinking_log_path = ?,
                     thinking_summary = ?,
-                    thinking_stats = ?
+                    thinking_stats = ?,
+                    claimed_by = NULL,
+                    lease_expires_at = NULL
                 WHERE id = ?
             """,
                 (
@@ -613,6 +663,8 @@ class WorkQueue:
                     UPDATE work_items 
                     SET status = 'failed',
                         error_message = ?,
+                        claimed_by = NULL,
+                        lease_expires_at = NULL,
                         updated_at = CURRENT_TIMESTAMP,
                         total_execution_time = total_execution_time + ?,
                         total_elapsed_time = (
@@ -637,6 +689,8 @@ class WorkQueue:
                     UPDATE work_items 
                     SET status = 'pending',
                         error_message = ?,
+                        claimed_by = NULL,
+                        lease_expires_at = NULL,
                         updated_at = CURRENT_TIMESTAMP,
                         total_execution_time = total_execution_time + ?
                     WHERE id = ?
@@ -789,7 +843,9 @@ class WorkQueue:
                        total_elapsed_time, commit_sha,
                        orchestrate, parent_task_id, stage, blocked_by, context_path, assigned_agent,
                        acceptance_criteria,
-                       verification_required, verification_status, verification_results
+                       verification_required, verification_status, verification_results,
+                       created_by, created_by_kind, created_by_session,
+                       claimed_by, lease_expires_at
                 FROM work_items
                 WHERE id = ?
             """,
@@ -831,6 +887,11 @@ class WorkQueue:
                         "verification_results": (
                             json.loads(row[27]) if row[27] else None
                         ),
+                        "created_by": row[28],
+                        "created_by_kind": row[29],
+                        "created_by_session": row[30],
+                        "claimed_by": row[31],
+                        "lease_expires_at": row[32],
                     }
                 return None
 
@@ -853,6 +914,8 @@ class WorkQueue:
             "blocked_by",
             "verification_results",
             "assigned_agent",
+            "claimed_by",
+            "lease_expires_at",
             "stage",
             "context_path",
             "error_count",
@@ -941,7 +1004,8 @@ class WorkQueue:
 
             await db.execute(
                 """UPDATE work_items
-                   SET status = 'hold', context = ?, updated_at = CURRENT_TIMESTAMP
+                   SET status = 'hold', context = ?, updated_at = CURRENT_TIMESTAMP,
+                       claimed_by = NULL, lease_expires_at = NULL
                    WHERE id = ?""",
                 (json.dumps(context), work_id),
             )
@@ -980,7 +1044,8 @@ class WorkQueue:
 
             await db.execute(
                 """UPDATE work_items
-                   SET status = 'pending', context = ?, updated_at = CURRENT_TIMESTAMP
+                   SET status = 'pending', context = ?, updated_at = CURRENT_TIMESTAMP,
+                       claimed_by = NULL, lease_expires_at = NULL
                    WHERE id = ?""",
                 (json.dumps(context), work_id),
             )
