@@ -1,0 +1,1572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sugar Dashboard</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-alt: #0f151d;
+    --panel: #121a24;
+    --panel-2: #17212d;
+    --border: #223042;
+    --text: #dbe4ee;
+    --muted: #8494a7;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #db6d28;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --teal: #39c5cf;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 8px; }
+  .brand .logo { font-size: 20px; }
+  .brand h1 { font-size: 17px; margin: 0; letter-spacing: 0.2px; }
+  .brand .sub { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .counts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .count {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 62px; padding: 3px 10px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .count-num { font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .count-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; }
+  .meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); display: inline-block; }
+  .dot.live { background: var(--green); box-shadow: 0 0 8px rgba(63, 185, 80, 0.6); }
+  .dot.reconnecting { background: var(--yellow); }
+  .db { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+  .pill { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--red); color: var(--red); font-size: 11px; letter-spacing: 0.5px; }
+
+  main { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 14px 20px 0; gap: 12px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 33px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+    padding: 5px 12px; border-radius: 999px; font-size: 12.5px;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active { background: rgba(88, 166, 255, 0.16); border-color: var(--accent); color: var(--accent); }
+  .chip .n { opacity: 0.75; margin-left: 5px; font-variant-numeric: tabular-nums; }
+  .chip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+  select, input[type="text"], input[type="search"], textarea, select {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; outline: none;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  input[type="search"] { min-width: 240px; }
+  .spacer { flex: 1; }
+  .btn {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; color: var(--text);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: rgba(88, 166, 255, 0.18); border-color: var(--accent); color: #cfe6ff; }
+  .btn.danger { border-color: rgba(248, 81, 73, 0.55); color: #ffb3ae; }
+  .btn.danger:hover { background: rgba(248, 81, 73, 0.14); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .table-wrap {
+    flex: 1; min-height: 0; overflow: auto;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    text-align: left; font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--muted); background: var(--panel-2); border-bottom: 1px solid var(--border);
+    padding: 8px 12px; white-space: nowrap;
+  }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid rgba(34, 48, 66, 0.65); vertical-align: middle; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: rgba(88, 166, 255, 0.06); }
+  tbody tr.selected { background: rgba(88, 166, 255, 0.12); }
+  tbody tr:last-child td { border-bottom: none; }
+  .prio {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 22px; border-radius: 6px; font-size: 11.5px; font-weight: 650;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .prio.p1 { color: var(--red); border-color: rgba(248, 81, 73, 0.6); }
+  .prio.p2 { color: var(--orange); border-color: rgba(219, 109, 40, 0.6); }
+  .prio.p3 { color: var(--accent); border-color: rgba(88, 166, 255, 0.5); }
+  .prio.p4, .prio.p5 { color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 1px 9px; border-radius: 999px;
+    font-size: 11.5px; border: 1px solid var(--border); background: var(--panel-2);
+    text-transform: capitalize; white-space: nowrap;
+  }
+  .cell-title { max-width: 640px; }
+  .title-line { display: flex; align-items: baseline; gap: 10px; overflow: hidden; white-space: nowrap; }
+  .title-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .creator-hint { flex: none; display: inline-flex; align-items: baseline; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .creator-hint .kind-icon { font-size: 10.5px; }
+  .title-sub { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .type { color: var(--muted); white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+  .time { color: var(--muted); white-space: nowrap; font-size: 12.5px; }
+  .empty { color: var(--muted); text-align: center; padding: 44px 16px; }
+
+  /* Tasks / Activity switch (§11). The two panes are siblings with the same
+     flex:1/min-height:0 box, so toggling never reflows the task table. */
+  .view-switch {
+    display: inline-flex; align-items: center; gap: 2px; flex: none;
+    padding: 2px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;
+  }
+  .view-switch button {
+    border: none; background: transparent; color: var(--muted);
+    padding: 3px 14px; border-radius: 7px; font-size: 12.5px; line-height: 1.5;
+  }
+  .view-switch button:hover { color: var(--text); }
+  .view-switch button.active { background: rgba(88, 166, 255, 0.16); color: var(--accent); }
+  .view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .activity-filters { display: flex; align-items: center; gap: 8px; }
+  .activity-filters[hidden] { display: none; }
+  .activity-filters input[type="search"] { min-width: 230px; }
+
+  .feed-wrap {
+    flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+  }
+  .feed-wrap[hidden] { display: none; }
+  .feed-head {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    background: var(--panel-2); color: var(--muted); font-size: 11.5px;
+    letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .feed-head .dot { width: 8px; height: 8px; flex: none; }
+  .feed-head .feed-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: normal; text-transform: none; }
+  .feed { flex: 1; min-height: 0; overflow: auto; }
+  .feed-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 12px; border-bottom: 1px solid rgba(34, 48, 66, 0.65);
+    font-size: 13px;
+  }
+  .feed-row:last-child { border-bottom: none; }
+  .feed-row:hover { background: rgba(88, 166, 255, 0.06); }
+  .kind-cell { display: flex; align-items: center; gap: 7px; flex: none; width: 150px; min-width: 0; }
+  .kind-glyph { font-size: 13px; line-height: 1; flex: none; }
+  .kind-label { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-actor { display: flex; align-items: center; gap: 6px; flex: none; width: 158px; min-width: 0; color: var(--muted); }
+  .feed-actor .kind-icon { font-size: 12.5px; flex: none; }
+  .feed-actor .actor-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-task { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .feed-task .task-link {
+    display: block; background: none; border: none; padding: 0; margin: 0;
+    color: var(--accent); text-align: left; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .feed-task .task-link:hover { text-decoration: underline; }
+  .feed-task .task-ref {
+    display: block; color: var(--text); max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .feed-task .task-missing { color: var(--muted); }
+  .feed-chips { display: flex; gap: 5px; flex: none; max-width: 210px; overflow: hidden; }
+  .mini-chip {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--muted);
+    border-radius: 999px; padding: 0 7px; font-size: 10.5px; line-height: 17px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 118px;
+  }
+  .feed-time { flex: none; width: 76px; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-align: right; }
+  .feed-empty { padding: 44px 16px; }
+
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 92vw);
+    background: var(--panel); border-left: 1px solid var(--border);
+    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
+    display: flex; flex-direction: column; z-index: 20;
+  }
+  .drawer[hidden] { display: none; }
+  .drawer-header { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  .drawer-header h2 { margin: 0; font-size: 16px; line-height: 1.35; flex: 1; word-break: break-word; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .drawer-footer { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-2); }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 3px 10px; font-size: 12.5px; margin-bottom: 16px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; word-break: break-word; }
+  .actor { display: inline-flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+  .actor .kind-icon { font-size: 12px; }
+  .actor .actor-session { font-size: 11.5px; }
+  .section { margin-bottom: 18px; }
+  .section h3 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.9px; color: var(--muted); margin: 0 0 6px; }
+  .section pre, .section .box {
+    margin: 0; padding: 10px 12px; background: var(--bg-alt); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    max-height: 260px; overflow: auto;
+  }
+  .section p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .criteria { margin: 0; padding-left: 18px; }
+  .criteria li { margin: 2px 0; }
+  .activity { display: flex; flex-direction: column; gap: 6px; }
+  .act-item { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; }
+  .act-head { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
+  .act-head b { color: var(--text); font-weight: 600; }
+  .act-body { margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+  .muted { color: var(--muted); }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(3, 6, 10, 0.66); z-index: 40;
+    display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px;
+  }
+  .modal-backdrop[hidden] { display: none; }
+  .modal {
+    width: min(620px, 100%); max-height: 88vh; overflow: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .modal header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .modal header h2 { margin: 0; font-size: 15px; }
+  form#task-form { padding: 16px 18px; display: grid; gap: 12px; }
+  .field { display: grid; gap: 5px; }
+  .field label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; }
+  .field input, .field select, .field textarea { width: 100%; }
+  .field textarea { min-height: 96px; resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row .field { flex: 1; min-width: 140px; }
+  .form-error { color: var(--red); font-size: 12.5px; min-height: 16px; }
+  .modal footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-2); }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 16px; font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease; z-index: 60; max-width: 80vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: rgba(248, 81, 73, 0.7); color: #ffb3ae; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">🍰</span><h1>Sugar</h1><span class="sub">dashboard</span></div>
+  <div class="counts" id="counts"></div>
+  <div class="meta">
+    <span class="pill" id="ro-badge" hidden>READ-ONLY</span>
+    <span class="dot" id="conn-dot"></span>
+    <span id="conn-label">connecting…</span>
+    <span class="db" id="db-path" title="">—</span>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div class="view-switch" id="view-switch" role="tablist" aria-label="View">
+      <button type="button" class="active" data-view="tasks" role="tab" aria-selected="true">Tasks</button>
+      <button type="button" data-view="activity" role="tab" aria-selected="false">Activity</button>
+    </div>
+    <div class="chips" id="status-chips"></div>
+    <select id="type-filter" aria-label="Filter by type"><option value="">All types</option></select>
+    <input type="search" id="search" placeholder="Search title, description or id…" autocomplete="off">
+    <div class="activity-filters" id="activity-filters" hidden>
+      <select id="activity-kind" aria-label="Filter activity by kind group">
+        <option value="">All kinds</option>
+        <option value="task">Task</option>
+        <option value="run">Run</option>
+        <option value="tool">Tool</option>
+        <option value="signal">Signal</option>
+      </select>
+      <input type="search" id="activity-search" placeholder="Filter actor, task or kind…" autocomplete="off">
+    </div>
+    <span class="spacer"></span>
+    <button class="btn primary" id="btn-new">+ New task</button>
+  </div>
+  <div class="table-wrap" id="tasks-pane">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:56px">Prio</th>
+          <th style="width:110px">Status</th>
+          <th style="width:130px" id="th-type">Type</th>
+          <th>Title</th>
+          <th style="width:80px">Attempts</th>
+          <th style="width:150px">Updated</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No tasks match the current filters.</div>
+  </div>
+  <div class="feed-wrap" id="activity-pane" hidden>
+    <div class="feed-head">
+      <span class="dot" id="feed-dot"></span>
+      <span id="feed-live-label">connecting…</span>
+      <span class="feed-count" id="feed-count">0 events</span>
+    </div>
+    <div class="feed" id="feed"></div>
+  </div>
+</main>
+
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-header">
+    <h2 id="drawer-title">Task</h2>
+    <button class="btn" id="drawer-close" title="Close (Esc)">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+  <div class="drawer-footer" id="drawer-actions">
+    <button class="btn primary" data-action="edit">Edit</button>
+    <button class="btn" data-action="hold">Hold</button>
+    <button class="btn" data-action="release">Release</button>
+    <button class="btn danger" data-action="delete">Delete</button>
+  </div>
+</aside>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <header>
+      <h2 id="modal-title">New task</h2>
+      <button class="btn" id="form-close" title="Close (Esc)">✕</button>
+    </header>
+    <form id="task-form">
+      <div class="field">
+        <label for="f-title">Title</label>
+        <input type="text" id="f-title" maxlength="500" required autocomplete="off" placeholder="Clear, actionable title">
+      </div>
+      <div class="field">
+        <label for="f-description">Description</label>
+        <textarea id="f-description" placeholder="Optional long-form context"></textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="f-type" id="f-type-label">Type</label>
+          <select id="f-type"></select>
+        </div>
+        <div class="field">
+          <label for="f-priority">Priority</label>
+          <select id="f-priority">
+            <option value="1">1 — urgent</option>
+            <option value="2">2 — high</option>
+            <option value="3" selected>3 — normal</option>
+            <option value="4">4 — low</option>
+            <option value="5">5 — minimal</option>
+          </select>
+        </div>
+        <div class="field" id="f-status-wrap" hidden>
+          <label for="f-status">Status</label>
+          <select id="f-status">
+            <option value="pending">pending</option>
+            <option value="active">active</option>
+            <option value="hold">hold</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-agent">Assigned agent</label>
+        <input type="text" id="f-agent" autocomplete="off" placeholder="Optional, e.g. tech-lead">
+      </div>
+      <div class="form-error" id="form-error"></div>
+      <footer>
+        <button type="button" class="btn" id="form-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="form-submit">Create task</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Board metadata. These defaults are exactly today's Sugar queue shape so an
+  // older server without /api/meta keeps working untouched.
+  const FALLBACK_META = {
+    statuses: ["pending", "active", "hold", "completed", "failed"],
+    facet: { label: "Type" },
+    capabilities: {
+      create: true, edit: true, edit_status: true, delete: true, hold: true, release: true,
+      claim: false, complete: false, block: false, unblock: false, assign: false, comment: false
+    }
+  };
+
+  // One colour per board status; unknown statuses fall back to grey.
+  const STATUS_STYLE = {
+    triage: "var(--muted)", todo: "var(--accent)", scheduled: "var(--purple)",
+    ready: "var(--teal)", running: "var(--yellow)", blocked: "var(--red)",
+    review: "var(--orange)", done: "var(--green)", pending: "var(--accent)",
+    active: "var(--yellow)", hold: "var(--purple)", completed: "var(--green)",
+    failed: "var(--red)"
+  };
+  const UNKNOWN_COLOR = "var(--muted)";
+
+  const state = {
+    tasks: new Map(),
+    activity: new Map(),
+    stats: null,
+    health: null,
+    meta: FALLBACK_META,
+    types: [],
+    statusFilter: "all",
+    typeFilter: "",
+    query: "",
+    selectedId: null,
+    editing: null,
+    readOnly: false,
+    connected: false,
+    gotSnapshot: false,
+    view: "tasks",
+    // Event spine feed (§11): newest first, capped in memory.
+    feed: [],
+    feedIds: new Set(),
+    feedKind: "",
+    feedQuery: "",
+    feedUnavailable: false
+  };
+
+  let eventSource = null;
+  let reconnectTimer = null;
+  let retryDelay = 1000;
+  let toastTimer = null;
+  let feedRenderTimer = null;
+  let activityGap = false;
+
+  // ------------------------------------------------------------------ utils
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function $(id) { return document.getElementById(id); }
+
+  function meta() { return state.meta || FALLBACK_META; }
+
+  function statusList() {
+    const statuses = meta().statuses;
+    return Array.isArray(statuses) && statuses.length ? statuses : FALLBACK_META.statuses;
+  }
+
+  function capabilities() {
+    const caps = Object.assign({}, meta().capabilities || {});
+    // Older Sugar servers shipped /api/meta without hold/release; infer from statuses.
+    if (caps.hold === undefined) caps.hold = statusList().indexOf("hold") !== -1;
+    if (caps.release === undefined) caps.release = statusList().indexOf("hold") !== -1;
+    return caps;
+  }
+
+  function statusColor(status) {
+    return STATUS_STYLE[String(status || "").toLowerCase()] || UNKNOWN_COLOR;
+  }
+
+  // Actor provenance (§10). Kind may be null (legacy rows, kanban source), so
+  // fall back to a neutral dot rather than guessing a human/agent identity.
+  const ACTOR_ICONS = { human: "👤", agent: "🤖", system: "⚙️" };
+  const ACTOR_LABELS = { human: "human", agent: "agent", system: "system" };
+
+  // Activity feed (§11). Category drives glyph + colour; the kind text stays
+  // visible so free-form kinds stay readable. No external assets.
+  const ACTIVITY_STYLE = {
+    task: { glyph: "◆", color: "var(--accent)" },
+    run: { glyph: "▶", color: "var(--purple)" },
+    tool: { glyph: "⚒", color: "var(--teal)" },
+    signal: { glyph: "⚑", color: "var(--yellow)" },
+    other: { glyph: "•", color: "var(--muted)" }
+  };
+  const ACTIVITY_FEED_LIMIT = 500;
+
+  function actorIcon(kind) {
+    return ACTOR_ICONS[String(kind || "").toLowerCase()] || "•";
+  }
+
+  function actorLabel(kind) {
+    return ACTOR_LABELS[String(kind || "").toLowerCase()] || null;
+  }
+
+  function actorTitle(verb, id, kind) {
+    const label = actorLabel(kind);
+    return verb + " " + id + (label ? " (" + label + ")" : "");
+  }
+
+  function actorNode(id, kind, session) {
+    const wrap = el("span", "actor");
+    wrap.title = actorTitle("Created by", id, kind);
+    wrap.appendChild(el("span", "kind-icon", actorIcon(kind)));
+    wrap.appendChild(el("span", "actor-id", id));
+    if (session) wrap.appendChild(el("span", "actor-session muted", "· " + session));
+    return wrap;
+  }
+
+  function creatorHint(task) {
+    if (!task.created_by) return null;
+    const hint = el("span", "creator-hint");
+    hint.title = actorTitle("Created by", task.created_by, task.created_by_kind);
+    hint.appendChild(el("span", "kind-icon", actorIcon(task.created_by_kind)));
+    hint.appendChild(el("span", null, task.created_by));
+    return hint;
+  }
+
+  function facetLabel() {
+    const facet = meta().facet;
+    return (facet && facet.label) || "Type";
+  }
+
+  function toast(message, isError) {
+    const node = $("toast");
+    node.textContent = message;
+    node.classList.toggle("error", !!isError);
+    node.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { node.classList.remove("show"); }, 3200);
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return "—";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "—";
+    const seconds = Math.round((Date.now() - then) / 1000);
+    if (seconds < 5) return "just now";
+    if (seconds < 60) return seconds + "s ago";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + "m ago";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + "h ago";
+    const days = Math.floor(hours / 24);
+    if (days < 30) return days + "d ago";
+    return new Date(then).toLocaleDateString();
+  }
+
+  function fullTime(iso) {
+    if (!iso) return "—";
+    const then = Date.parse(iso);
+    return Number.isNaN(then) ? "—" : new Date(then).toLocaleString();
+  }
+
+  function truncate(text, length) {
+    if (!text) return "";
+    const single = String(text).replace(/\s+/g, " ").trim();
+    return single.length > length ? single.slice(0, length - 1) + "…" : single;
+  }
+
+  const api = {
+    async request(method, path, body) {
+      const options = { method: method, headers: {} };
+      if (body !== undefined) {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(body);
+      }
+      const response = await fetch(path, options);
+      let data = null;
+      try { data = await response.json(); } catch (err) { data = null; }
+      if (!response.ok) {
+        const detail = (data && (data.detail || data.error)) || response.statusText;
+        const error = new Error(detail || ("HTTP " + response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    },
+    get(path) { return this.request("GET", path); },
+    post(path, body) { return this.request("POST", path, body === undefined ? {} : body); },
+    patch(path, body) { return this.request("PATCH", path, body); },
+    del(path) { return this.request("DELETE", path); }
+  };
+
+  function reportError(error) {
+    if (error && error.status === 403) {
+      toast("Dashboard is read-only.", true);
+      return;
+    }
+    toast(error && error.message ? error.message : "Request failed", true);
+  }
+
+  // ------------------------------------------------------------- rendering
+
+  function setConnection(live, label) {
+    state.connected = live;
+    const dot = $("conn-dot");
+    dot.className = "dot" + (live ? " live" : " reconnecting");
+    $("conn-label").textContent = label || (live ? "live" : "reconnecting…");
+    // The feed head mirrors the same connection dot semantics; it is not a
+    // second connection.
+    const feedDot = $("feed-dot");
+    if (feedDot) {
+      feedDot.className = "dot" + (live ? " live" : " reconnecting");
+      $("feed-live-label").textContent = live ? "live activity" : (label || "reconnecting…");
+    }
+  }
+
+  function renderCounts() {
+    const container = $("counts");
+    const by = (state.stats && state.stats.by_status) || {};
+    const boxes = statusList().map(function (status) {
+      const box = el("div", "count");
+      const num = el("span", "count-num", by[status] || 0);
+      num.style.color = statusColor(status);
+      box.appendChild(num);
+      box.appendChild(el("span", "count-label", status));
+      return box;
+    });
+    container.replaceChildren.apply(container, boxes);
+  }
+
+  function renderChips() {
+    const container = $("status-chips");
+    container.replaceChildren();
+    const by = (state.stats && state.stats.by_status) || {};
+    const entries = [["all", "All", (state.stats && state.stats.total) || 0, null]]
+      .concat(statusList().map(function (s) { return [s, s, by[s] || 0, s]; }));
+    entries.forEach(function (entry) {
+      const button = el("button", "chip" + (state.statusFilter === entry[0] ? " active" : ""));
+      if (entry[3]) {
+        const dot = el("span", "chip-dot");
+        dot.style.background = statusColor(entry[3]);
+        button.appendChild(dot);
+      }
+      button.appendChild(document.createTextNode(entry[1]));
+      button.appendChild(el("span", "n", entry[2]));
+      button.addEventListener("click", function () {
+        state.statusFilter = entry[0];
+        renderChips();
+        renderRows();
+      });
+      container.appendChild(button);
+    });
+  }
+
+  function renderTypeFilter() {
+    const select = $("type-filter");
+    const current = state.typeFilter;
+    select.replaceChildren();
+    select.appendChild(new Option("All " + facetLabel().toLowerCase() + "s", ""));
+    const seen = new Set();
+    state.types.forEach(function (type) {
+      seen.add(type.id);
+      select.appendChild(new Option(type.name + " (" + type.id + ")", type.id));
+    });
+    Array.from(state.tasks.values()).forEach(function (task) {
+      if (task.type && !seen.has(task.type)) {
+        seen.add(task.type);
+        select.appendChild(new Option(task.type, task.type));
+      }
+    });
+    select.value = current;
+  }
+
+  function matchesFilters(task) {
+    if (state.statusFilter !== "all" && task.status !== state.statusFilter) return false;
+    if (state.typeFilter && task.type !== state.typeFilter) return false;
+    if (state.query) {
+      const haystack = [task.title, task.description, task.id, task.type, task.assigned_agent]
+        .filter(Boolean).join(" ").toLowerCase();
+      if (haystack.indexOf(state.query) === -1) return false;
+    }
+    return true;
+  }
+
+  function renderRows() {
+    const body = $("rows");
+    const selected = state.selectedId;
+    const tasks = Array.from(state.tasks.values())
+      .filter(matchesFilters)
+      .sort(function (a, b) {
+        const left = b.updated_at || b.created_at || "";
+        const right = a.updated_at || a.created_at || "";
+        return left < right ? -1 : left > right ? 1 : 0;
+      });
+
+    const rows = tasks.map(function (task) {
+      const row = el("tr", selected === task.id ? "selected" : "");
+      row.dataset.id = task.id;
+
+      const priority = el("td");
+      const priorityValue = Math.min(5, Math.max(1, parseInt(task.priority, 10) || 3));
+      priority.appendChild(el("span", "prio p" + priorityValue, "P" + priorityValue));
+      row.appendChild(priority);
+
+      const status = el("td");
+      const badge = el("span", "badge", task.status || "pending");
+      badge.style.color = statusColor(task.status);
+      badge.style.borderColor = "color-mix(in srgb, " + statusColor(task.status) + " 45%, transparent)";
+      status.appendChild(badge);
+      row.appendChild(status);
+
+      const type = el("td", "type");
+      type.textContent = task.type || "—";
+      row.appendChild(type);
+
+      const title = el("td", "cell-title");
+      const titleLine = el("div", "title-line");
+      titleLine.appendChild(el("span", "title-text", task.title || "(untitled)"));
+      const hint = creatorHint(task);
+      if (hint) titleLine.appendChild(hint);
+      title.appendChild(titleLine);
+      if (task.description) title.appendChild(el("div", "title-sub", truncate(task.description, 110)));
+      row.appendChild(title);
+
+      const attempts = el("td", "num", task.attempts || 0);
+      row.appendChild(attempts);
+
+      const updated = el("td", "time", timeAgo(task.updated_at || task.created_at));
+      updated.title = fullTime(task.updated_at || task.created_at);
+      row.appendChild(updated);
+
+      return row;
+    });
+
+    body.replaceChildren.apply(body, rows);
+    $("empty").hidden = tasks.length > 0;
+  }
+
+  // ------------------------------------------------------ activity feed (§11)
+
+  function activityCategory(kind) {
+    const value = String(kind || "").toLowerCase();
+    if (value.indexOf("task.") === 0) return "task";
+    if (value.indexOf("run.") === 0) return "run";
+    if (value.indexOf("tool.") === 0) return "tool";
+    if (value.indexOf("signal.") === 0) return "signal";
+    return "other";
+  }
+
+  function eventPayload(event) {
+    const payload = event && event.payload;
+    if (typeof payload === "string") {
+      try { return JSON.parse(payload) || {}; } catch (err) { return {}; }
+    }
+    return payload && typeof payload === "object" ? payload : {};
+  }
+
+  function eventTitle(event) {
+    const payload = eventPayload(event);
+    if (payload.title) return String(payload.title);
+    return event && event.task_id ? String(event.task_id) : "";
+  }
+
+  function eventTime(event) {
+    return (event && (event.ts || event.ingested_at)) || null;
+  }
+
+  function activityHaystack(event) {
+    const payload = eventPayload(event);
+    return [event.actor, event.task_id, event.kind, payload.title, event.harness, event.project]
+      .filter(function (value) { return value !== null && value !== undefined && value !== ""; })
+      .join(" ").toLowerCase();
+  }
+
+  function matchesActivityFilters(event) {
+    if (state.feedKind && activityCategory(event.kind) !== state.feedKind) return false;
+    if (state.feedQuery && activityHaystack(event).indexOf(state.feedQuery) === -1) return false;
+    return true;
+  }
+
+  function mergeFeed(events) {
+    const byId = new Map();
+    state.feed.forEach(function (event) {
+      if (event && event.id !== null && event.id !== undefined) byId.set(String(event.id), event);
+    });
+    (Array.isArray(events) ? events : []).forEach(function (event) {
+      if (event && event.id !== null && event.id !== undefined) byId.set(String(event.id), event);
+    });
+    const merged = Array.from(byId.values()).sort(function (a, b) {
+      const left = Number(a.id);
+      const right = Number(b.id);
+      if (Number.isFinite(left) && Number.isFinite(right)) return right - left;
+      return String(eventTime(b)).localeCompare(String(eventTime(a)));
+    });
+    state.feed = merged.slice(0, ACTIVITY_FEED_LIMIT);
+    state.feedIds = new Set(state.feed.map(function (event) { return String(event.id); }));
+  }
+
+  function prependFeedEvent(event) {
+    if (!event || event.id === null || event.id === undefined) return;
+    const key = String(event.id);
+    if (state.feedIds.has(key)) return;
+    state.feed.unshift(event);
+    state.feedIds.add(key);
+    while (state.feed.length > ACTIVITY_FEED_LIMIT) {
+      const dropped = state.feed.pop();
+      state.feedIds.delete(String(dropped.id));
+    }
+  }
+
+  function feedRow(event) {
+    const category = activityCategory(event.kind);
+    const style = ACTIVITY_STYLE[category] || ACTIVITY_STYLE.other;
+    const row = el("div", "feed-row");
+
+    const kindCell = el("div", "kind-cell");
+    kindCell.title = String(event.kind || "");
+    const glyph = el("span", "kind-glyph", style.glyph);
+    glyph.style.color = style.color;
+    kindCell.appendChild(glyph);
+    kindCell.appendChild(el("span", "kind-label", event.kind || "event"));
+    row.appendChild(kindCell);
+
+    const actorCell = el("div", "feed-actor");
+    actorCell.title = event.actor
+      ? actorTitle("Actor", event.actor, event.actor_kind)
+      : "No actor recorded";
+    actorCell.appendChild(el("span", "kind-icon", actorIcon(event.actor_kind)));
+    actorCell.appendChild(el("span", "actor-name", event.actor || "—"));
+    row.appendChild(actorCell);
+
+    const taskCell = el("div", "feed-task");
+    const title = eventTitle(event);
+    const taskId = event.task_id ? String(event.task_id) : null;
+    if (title) {
+      if (taskId && state.tasks.has(taskId)) {
+        const link = el("button", "task-link", title);
+        link.type = "button";
+        link.title = "Open task " + taskId;
+        link.addEventListener("click", function () { openTaskFromFeed(taskId); });
+        taskCell.appendChild(link);
+      } else {
+        const ref = el("span", "task-ref" + (taskId ? " task-missing" : ""), title);
+        ref.title = taskId ? "Task " + taskId + " is no longer on the board" : title;
+        taskCell.appendChild(ref);
+      }
+    } else {
+      taskCell.appendChild(el("span", "muted", "—"));
+    }
+    row.appendChild(taskCell);
+
+    const chips = el("div", "feed-chips");
+    if (event.harness) {
+      const chip = el("span", "mini-chip", event.harness);
+      chip.title = "harness: " + event.harness;
+      chips.appendChild(chip);
+    }
+    if (event.project) {
+      const chip = el("span", "mini-chip", event.project);
+      chip.title = "project: " + event.project;
+      chips.appendChild(chip);
+    }
+    row.appendChild(chips);
+
+    const iso = eventTime(event);
+    const time = el("span", "feed-time", timeAgo(iso));
+    time.title = fullTime(iso);
+    row.appendChild(time);
+    row.title = (event.kind || "event") + " · " + fullTime(iso) +
+      (event.actor ? " · " + event.actor : "") + (taskId ? " · " + taskId : "");
+
+    return row;
+  }
+
+  function renderFeed() {
+    const feed = $("feed");
+    if (!feed) return;
+    const filtered = state.feed.filter(matchesActivityFilters);
+    const count = $("feed-count");
+    if (count) {
+      count.textContent = filtered.length === state.feed.length
+        ? state.feed.length + (state.feed.length === 1 ? " event" : " events")
+        : filtered.length + " of " + state.feed.length + " events";
+    }
+    if (!filtered.length) {
+      const empty = el("div", "empty feed-empty");
+      if (!state.feed.length) {
+        empty.textContent = "No activity yet — task transitions appear here live.";
+        if (state.feedUnavailable) {
+          empty.appendChild(el("div", "muted", "The activity endpoint is not available on this server yet."));
+        }
+      } else {
+        empty.textContent = "No activity matches the current filters.";
+      }
+      feed.replaceChildren(empty);
+      return;
+    }
+    feed.replaceChildren.apply(feed, filtered.map(feedRow));
+  }
+
+  function scheduleFeedRender() {
+    if (feedRenderTimer) return;
+    feedRenderTimer = setTimeout(function () {
+      feedRenderTimer = null;
+      if (state.view === "activity") renderFeed();
+    }, 120);
+  }
+
+  function openTaskFromFeed(taskId) {
+    if (!taskId || !state.tasks.has(taskId)) return;
+    setView("tasks");
+    selectTask(taskId);
+  }
+
+  function renderView() {
+    const activity = state.view === "activity";
+    Array.prototype.forEach.call($("view-switch").querySelectorAll("button[data-view]"), function (button) {
+      const active = button.dataset.view === state.view;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    $("status-chips").hidden = activity;
+    $("type-filter").hidden = activity;
+    $("search").hidden = activity;
+    $("activity-filters").hidden = !activity;
+    $("tasks-pane").hidden = activity;
+    $("activity-pane").hidden = !activity;
+    renderRows();
+    if (activity) renderFeed();
+    renderDrawer();
+  }
+
+  function setView(view) {
+    state.view = view === "activity" ? "activity" : "tasks";
+    renderView();
+  }
+
+  function drawerSection(label, content) {
+    const section = el("div", "section");
+    section.appendChild(el("h3", null, label));
+    section.appendChild(content);
+    return section;
+  }
+
+  function activityList(items, key) {
+    return (Array.isArray(items) ? items.slice() : []).sort(function (a, b) {
+      return (Date.parse((b && b[key]) || "") || 0) - (Date.parse((a && a[key]) || "") || 0);
+    });
+  }
+
+  function activityHead(label, color, iso) {
+    const head = el("div", "act-head");
+    const strong = el("b", null, label);
+    if (color) strong.style.color = color;
+    const time = el("span", null, timeAgo(iso));
+    time.title = fullTime(iso);
+    head.append(strong, time);
+    return head;
+  }
+
+  function addActivitySection(body, title, items, makeItem) {
+    if (!items.length) return;
+    const wrap = el("div", "activity");
+    items.forEach(function (item) { wrap.appendChild(makeItem(item)); });
+    body.appendChild(drawerSection(title, wrap));
+  }
+
+  function renderDrawerActivity(task, body) {
+    const activity = state.activity.get(task.id) ||
+      (task.context && task.context.activity) || null;
+    if (!activity) return;
+
+    addActivitySection(body, "Comments", activityList(activity.comments, "at"), function (comment) {
+      const item = el("div", "act-item");
+      item.appendChild(activityHead(comment.author || "unknown", null, comment.at));
+      if (comment.body) item.appendChild(el("div", "act-body", comment.body));
+      return item;
+    });
+    addActivitySection(body, "Runs", activityList(activity.runs, "started_at"), function (run) {
+      const item = el("div", "act-item");
+      const label = [run.status, run.outcome].filter(Boolean).join(" / ") || "run";
+      const color = statusColor(run.outcome || run.status);
+      item.appendChild(activityHead(label, color, run.ended_at || run.started_at));
+      const detail = run.summary || run.error;
+      if (detail) item.appendChild(el("div", "act-body", detail));
+      return item;
+    });
+    addActivitySection(body, "Events", activityList(activity.events, "at"), function (event) {
+      const item = el("div", "act-item");
+      item.appendChild(activityHead(event.kind || "event", null, event.at));
+      return item;
+    });
+  }
+
+  function drawerActionSpecs(task) {
+    const caps = capabilities();
+    const blocked = task.status === "blocked" || task.status === "hold";
+    const specs = [];
+    if (caps.claim) specs.push({ action: "claim", label: "Claim" });
+    if (caps.complete) specs.push({ action: "complete", label: "Complete" });
+    if (caps.comment) specs.push({ action: "comment", label: "Comment" });
+    if (caps.edit) specs.push({ action: "edit", label: "Edit", primary: true });
+    if (caps.hold) specs.push({ action: "hold", label: "Hold", hidden: blocked });
+    else if (caps.block) specs.push({ action: "hold", label: "Block", hidden: blocked });
+    if (caps.release) specs.push({ action: "release", label: "Release", hidden: !blocked });
+    else if (caps.unblock) specs.push({ action: "release", label: "Unblock", hidden: !blocked });
+    if (caps.delete) specs.push({ action: "delete", label: "Delete", danger: true });
+    return specs;
+  }
+
+  function renderDrawerActions(task) {
+    const buttons = drawerActionSpecs(task).map(function (spec) {
+      const className = "btn" + (spec.primary ? " primary" : "") + (spec.danger ? " danger" : "");
+      const button = el("button", className, spec.label);
+      button.dataset.action = spec.action;
+      button.hidden = !!spec.hidden;
+      button.disabled = state.readOnly;
+      return button;
+    });
+    $("drawer-actions").replaceChildren.apply($("drawer-actions"), buttons);
+  }
+
+  function renderDrawer() {
+    const drawer = $("drawer");
+    // The feed takes the full width; switching back restores the drawer for the
+    // still-selected task (selection itself is never cleared by the view switch).
+    if (state.view === "activity") { drawer.hidden = true; return; }
+    if (!state.selectedId) { drawer.hidden = true; return; }
+    const task = state.tasks.get(state.selectedId);
+    if (!task) { drawer.hidden = true; return; }
+    drawer.hidden = false;
+    $("drawer-title").textContent = task.title || "(untitled)";
+
+    const body = $("drawer-body");
+    const scroll = body.scrollTop;
+    body.replaceChildren();
+
+    const badges = el("div", "badges");
+    const statusBadge = el("span", "badge", task.status || "pending");
+    statusBadge.style.color = statusColor(task.status);
+    statusBadge.style.borderColor = "color-mix(in srgb, " + statusColor(task.status) + " 45%, transparent)";
+    badges.appendChild(statusBadge);
+    const priorityValue = Math.min(5, Math.max(1, parseInt(task.priority, 10) || 3));
+    badges.appendChild(el("span", "prio p" + priorityValue, "P" + priorityValue));
+    badges.appendChild(el("span", "badge", task.type || "—"));
+    body.appendChild(badges);
+
+    const kv = el("dl", "kv");
+    function addKV(key, value) {
+      kv.appendChild(el("dt", null, key));
+      kv.appendChild(el("dd", null, value === null || value === undefined || value === "" ? "—" : value));
+    }
+    function addKVNode(key, node) {
+      kv.appendChild(el("dt", null, key));
+      const dd = el("dd");
+      dd.appendChild(node);
+      kv.appendChild(dd);
+    }
+    addKV("ID", task.id);
+    addKV("Assigned", task.assigned_agent);
+    if (task.created_by) addKVNode("Created by", actorNode(task.created_by, task.created_by_kind, task.created_by_session));
+    else addKV("Created by", "—");
+    addKV("Source", task.source);
+    addKV("Source file", task.source_file);
+    addKV("Created", fullTime(task.created_at));
+    addKV("Updated", fullTime(task.updated_at));
+    addKV("Started", fullTime(task.started_at));
+    addKV("Completed", fullTime(task.completed_at));
+    addKV("Last attempt", fullTime(task.last_attempt_at));
+    addKV("Attempts", task.attempts || 0);
+    addKV("Exec time", (Number(task.total_execution_time) || 0).toFixed(1) + "s");
+    addKV("Commit", task.commit_sha);
+    addKV("Verification", task.verification_status);
+    if (task.parent_task_id) addKV("Parent", task.parent_task_id);
+    if (task.stage) addKV("Stage", task.stage);
+    const context = task.context || {};
+    // Top-level provenance wins; kanban-sourced rows may only carry the legacy
+    // context fields, so fall back to those and don't render the row twice.
+    const claimedBy = task.claimed_by || context.claim_lock;
+    if (claimedBy) addKV("Claimed by", claimedBy);
+    const leaseExpires = task.lease_expires_at || context.claim_expires;
+    if (leaseExpires) addKV("Lease expires", fullTime(leaseExpires));
+    if (context.block_kind) addKV("Block kind", context.block_kind);
+    body.appendChild(kv);
+
+    if (task.description) {
+      body.appendChild(drawerSection("Description", el("p", null, task.description)));
+    }
+
+    const contextView = {};
+    Object.keys(context).forEach(function (key) {
+      if (key !== "activity") contextView[key] = context[key];
+    });
+    if (Object.keys(contextView).length) {
+      body.appendChild(drawerSection("Context", el("pre", null, JSON.stringify(contextView, null, 2))));
+    }
+
+    const criteria = Array.isArray(task.acceptance_criteria) ? task.acceptance_criteria : [];
+    if (criteria.length) {
+      const list = el("ul", "criteria");
+      criteria.forEach(function (criterion) {
+        const text = typeof criterion === "string" ? criterion
+          : (criterion && criterion.description) || JSON.stringify(criterion);
+        list.appendChild(el("li", null, text));
+      });
+      body.appendChild(drawerSection("Acceptance criteria", list));
+    }
+
+    if (task.error_message) {
+      body.appendChild(drawerSection("Error", el("pre", null, task.error_message)));
+    }
+
+    const result = task.result;
+    if (result && typeof result === "object" && Object.keys(result).length) {
+      body.appendChild(drawerSection("Result", el("pre", null, JSON.stringify(result, null, 2))));
+    }
+
+    const blockedBy = Array.isArray(task.blocked_by) ? task.blocked_by : [];
+    if (blockedBy.length) {
+      body.appendChild(drawerSection("Blocked by", el("pre", null, blockedBy.join("\n"))));
+    }
+
+    if (task.thinking_summary) {
+      body.appendChild(drawerSection("Thinking summary", el("pre", null, task.thinking_summary)));
+    }
+
+    renderDrawerActivity(task, body);
+
+    body.scrollTop = scroll;
+    renderDrawerActions(task);
+  }
+
+  function renderAll() {
+    renderCounts();
+    $("th-type").textContent = facetLabel();
+    $("f-type-label").textContent = facetLabel();
+    renderChips();
+    renderTypeFilter();
+    renderRows();
+    if (state.view === "activity") renderFeed();
+    renderDrawer();
+  }
+
+  function selectTask(id) {
+    state.selectedId = id;
+    renderRows();
+    renderDrawer();
+    loadDetail(id);
+  }
+
+  // ------------------------------------------------------------------- SSE
+
+  function connect() {
+    if (eventSource) {
+      try { eventSource.close(); } catch (err) { /* ignore */ }
+      eventSource = null;
+    }
+    setConnection(false, "connecting…");
+    try {
+      eventSource = new EventSource("/api/events");
+    } catch (err) {
+      scheduleReconnect();
+      return;
+    }
+    eventSource.addEventListener("open", function () {
+      retryDelay = 1000;
+      setConnection(true, "live");
+      // SSE does not replay missed events, so refill the feed after a drop.
+      if (activityGap) {
+        activityGap = false;
+        loadActivity();
+      }
+    });
+    eventSource.addEventListener("snapshot", function (event) {
+      const data = JSON.parse(event.data);
+      state.gotSnapshot = true;
+      state.tasks = new Map((data.tasks || []).map(function (task) { return [task.id, task]; }));
+      state.stats = data.stats || null;
+      renderAll();
+      setConnection(true, "live");
+    });
+    eventSource.addEventListener("upsert", function (event) {
+      const task = JSON.parse(event.data).task;
+      if (!task || !task.id) return;
+      state.tasks.set(task.id, task);
+      renderTypeFilter();
+      renderRows();
+      renderChips();
+      // A new/updated task may make previously-dead feed rows clickable.
+      scheduleFeedRender();
+      if (state.selectedId === task.id) {
+        renderDrawer();
+        loadDetail(task.id);
+      }
+    });
+    eventSource.addEventListener("delete", function (event) {
+      const id = JSON.parse(event.data).id;
+      state.tasks.delete(id);
+      state.activity.delete(id);
+      if (state.selectedId === id) state.selectedId = null;
+      renderRows();
+      renderChips();
+      scheduleFeedRender();
+      renderDrawer();
+    });
+    eventSource.addEventListener("stats", function (event) {
+      state.stats = JSON.parse(event.data);
+      renderCounts();
+      renderChips();
+    });
+    eventSource.addEventListener("activity", function (event) {
+      let data;
+      try { data = JSON.parse(event.data); } catch (err) { return; }
+      if (!data) return;
+      // Accept a bare event (contract) or a {"event": ...} wrapper.
+      const activityEvent = data.event && data.event.id !== undefined ? data.event : data;
+      prependFeedEvent(activityEvent);
+      if (state.view === "activity") renderFeed();
+    });
+    eventSource.addEventListener("error", function () {
+      if (eventSource) {
+        try { eventSource.close(); } catch (err) { /* ignore */ }
+        eventSource = null;
+      }
+      activityGap = true;
+      setConnection(false, "reconnecting…");
+      if (!state.gotSnapshot) fallbackLoad();
+      scheduleReconnect();
+    });
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      connect();
+    }, retryDelay);
+    retryDelay = Math.min(Math.round(retryDelay * 2), 10000);
+  }
+
+  // -------------------------------------------------------------- data load
+
+  async function loadHealth() {
+    try {
+      const health = await api.get("/api/health");
+      state.health = health;
+      state.readOnly = !!health.read_only;
+      $("db-path").textContent = health.db || "—";
+      $("db-path").title = health.db || "";
+      $("ro-badge").hidden = !state.readOnly;
+      $("btn-new").disabled = state.readOnly || !capabilities().create;
+      renderDrawer();
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function loadMeta() {
+    try {
+      const data = await api.get("/api/meta");
+      if (data && Array.isArray(data.statuses) && data.statuses.length) {
+        state.meta = data;
+      }
+    } catch (error) {
+      // Older servers have no /api/meta; keep the Sugar defaults untouched.
+      state.meta = FALLBACK_META;
+    }
+    $("btn-new").disabled = state.readOnly || !capabilities().create;
+    renderAll();
+  }
+
+  async function loadTypes() {
+    try {
+      const data = await api.get("/api/task-types");
+      state.types = data.types || [];
+      renderTypeFilter();
+      populateFormTypeOptions();
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function loadDetail(id) {
+    try {
+      const data = await api.get("/api/tasks/" + encodeURIComponent(id));
+      const task = data && data.task;
+      if (!task || task.id !== id) return;
+      const activity = task.context && task.context.activity;
+      if (activity) state.activity.set(id, activity);
+      if (state.selectedId === id) renderDrawer();
+    } catch (error) {
+      // Detail (and its activity) is an enhancement: the snapshot copy renders.
+    }
+  }
+
+  async function fallbackLoad() {
+    try {
+      const [tasks, stats] = await Promise.all([
+        api.get("/api/tasks?limit=1000"),
+        api.get("/api/stats")
+      ]);
+      if (state.gotSnapshot) return;
+      state.tasks = new Map((tasks.tasks || []).map(function (task) { return [task.id, task]; }));
+      state.stats = stats;
+      renderAll();
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function loadActivity() {
+    try {
+      const data = await api.get("/api/activity?limit=200");
+      state.feedUnavailable = false;
+      mergeFeed(data && data.events);
+      if (state.view === "activity") renderFeed();
+    } catch (error) {
+      // The spine is optional: an older/smaller server 404s (or disables it with
+      // a 503). That is an empty feed, not an error worth a toast.
+      if (error && (error.status === 404 || error.status === 503)) {
+        state.feedUnavailable = true;
+        if (state.view === "activity") renderFeed();
+        return;
+      }
+      reportError(error);
+    }
+  }
+
+  // ------------------------------------------------------------------ form
+
+  function populateFormTypeOptions() {
+    const select = $("f-type");
+    const current = select.value;
+    select.replaceChildren();
+    state.types.forEach(function (type) {
+      select.appendChild(new Option(type.name + " (" + type.id + ")", type.id));
+    });
+    if (!state.types.length) {
+      ["feature", "bug_fix", "test", "refactor", "documentation", "chore"].forEach(function (type) {
+        select.appendChild(new Option(type, type));
+      });
+    }
+    if (current) select.value = current;
+  }
+
+  function populateFormStatusOptions() {
+    const select = $("f-status");
+    select.replaceChildren();
+    statusList().forEach(function (status) {
+      select.appendChild(new Option(status, status));
+    });
+  }
+
+  function openForm(task) {
+    if (state.readOnly) { toast("Dashboard is read-only.", true); return; }
+    const caps = capabilities();
+    state.editing = task || null;
+    $("modal-title").textContent = task ? "Edit task" : "New task";
+    $("form-submit").textContent = task ? "Save changes" : "Create task";
+    $("form-error").textContent = "";
+    $("f-title").value = task ? task.title || "" : "";
+    $("f-description").value = task ? task.description || "" : "";
+    populateFormTypeOptions();
+    const defaultType = state.types.some(function (t) { return t.id === "feature"; })
+      ? "feature" : (state.types[0] ? state.types[0].id : "feature");
+    $("f-type").value = task ? task.type : defaultType;
+    $("f-priority").value = String(task ? task.priority || 3 : 3);
+    const showStatus = !!task && !!caps.edit_status;
+    $("f-status-wrap").hidden = !showStatus;
+    if (showStatus) {
+      populateFormStatusOptions();
+      $("f-status").value = task.status;
+    }
+    // Boards that cannot edit status (kanban) reject field edits for the facet
+    // too, so the project select is locked once the task exists.
+    const typeLocked = !!task && !caps.edit_status;
+    $("f-type").disabled = typeLocked;
+    $("f-type").title = typeLocked ? facetLabel() + " cannot be changed after creation on this board." : "";
+    $("f-agent").value = task && task.assigned_agent ? task.assigned_agent : "";
+    $("modal").hidden = false;
+    $("f-title").focus();
+  }
+
+  function closeForm() {
+    $("modal").hidden = true;
+    state.editing = null;
+  }
+
+  async function submitForm(event) {
+    event.preventDefault();
+    const title = $("f-title").value.trim();
+    if (!title) {
+      $("form-error").textContent = "Title is required.";
+      return;
+    }
+    const caps = capabilities();
+    const payload = {
+      title: title,
+      description: $("f-description").value,
+      priority: parseInt($("f-priority").value, 10) || 3,
+      assigned_agent: $("f-agent").value.trim() || null
+    };
+    const editing = state.editing;
+    if (!editing || caps.edit_status) payload.type = $("f-type").value;
+    const submit = $("form-submit");
+    submit.disabled = true;
+    $("form-error").textContent = "";
+    try {
+      let task;
+      if (editing) {
+        if (caps.edit_status) {
+          const status = $("f-status").value;
+          if (status !== editing.status) payload.status = status;
+        }
+        task = (await api.patch("/api/tasks/" + encodeURIComponent(editing.id), payload)).task;
+        toast("Task updated.");
+      } else {
+        task = (await api.post("/api/tasks", payload)).task;
+        toast("Task created.");
+      }
+      if (task && task.id) {
+        state.tasks.set(task.id, task);
+        const activity = task.context && task.context.activity;
+        if (activity) state.activity.set(task.id, activity);
+        renderTypeFilter();
+        renderRows();
+        renderDrawer();
+      }
+      closeForm();
+    } catch (error) {
+      $("form-error").textContent = error.message || "Request failed";
+    } finally {
+      submit.disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- actions
+
+  function absorbTask(task) {
+    if (!task || !task.id) return;
+    state.tasks.set(task.id, task);
+    const activity = task.context && task.context.activity;
+    if (activity) state.activity.set(task.id, activity);
+    renderAll();
+  }
+
+  async function handleAction(action) {
+    const id = state.selectedId;
+    if (!id) return;
+    const task = state.tasks.get(id);
+    if (!task) return;
+    if (state.readOnly) { toast("Dashboard is read-only.", true); return; }
+    const base = "/api/tasks/" + encodeURIComponent(id);
+    try {
+      if (action === "edit") {
+        openForm(task);
+      } else if (action === "claim") {
+        absorbTask((await api.post(base + "/claim", {})).task);
+        toast("Task claimed.");
+      } else if (action === "complete") {
+        const result = window.prompt("Result summary (optional):", "");
+        if (result === null) return;
+        const trimmed = result.trim();
+        absorbTask((await api.post(base + "/complete", trimmed ? { result: trimmed } : {})).task);
+        toast("Task completed.");
+      } else if (action === "comment") {
+        const text = window.prompt("Comment:", "");
+        if (text === null || !text.trim()) return;
+        absorbTask((await api.post(base + "/comment", { text: text.trim() })).task);
+        toast("Comment added.");
+      } else if (action === "hold") {
+        const reason = window.prompt("Reason for holding this task (optional):", "");
+        if (reason === null) return;
+        absorbTask((await api.post(base + "/hold", { reason: reason })).task);
+        toast("Task put on hold.");
+      } else if (action === "release") {
+        absorbTask((await api.post(base + "/release")).task);
+        toast("Task released.");
+      } else if (action === "delete") {
+        if (!window.confirm('Delete task "' + (task.title || task.id) + '"?\nThis cannot be undone.')) return;
+        await api.del(base);
+        state.tasks.delete(id);
+        state.activity.delete(id);
+        state.selectedId = null;
+        renderAll();
+        toast("Task deleted.");
+      }
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  // ------------------------------------------------------------------ init
+
+  function bindEvents() {
+    $("search").addEventListener("input", function (event) {
+      state.query = event.target.value.trim().toLowerCase();
+      renderRows();
+    });
+    $("type-filter").addEventListener("change", function (event) {
+      state.typeFilter = event.target.value;
+      renderRows();
+    });
+    $("btn-new").addEventListener("click", function () { openForm(null); });
+    $("view-switch").addEventListener("click", function (event) {
+      const button = event.target.closest("button[data-view]");
+      if (button) setView(button.dataset.view);
+    });
+    $("activity-kind").addEventListener("change", function (event) {
+      state.feedKind = event.target.value;
+      renderFeed();
+    });
+    $("activity-search").addEventListener("input", function (event) {
+      state.feedQuery = event.target.value.trim().toLowerCase();
+      renderFeed();
+    });
+    $("rows").addEventListener("click", function (event) {
+      const row = event.target.closest("tr[data-id]");
+      if (row) selectTask(row.dataset.id);
+    });
+    $("drawer-close").addEventListener("click", function () {
+      state.selectedId = null;
+      renderRows();
+      renderDrawer();
+    });
+    $("drawer-actions").addEventListener("click", function (event) {
+      const button = event.target.closest("button[data-action]");
+      if (button) handleAction(button.dataset.action);
+    });
+    $("modal").addEventListener("click", function (event) {
+      if (event.target === $("modal")) closeForm();
+    });
+    $("form-close").addEventListener("click", closeForm);
+    $("form-cancel").addEventListener("click", closeForm);
+    $("task-form").addEventListener("submit", submitForm);
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      if (!$("modal").hidden) { closeForm(); return; }
+      if (!$("drawer").hidden) {
+        state.selectedId = null;
+        renderRows();
+        renderDrawer();
+      }
+    });
+  }
+
+  async function init() {
+    bindEvents();
+    renderAll();
+    await Promise.all([loadHealth(), loadTypes(), loadMeta()]);
+    connect();
+    loadActivity();
+    // Safety net: if SSE is blocked entirely, still show the queue once.
+    setTimeout(function () { if (!state.gotSnapshot) fallbackLoad(); }, 1500);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

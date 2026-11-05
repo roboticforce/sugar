@@ -203,6 +203,76 @@ sugar status
 
 Full docs: [Task Orchestration](docs/task_orchestration.md)
 
+## Mission Control: see, trust and steer your agents
+
+Sugar already coordinates work. Mission Control is the missing layer for a human and
+a fleet of agents: one local, real-time picture of **what is being worked on, by
+which agent or harness, for what task, and what just happened** — plus the controls to
+steer it. No cloud, no account; everything stays in two SQLite files on your disk.
+
+- **See it live.** A web UI and a native macOS app, both fed by the same REST + SSE API.
+  Tasks added by `sugar add`, the MCP server, `sugar run`, or another harness appear in
+  under a second.
+- **Know who did it.** Every task carries `created_by` (human/agent/system) and every
+  claim records `claimed_by` + a lease; every event records actor, harness, machine and
+  task. Claims are atomic, so two harnesses cannot double-work the same task.
+- **Steer it.** Create, edit, claim, complete, hold/block, release and reassign from the
+  UI or the menu bar — the same verbs the agents use.
+- **Audit it.** An append-only event spine records every transition, so "what did the
+  fleet do yesterday, and who is holding this now?" is a query, not a guess.
+- **Bring your own board.** Serve Sugar's queue, or point the same UI at a shared Hermes
+  Kanban board; writes still go through that board's own command surface.
+
+```bash
+pip install 'sugarai[dashboard]'   # starlette + uvicorn
+sugar dashboard --open             # Sugar queue  -> http://127.0.0.1:7331
+sugar dashboard --board kanban     # shared board -> same UI, reads kanban.db
+```
+
+![Sugar dashboard showing a live work queue](docs/images/dashboard-web.png)
+
+- Live updates over Server-Sent Events, so tasks added by `sugar add`, the MCP server,
+  `sugar run`, or another process appear in under a second — no refresh.
+- Create, edit, hold, release and delete tasks from the browser UI.
+- Same REST + SSE API for everything (`GET /api/tasks`, `PATCH /api/tasks/{id}`,
+  `GET /api/events`, …), so it is scriptable and safe to point other tools at.
+- `--read-only` exposes the queue without allowing writes; `--db` / `--port` override
+  the defaults. The server never leaves `127.0.0.1`.
+
+**Watch the nervous system.** An optional event spine (`~/.sugar/events.db`) records every
+task transition plus harness telemetry, streamed live over SSE and rendered as an Activity feed:
+
+![Live activity feed](docs/images/dashboard-activity.png)
+
+- observers tail the Hermes Kanban `task_events` log and Sugar's own queue — no missing history;
+- harnesses can POST their own signals to `/api/events` (`run.started`, `tool.invoked`, `signal.*`);
+- every row carries actor + kind, harness, machine, project and a link back to the task.
+
+**Point it at a shared board.** The same UI can serve a Hermes Kanban board
+(`sugar dashboard --board kanban`): reads come from `kanban.db`, every write goes
+through `hermes kanban`, so claims, dependencies and review gates keep their single
+implementation. Columns, counts and available actions come from `GET /api/meta`.
+
+![Sugar dashboard serving a Hermes Kanban board](docs/images/dashboard-kanban.png)
+
+**Native macOS app.** Prefer a real window? `apps/macos/` contains SugarDash, a
+dependency-free SwiftUI app (task list, filters, detail, add/edit/delete, menu bar
+pending count, live SSE):
+
+```bash
+cd apps/macos && ./build-app.sh && open dist/SugarDash.app
+```
+
+Try it with a seeded demo queue (never touches your real `.sugar/`):
+
+```bash
+python scripts/demo_dashboard.py --serve --open
+```
+
+Full docs: **[Mission Control](docs/mission-control.md)** ·
+[Local Dashboard API](docs/local-dashboard.md) ·
+[Agent teams analysis](docs/agent-teams.md)
+
 ## Autonomous Issue Resolution (optional)
 
 Because Sugar remembers your codebase and conventions, it can also resolve routine issues

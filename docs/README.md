@@ -23,6 +23,15 @@ Documentation for developers who want to **use** Sugar in their projects:
 - **[Troubleshooting](user/troubleshooting.md)** - Common issues and solutions
 - **[FAQ](user/faq.md)** - Frequently asked questions
 
+### 🎛️ Mission Control & Agent Teams
+
+Documentation for watching and steering agents, and for running several harnesses
+against one board:
+
+- **[Mission Control](mission-control.md)** - Dashboard, native macOS app, provenance and the event spine: the whole control plane in one place
+- **[Local Dashboard API](local-dashboard.md)** - Frozen REST/SSE contract, board sources (`--board sugar|kanban`), provenance fields, event-spine schema
+- **[Sugar as a Team Bus](agent-teams.md)** - Code-grounded analysis: what Sugar already does for multi-agent coordination, the gaps, and the phased plan
+
 ### 🛠️ Developer Documentation (`docs/dev/`)
 Documentation for developers who want to **contribute** to Sugar:
 
@@ -39,6 +48,7 @@ Documentation for developers who want to **contribute** to Sugar:
 - **New to Sugar?** → Start with the [Quick Start Guide](user/quick-start.md)
 - **Installing Sugar?** → Follow the [Installation Guide](user/installation-guide.md)  
 - **Need help?** → Check [Troubleshooting](user/troubleshooting.md) or [FAQ](user/faq.md)
+- **Want to watch your agents?** → Open [Mission Control](mission-control.md)
 - **Want to contribute?** → Read the [Contributing Guide](dev/contributing.md)
 
 ## 📖 External Resources
