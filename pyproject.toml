@@ -28,13 +28,12 @@ classifiers = [
 
 dependencies = [
     "click>=8.3.1,<9",
-    "pyyaml==6.0.3",
-    "aiosqlite==0.22.1",
-    "sqlalchemy==2.0.48",
-    "python-dotenv==1.2.2",
-    "asyncio-throttle==1.0.2",
-    "setuptools==82.0.1",
-    "claude-agent-sdk==0.1.49",
+    "pyyaml>=6.0,<7",
+    "aiosqlite>=0.22,<1",
+    "sqlalchemy>=2.0.48,<3",
+    "python-dotenv>=1.2.2,<2",
+    "asyncio-throttle>=1.0,<2",
+    "claude-agent-sdk>=0.1.49,<0.2",
 ]
 
 [project.optional-dependencies]

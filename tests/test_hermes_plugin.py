@@ -518,6 +518,34 @@ class TestSugarMemoryProvider:
         assert len(entries[0]["content"]) <= 4200
         p.shutdown()
 
+    def test_checkpoint_message_describes_the_real_write(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        """The summary text must not overclaim: no whole-transcript promise, and
+        it names the store the write actually landed in."""
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        out = p.on_pre_compress(
+            [{"role": "user", "content": "short evidence"}], require_checkpoint=True
+        )
+        assert "recoverable" not in out.lower()
+        assert "full transcript" not in out.lower()
+        # No .sugar project here -> the write is promoted to the global store.
+        assert "global store" in out
+        p.shutdown()
+
+    def test_checkpoint_message_names_the_project_store(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        workspace = tmp_path / "workspace"
+        (workspace / ".sugar").mkdir(parents=True)
+        p = self._provider(plugin_module, monkeypatch, tmp_path, session_cwd=workspace)
+        out = p.on_pre_compress(
+            [{"role": "user", "content": "project evidence"}], require_checkpoint=True
+        )
+        assert "project store" in out
+        assert "global store" not in out
+        p.shutdown()
+
     def test_checkpoint_fails_closed_when_archive_raises(
         self, plugin_module, monkeypatch, tmp_path
     ):
