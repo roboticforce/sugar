@@ -455,3 +455,184 @@ class TestSugarMemoryProvider:
         deps = manifest["python_dependencies"]
         spec = next(d for d in deps if d.startswith("sugarai"))
         assert ">=" in spec and "<" in spec, "declare a floor and an upper bound"
+
+    # -- v2 surfaces: checkpoint API v2, built-in memory mirroring, skill ------
+
+    def test_checkpoint_api_v2_declared(self, plugin_module):
+        # The host reads this off the class, before/without initialize().
+        assert (
+            plugin_module.SugarMemoryProvider.pre_compress_checkpoint_api_version == 2
+        )
+
+    def _recent(self, p, memory_type=None, limit=20):
+        payload = {"limit": limit}
+        if memory_type:
+            payload["memory_type"] = memory_type
+        return json.loads(p.handle_tool_call("sugar_list_recent", payload))
+
+    def test_checkpoint_archives_transcript_evidence(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        messages = [
+            {
+                "role": "user",
+                "content": "We must use Kamal for deploys, not raw docker.",
+            },
+            {"role": "assistant", "content": "Understood - Kamal it is."},
+            {"role": "system", "content": "system prompt that must not be archived"},
+            {"role": "tool", "content": "tool output that must not be archived"},
+        ]
+        out = p.on_pre_compress(messages, require_checkpoint=True)
+        assert "Sugar archived" in out
+        entries = self._recent(p, memory_type="research")
+        assert any("Kamal" in e["content"] for e in entries)
+        assert not any("system prompt" in e["content"] for e in entries)
+        p.shutdown()
+
+    def test_checkpoint_is_idempotent(self, plugin_module, monkeypatch, tmp_path):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        messages = [{"role": "user", "content": "same transcript"}]
+        first = p.on_pre_compress(messages, require_checkpoint=True)
+        second = p.on_pre_compress(messages, require_checkpoint=True)
+        assert "Sugar archived" in first
+        assert "already archived" in second
+        assert len(self._recent(p, memory_type="research")) == 1
+        p.shutdown()
+
+    def test_checkpoint_skips_message_lists_without_evidence(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        assert p.on_pre_compress([{"role": "system", "content": "x"}]) == ""
+        assert p.on_pre_compress([]) == ""
+        p.shutdown()
+
+    def test_checkpoint_truncates_oversized_transcripts(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        messages = [{"role": "user", "content": "x" * 9000}]
+        assert "truncated" in p.on_pre_compress(messages, require_checkpoint=True)
+        entries = self._recent(p, memory_type="research")
+        assert len(entries[0]["content"]) <= 4200
+        p.shutdown()
+
+    def test_checkpoint_fails_closed_when_archive_raises(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(p, "_store", boom)
+        with pytest.raises(RuntimeError, match="checkpoint archive failed"):
+            p.on_pre_compress(
+                [{"role": "user", "content": "hello"}], require_checkpoint=True
+            )
+        p.shutdown()
+
+    def test_checkpoint_fails_closed_when_archive_is_not_committed(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            p, "_store", lambda *a, **k: {"status": "skipped", "reason": "read-only"}
+        )
+        with pytest.raises(RuntimeError, match="not committed"):
+            p.on_pre_compress(
+                [{"role": "user", "content": "hello"}], require_checkpoint=True
+            )
+        p.shutdown()
+
+    def test_checkpoint_writes_even_in_non_primary_context(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        """A checkpoint is a durability guarantee, not background turn traffic."""
+        p = self._provider(plugin_module, monkeypatch, tmp_path, agent_context="cron")
+        out = p.on_pre_compress(
+            [{"role": "user", "content": "cron run evidence"}], require_checkpoint=True
+        )
+        assert "Sugar archived" in out
+        assert self._recent(p, memory_type="research")
+        p.shutdown()
+
+    def test_memory_write_mirrors_user_profile_as_global_preference(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.on_memory_write("add", "user", "Prefers terse answers")
+        entries = self._recent(p, memory_type="preference")
+        assert any("terse" in e["content"] for e in entries)
+        assert entries[0]["type"] == "preference"
+        p.shutdown()
+
+    def test_memory_write_mirrors_agent_notes(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.on_memory_write("add", "memory", "This repo uses uv, not pip")
+        entries = self._recent(p, memory_type="research")
+        assert any("uv, not pip" in e["content"] for e in entries)
+        p.shutdown()
+
+    def test_memory_write_dedupes_identical_content(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.on_memory_write("add", "user", "Prefers terse answers")
+        p.on_memory_write("replace", "user", "Prefers terse answers")
+        assert len(self._recent(p, memory_type="preference")) == 1
+        p.shutdown()
+
+    def test_memory_write_ignores_removals(self, plugin_module, monkeypatch, tmp_path):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.on_memory_write("remove", "user", "Prefers terse answers")
+        assert self._recent(p) == []
+        p.shutdown()
+
+    def test_memory_write_respects_non_primary_context(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(
+            plugin_module, monkeypatch, tmp_path, agent_context="subagent"
+        )
+        p.on_memory_write("add", "user", "should not persist")
+        assert self._recent(p) == []
+        p.shutdown()
+
+    def test_register_bundles_the_skill_when_host_supports_it(self, plugin_module):
+        class Ctx:
+            def __init__(self):
+                self.provider = None
+                self.skills = []
+
+            def register_memory_provider(self, provider):
+                self.provider = provider
+
+            def register_skill(self, name, path, description):
+                self.skills.append((name, path, description))
+
+        ctx = Ctx()
+        plugin_module.register(ctx)
+        assert ctx.provider is not None
+        assert len(ctx.skills) == 1
+        name, path, description = ctx.skills[0]
+        assert name == "memory"
+        assert Path(path).is_file() and Path(path).name == "SKILL.md"
+        assert description
+
+    def test_register_without_skill_surface_still_registers_provider(
+        self, plugin_module
+    ):
+        class Ctx:
+            def __init__(self):
+                self.provider = None
+
+            def register_memory_provider(self, provider):
+                self.provider = provider
+
+        ctx = Ctx()
+        plugin_module.register(ctx)
+        assert ctx.provider is not None

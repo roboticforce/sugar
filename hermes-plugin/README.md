@@ -23,6 +23,19 @@ nothing leaves the machine.
   (`initialize(cwd=...)`), falling back to the process working directory, so
   parallel Desktop/gateway sessions do not share the wrong project memory.
 - **Backup-aware** - `hermes backup` / `hermes import` include both stores.
+- **Pre-compress checkpoints (API v2)** - before Hermes compresses a
+  conversation, Sugar durably archives the user/assistant evidence to local
+  memory, so the detail survives the lossy rewrite. This provider advertises
+  checkpoint API v2, the fail-closed contract: a normal return means the
+  archive is committed, and any failure raises so the uncompressed transcript
+  is kept. Writes are keyed by transcript digest, so retries do not duplicate.
+- **Built-in memory mirroring** - writes to Hermes's own `MEMORY.md` / `USER.md`
+  are mirrored into Sugar (user profile as `preference`/global, agent notes as
+  `research`/project), so the two memory systems stay searchable in one place.
+  Removals are not mirrored: Sugar is an append-only archive and the native
+  notification carries no stable entry id.
+- **Bundled skill** - `sugar:memory` teaches the agent when to recall and what
+  is worth storing, shipped with the plugin.
 
 ## Install
 

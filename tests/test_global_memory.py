@@ -31,6 +31,22 @@ from sugar.memory import (
 )
 from sugar.memory.global_store import GLOBAL_DB_PATH
 
+# The MCP tool tests below build a real FastMCP app. That needs the MCP SDK v1
+# surface (``mcp.server.fastmcp``); the SDK 2.x line dropped it, so skip those
+# tests instead of failing when the optional extra is missing or too new.
+try:
+    from sugar.mcp.memory_server import FASTMCP_AVAILABLE
+
+    FASTMCP_SKIP_REASON = "FastMCP not available (install 'sugarai[mcp]')"
+except Exception:  # pragma: no cover - import guard for optional dependency
+    FASTMCP_AVAILABLE = False
+    FASTMCP_SKIP_REASON = "sugar.mcp.memory_server not importable"
+
+
+def _needs_fastmcp(func):
+    return pytest.mark.skipif(not FASTMCP_AVAILABLE, reason=FASTMCP_SKIP_REASON)(func)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -634,6 +650,7 @@ def _get_mcp_resource_fn(mcp, uri):
     return resource.fn
 
 
+@_needs_fastmcp
 class TestMCPStoreLearning:
     """store_learning tool respects the scope parameter."""
 
@@ -722,6 +739,7 @@ class TestMCPStoreLearning:
         manager.close()
 
 
+@_needs_fastmcp
 class TestMCPSearchMemory:
     """search_memory tool returns results with scope field."""
 
@@ -774,6 +792,7 @@ class TestMCPSearchMemory:
         manager.close()
 
 
+@_needs_fastmcp
 class TestMCPGetProjectContext:
     """get_project_context includes a guidelines section."""
 
@@ -820,6 +839,7 @@ class TestMCPGetProjectContext:
         manager.close()
 
 
+@_needs_fastmcp
 class TestMCPRecall:
     """recall tool searches both stores."""
 
@@ -862,6 +882,7 @@ class TestMCPRecall:
         manager.close()
 
 
+@_needs_fastmcp
 class TestMCPGlobalGuidelinesResource:
     """global_guidelines_resource returns guidelines markdown."""
 

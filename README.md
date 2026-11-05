@@ -345,7 +345,7 @@ Contributions welcome. See [CONTRIBUTING.md](docs/dev/contributing.md).
 ```bash
 git clone https://github.com/roboticforce/sugar.git
 cd sugar
-uv pip install -e ".[dev,test,github]"
+uv pip install -e ".[dev,test,github,mcp]"
 pytest tests/ -v
 ```
 
