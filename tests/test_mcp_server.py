@@ -9,17 +9,27 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from subprocess import CompletedProcess
 
-# Try to import MCP components, skip tests if not available
+# Try to import MCP components, skip tests if not available.
+# The server is written against the MCP SDK v1 API (`Server.list_tools` as a
+# decorator), so importing successfully is not enough: the SDK 2.x line moved
+# to a FastMCP-only surface and these tests must skip rather than error.
 try:
+    import sugar.mcp.server as _mcp_server_module
     from sugar.mcp.server import (
         ServerConfig,
         SugarMCPServer,
         create_server,
     )
 
-    MCP_AVAILABLE = True
+    MCP_AVAILABLE = hasattr(_mcp_server_module.MCPServer, "list_tools")
+    MCP_SKIP_REASON = (
+        "MCP SDK v1 API not available (install 'sugarai[mcp]')"
+        if not MCP_AVAILABLE
+        else ""
+    )
 except ImportError:
     MCP_AVAILABLE = False
+    MCP_SKIP_REASON = "MCP dependencies not installed (install 'sugarai[mcp]')"
     ServerConfig = None
     SugarMCPServer = None
     create_server = None
@@ -30,7 +40,7 @@ except ImportError:
 # =============================================================================
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestServerConfig:
     """Tests for ServerConfig dataclass"""
 
@@ -64,7 +74,7 @@ class TestServerConfig:
 # =============================================================================
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestSugarMCPServer:
     """Tests for SugarMCPServer class"""
 
@@ -81,7 +91,7 @@ class TestSugarMCPServer:
         assert server.config.port == 3000
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestCreateServer:
     """Tests for create_server factory function"""
 
@@ -108,7 +118,7 @@ class TestCreateServer:
 # =============================================================================
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestAnalyzeIssueTool:
     """Tests for the analyze_issue MCP tool"""
 
@@ -144,7 +154,7 @@ class TestAnalyzeIssueTool:
         mock_client.get_issue.assert_called_once_with(42)
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestSearchCodebaseTool:
     """Tests for the search_codebase MCP tool"""
 
@@ -185,7 +195,7 @@ class TestSearchCodebaseTool:
         assert result["matches"] == [] or len(result["matches"]) == 0
 
 
-@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+@pytest.mark.skipif(not MCP_AVAILABLE, reason=MCP_SKIP_REASON)
 class TestValidateResponseTool:
     """Tests for the validate_response MCP tool"""
 

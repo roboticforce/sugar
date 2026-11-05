@@ -64,7 +64,7 @@ def create_memory_mcp_server() -> "FastMCP":
     """Create and configure the Sugar Memory MCP server."""
     if not FASTMCP_AVAILABLE:
         raise ImportError(
-            "FastMCP not available. Install with: pip install 'sugarai[memory]'"
+            "FastMCP not available. Install with: pip install 'sugarai[mcp]'"
         )
 
     mcp = FastMCP("Sugar Memory")
@@ -417,7 +417,7 @@ def run_memory_server(transport: str = "stdio"):
     """Run the Sugar Memory MCP server."""
     if not FASTMCP_AVAILABLE:
         raise ImportError(
-            "FastMCP not available. Install with: pip install 'sugarai[memory]'"
+            "FastMCP not available. Install with: pip install 'sugarai[mcp]'"
         )
 
     mcp = create_memory_mcp_server()
