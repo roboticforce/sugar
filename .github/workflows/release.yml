@@ -61,7 +61,7 @@ jobs:
       with:
         body: ${{ steps.changelog.outputs.changes }}
         draft: false
-        prerelease: ${{ contains(github.ref, '-') }}
+        prerelease: ${{ contains(github.ref, '-') || contains(github.ref, '.dev') || contains(github.ref, '.rc') }}
 
   publish-pypi:
     name: Publish to PyPI
@@ -87,3 +87,24 @@ jobs:
     
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
+
+  build-macos-dmg:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    needs: create-release
+    # Packaging failure must never fail a release that already published.
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build universal DMG (ad-hoc signed)
+      run: |
+        chmod +x apps/macos/build-app.sh apps/macos/build-dmg.sh
+        cd apps/macos
+        ./build-dmg.sh --universal
+
+    - name: Attach DMG to the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload "$GITHUB_REF_NAME" apps/macos/dist/*.dmg --clobber

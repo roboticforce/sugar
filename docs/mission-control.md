@@ -215,7 +215,13 @@ dependencies.
 
 ```bash
 cd apps/macos && ./build-app.sh && open dist/SugarDash.app
+
+# distributable disk image (universal, drag to Applications)
+./build-dmg.sh --universal      # dist/SugarDash-<version>.dmg
 ```
+
+The DMG is ad-hoc signed by default; see `apps/macos/README.md` for Developer ID
+signing and notarization so recipients do not see a Gatekeeper warning.
 
 Window with sidebar filters, task list, detail inspector, add/edit/delete,
 hold/release, menu-bar pending count, live SSE updates with reconnect, and an

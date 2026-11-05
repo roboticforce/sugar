@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Event spine + live Activity feed.** A separate append-only `events.db` (`~/.sugar/events.db`, override with `--events-db` / `$SUGAR_EVENTS_DB`, `''` disables) records task transitions and harness telemetry: `ts, kind, actor, actor_kind, harness, machine, session_id, task_id, run_id, project, trace_id, source, payload`. Two best-effort observers feed it — the Kanban source tails the board's own `task_events` (no writes to the board), the Sugar source records snapshot diffs — and harnesses can post to `POST /api/events`. `GET /api/activity?since_id=&limit=&kind=&actor=&task_id=` pages forward, and the SSE stream now emits `event: activity` for every append. Raw events prune after 30 days (`$SUGAR_EVENTS_RETENTION_DAYS`, `0` disables). Both the browser dashboard (Tasks/Activity switch) and `SugarDash.app` (sidebar Activity) show the live feed with actor, harness, project and task links.
 
+### Added
+- **macOS DMG packaging** (`apps/macos/build-dmg.sh`): builds a drag-to-Applications disk image containing a universal (arm64 + x86_64) `SugarDash.app` and an `Applications` symlink. Version comes from `pyproject.toml`; ad-hoc signed by default, and `--notarize` + `SUGAR_CODESIGN_IDENTITY`/`SUGAR_NOTARY_PROFILE` produce a Developer ID-signed, notarized, stapled DMG.
+
 ### Security
 - **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
 

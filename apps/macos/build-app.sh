@@ -11,9 +11,19 @@ cd "$(dirname "$0")"
 APP_NAME="SugarDash"
 EXECUTABLE="SugarDash"
 BUNDLE_ID="io.roboticforce.sugardash"
-VERSION="1.0.0"
-BUILD_NUMBER="1"
 MIN_MACOS="14.0"
+
+# Version comes from the repo's pyproject (fall back to a static value when the
+# script is run outside a checkout). CFBundleShortVersionString must look like
+# X.Y.Z, so a PEP 440 pre-release suffix (3.10.6.dev1) is kept for the DMG name
+# but stripped from the bundle.
+PYPROJECT="$(cd ../.. && pwd)/pyproject.toml"
+FULL_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PYPROJECT" 2>/dev/null | head -1)"
+FULL_VERSION="${SUGAR_APP_VERSION:-${FULL_VERSION:-0.0.0}}"
+VERSION="$(printf '%s' "$FULL_VERSION" | sed -E 's/(\.dev|\.rc|\.post|\+).*$//')"
+BUILD_NUMBER="${SUGAR_BUILD_NUMBER:-1}"
+IDENTITY="${SUGAR_CODESIGN_IDENTITY:--}"  # "-" = ad-hoc
+UNIVERSAL="${SUGAR_UNIVERSAL:-0}"
 
 DIST_DIR="$PWD/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
@@ -46,9 +56,30 @@ if [[ -x "$PRODUCT" ]] && [[ -n "$(find Sources Tests -type f -newer "$PRODUCT" 
     echo "==> Sources newer than release product; forcing a clean rebuild"
     rm -rf .build
 fi
-swift build "${SWIFT_BUILD_FLAGS[@]}" -c release
-BIN_DIR="$(swift build "${SWIFT_BUILD_FLAGS[@]}" -c release --show-bin-path)"
-BINARY="$BIN_DIR/$EXECUTABLE"
+if [[ "$UNIVERSAL" == "1" ]]; then
+    echo "==> Building universal (arm64 + x86_64)"
+    TMP_BIN="$(mktemp -d)"
+    ARCH_BINARIES=()
+    for triple in "arm64-apple-macosx$MIN_MACOS" "x86_64-apple-macosx$MIN_MACOS"; do
+        scratch=".build-$triple"
+        swift build "${SWIFT_BUILD_FLAGS[@]}" -c release \
+            --triple "$triple" --scratch-path "$scratch"
+        arch_bin="$(swift build "${SWIFT_BUILD_FLAGS[@]}" -c release \
+            --triple "$triple" --scratch-path "$scratch" --show-bin-path)/$EXECUTABLE"
+        if [[ ! -x "$arch_bin" ]]; then
+            echo "error: missing $triple binary at $arch_bin" >&2
+            exit 1
+        fi
+        ARCH_BINARIES+=("$arch_bin")
+    done
+    BINARY="$TMP_BIN/$EXECUTABLE"
+    lipo -create "${ARCH_BINARIES[@]}" -output "$BINARY"
+    lipo -info "$BINARY"
+else
+    swift build "${SWIFT_BUILD_FLAGS[@]}" -c release
+    BIN_DIR="$(swift build "${SWIFT_BUILD_FLAGS[@]}" -c release --show-bin-path)"
+    BINARY="$BIN_DIR/$EXECUTABLE"
+fi
 
 if [[ ! -x "$BINARY" ]]; then
     echo "error: expected release binary at $BINARY" >&2
@@ -103,10 +134,19 @@ PLIST
 echo "==> Validating Info.plist"
 plutil -lint "$APP_DIR/Contents/Info.plist"
 
-echo "==> Signing ad-hoc"
-codesign -s - --force --deep "$APP_DIR"
+if [[ "$IDENTITY" == "-" ]]; then
+    echo "==> Signing ad-hoc (local use; not notarizable)"
+    codesign -s - --force "$APP_DIR"
+else
+    echo "==> Signing with: $IDENTITY (hardened runtime)"
+    codesign -s "$IDENTITY" --force --options runtime --timestamp "$APP_DIR"
+fi
 codesign --verify --strict "$APP_DIR"
+
+# build-dmg.sh reads the exact version (including .devN) from here.
+printf '%s\n' "$FULL_VERSION" > "$DIST_DIR/SugarDash.version"
 
 echo
 echo "Built: $APP_DIR"
+echo "Version: $FULL_VERSION"
 echo "Run:   open \"$APP_DIR\""

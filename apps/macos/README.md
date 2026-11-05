@@ -41,9 +41,36 @@ dist/SugarDash.app/
     └── Resources/
 ```
 
-and ad-hoc signs it (`codesign -s - --force --deep`). The bundle is launchable
-with `open dist/SugarDash.app`; it is not notarized or signed with a Developer ID,
+and ad-hoc signs it (`codesign -s -`). The bundle is launchable with
+`open dist/SugarDash.app`; it is not notarized or signed with a Developer ID,
 which is expected for a local/dev build.
+
+## Distribution (DMG)
+
+```bash
+./build-dmg.sh --universal      # dist/SugarDash-<version>.dmg (arm64 + x86_64)
+```
+
+The DMG contains `SugarDash.app` plus an `Applications` symlink, so installing is
+drag-and-drop. `build-app.sh` reads the version from the repo `pyproject.toml`
+(the pre-release suffix is stripped for `CFBundleShortVersionString`), and the
+DMG is named with the full version, e.g. `SugarDash-3.10.6.dev1.dmg`.
+
+**Signing.** By default the app and DMG are ad-hoc signed. Recipients must
+right-click the app and choose **Open** once (or run
+`xattr -dr com.apple.quarantine /Applications/SugarDash.app`). For a warning-free
+download, sign with an Apple Developer ID and notarize:
+
+```bash
+export SUGAR_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export SUGAR_NOTARY_PROFILE="notary-profile"   # xcrun notarytool store-credentials …
+./build-dmg.sh --universal --notarize
+```
+
+`--notarize` requires the keychain profile (app-specific password or API key,
+stored by `notarytool store-credentials`); the script submits the DMG, waits for
+the result and staples the ticket. Without a Developer ID certificate the build
+still succeeds — it is simply ad-hoc.
 
 The script also disables SwiftPM's manifest sandbox and points its caches at
 `/tmp/sugar-swift-cache` (override with `SUGAR_SWIFT_CACHE=...`). Those flags make
