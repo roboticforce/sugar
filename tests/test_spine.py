@@ -121,7 +121,7 @@ class TestSpineStore:
         monkeypatch.setenv("SUGAR_EVENTS_DB", str(tmp_path / "custom.db"))
         assert default_events_db_path() == tmp_path / "custom.db"
         monkeypatch.delenv("SUGAR_EVENTS_DB")
-        assert str(default_events_db_path()).endswith(".sugar/events.db")
+        assert default_events_db_path().parts[-2:] == (".sugar", "events.db")
 
 
 class TestEventValidation:

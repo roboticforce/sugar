@@ -781,7 +781,10 @@ async def test_sse_streams_external_write_and_delete(tmp_path):
             }
         )
 
-        text = await sse.wait_for("event: upsert", timeout=5.0)
+        text = await sse.wait_for("event: upsert", timeout=10.0)
+        # ``stats`` is published after the upsert batch, as its own SSE event;
+        # wait for it explicitly so this is not timing-dependent (Windows CI).
+        text = await sse.wait_for("event: stats", timeout=10.0)
         events = parse_sse_events(text)
         upserts = [payload for name, payload in events if name == "upsert"]
         assert upserts, "external WorkQueue write must surface as an SSE upsert"
@@ -790,7 +793,7 @@ async def test_sse_streams_external_write_and_delete(tmp_path):
         assert any(name == "stats" for name, _payload in events)
 
         await queue.remove_work(task_id)
-        text = await sse.wait_for("event: delete", timeout=5.0)
+        text = await sse.wait_for("event: delete", timeout=10.0)
         deletes = [
             payload for name, payload in parse_sse_events(text) if name == "delete"
         ]
