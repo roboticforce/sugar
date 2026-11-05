@@ -5,6 +5,23 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.4] - 2026-11-05
+
+### Fixed
+- **Hermes memory-provider plugin** (`hermes-plugin/`): per-turn recall now actually runs every turn. `queue_prefetch()` never started the thread returned by `agent.memory_provider.spawn_context_thread()` — which is deliberately unstarted and must be started by the caller — so the recall block was computed on the first turn and replayed verbatim for the rest of the session.
+- Hermes plugin: project memory follows the session workspace Hermes passes as `initialize(cwd=...)` instead of the process working directory, so concurrent Desktop/gateway sessions no longer attach to the wrong `.sugar/` project store (or silently fall back to global memory).
+- Hermes plugin: a malformed `SUGAR_SEARCH_LIMIT` no longer raises `ValueError` out of provider initialization; the value is coerced and clamped to 1-20 with a safe default.
+- Hermes plugin: `recall_status()` now reports only what the last `prefetch()` actually injected, instead of a stale count after a trivial prompt injected nothing.
+- Hermes plugin tests: the `spawn_context_thread` stub started threads itself, so 16 tests passed while production did no background work. The stub now mirrors the real unstarted-thread contract, and each fixed defect has a regression test that fails on the previous code.
+
+### Added
+- Hermes plugin: `on_session_switch()` rebinds the session id and drops the cached recall block on `/new`, `/reset` and `/branch`, so a new conversation cannot inherit the previous one's recalled context.
+- Hermes plugin: `backup_paths()` exposes `~/.sugar/memory.db` and the project store to `hermes backup` / `hermes import` (both live outside `HERMES_HOME`).
+
+### Changed
+- Hermes plugin manifest: canonical `python_dependencies` (now `sugarai>=3.10.3,<3.11`, with a floor and an upper bound), explicit `requires_hermes: ">=0.19"`, `author`, and plugin version `0.2.0`.
+- Hermes plugin README: note that semantic search requires the `sugarai[memory]` extra (the default install uses SQLite FTS5 keyword search) and correct the project-directory behaviour to session-workspace detection.
+
 ## [3.10.3] - 2026-10-14
 
 ### Fixed
