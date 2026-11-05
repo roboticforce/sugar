@@ -167,32 +167,80 @@ VALID_TYPES = (
 )
 
 
-def _load_provider_config() -> Dict[str, Any]:
-    """Env vars provide defaults; $HERMES_HOME/sugar.json overrides. Mirrors the
-    mem0 layering so a partial JSON file cannot silently drop env settings."""
-    config: Dict[str, Any] = {
-        "project_dir": os.environ.get("SUGAR_PROJECT_DIR", "").strip(),
-        "sync_turns": os.environ.get("SUGAR_SYNC_TURNS", "").strip().lower()
-        in ("1", "true", "yes"),
-        "search_limit": int(os.environ.get("SUGAR_SEARCH_LIMIT", "5") or "5"),
-    }
-    try:
-        from hermes_constants import get_hermes_home
+_SEARCH_LIMIT_MIN = 1
+_SEARCH_LIMIT_MAX = 20
+_DEFAULT_SEARCH_LIMIT = 5
 
-        config_file = Path(get_hermes_home()) / "sugar.json"
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _coerce_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    """Parse an int, falling back to *default* when unparseable or out of range.
+
+    A malformed ``SUGAR_SEARCH_LIMIT`` must never raise out of provider
+    initialization - the provider simply falls back to the default.
+    """
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    if parsed < minimum or parsed > maximum:
+        return default
+    return parsed
+
+
+def _default_config() -> Dict[str, Any]:
+    return {
+        "project_dir": os.environ.get("SUGAR_PROJECT_DIR", "").strip(),
+        "sync_turns": _coerce_bool(os.environ.get("SUGAR_SYNC_TURNS", "")),
+        "search_limit": _coerce_int(
+            os.environ.get("SUGAR_SEARCH_LIMIT"),
+            _DEFAULT_SEARCH_LIMIT,
+            _SEARCH_LIMIT_MIN,
+            _SEARCH_LIMIT_MAX,
+        ),
+    }
+
+
+def _load_provider_config(hermes_home: str = "") -> Dict[str, Any]:
+    """Env vars provide defaults; ``$HERMES_HOME/sugar.json`` overrides them.
+
+    ``hermes_home`` is the profile home Hermes hands to ``initialize(**kwargs)``,
+    so a multiplexed process reads this profile's settings rather than whatever
+    the ambient ``get_hermes_home()`` context happens to be. Mirrors the mem0
+    layering so a partial JSON file cannot silently drop env settings.
+    """
+    config = _default_config()
+    home = (hermes_home or "").strip()
+    try:
+        if not home:
+            from hermes_constants import get_hermes_home
+
+            home = str(get_hermes_home())
+        config_file = Path(home) / "sugar.json"
         if config_file.exists():
             stored = json.loads(config_file.read_text(encoding="utf-8"))
             if isinstance(stored, dict):
-                for key in config:
-                    if key in stored and stored[key] not in (None, ""):
-                        config[key] = stored[key]
-                config["project_dir"] = str(config["project_dir"]).strip()
-        return config
+                if stored.get("project_dir") not in (None, ""):
+                    config["project_dir"] = str(stored["project_dir"]).strip()
+                if stored.get("sync_turns") is not None:
+                    config["sync_turns"] = _coerce_bool(stored["sync_turns"])
+                if stored.get("search_limit") is not None:
+                    config["search_limit"] = _coerce_int(
+                        stored["search_limit"],
+                        config["search_limit"],
+                        _SEARCH_LIMIT_MIN,
+                        _SEARCH_LIMIT_MAX,
+                    )
     except (
         Exception
     ) as e:  # no hermes_constants in the validate probe env, bad JSON, ...
         logger.debug("sugar.json config load failed (%s); using env defaults", e)
-        return config
+    return config
 
 
 class SugarMemoryProvider(MemoryProvider):
@@ -209,9 +257,12 @@ class SugarMemoryProvider(MemoryProvider):
         self._lock = threading.Lock()
         self._session_id: str = ""
         self._agent_context: str = "primary"
+        self._cwd: str = ""
+        self._hermes_home: str = ""
         self._config: Dict[str, Any] = {}
         self._cached_block: str = ""
         self._cached_count: int = 0
+        self._last_status: Optional[Any] = None
         self._unavailable: str = ""
 
     @property
@@ -255,9 +306,9 @@ class SugarMemoryProvider(MemoryProvider):
                 "key": "search_limit",
                 "description": "Default number of recalled memories per turn.",
                 "type": "integer",
-                "minimum": 1,
-                "maximum": 20,
-                "default": 5,
+                "minimum": _SEARCH_LIMIT_MIN,
+                "maximum": _SEARCH_LIMIT_MAX,
+                "default": _DEFAULT_SEARCH_LIMIT,
                 "env_var": "SUGAR_SEARCH_LIMIT",
             },
         ]
@@ -276,28 +327,41 @@ class SugarMemoryProvider(MemoryProvider):
 
     # -- Lifecycle ------------------------------------------------------------
 
+    def _project_db_path(self) -> Optional[Path]:
+        """Resolve this session's project store without opening it.
+
+        Hermes hands the session workspace to ``initialize(cwd=...)``; the
+        process working directory is only a fallback, because one Desktop or
+        gateway backend can serve several sessions with different workspaces.
+        Looks next to the workspace first, then walks up for the nearest
+        ``.sugar/`` (the same rule as Sugar's own tooling and MCP server).
+        """
+        project_dir = str((self._config or {}).get("project_dir") or "").strip()
+        if project_dir:
+            return Path(project_dir).expanduser() / ".sugar" / "memory.db"
+
+        base = Path(self._cwd).expanduser() if self._cwd else Path.cwd()
+        if not base.is_dir():
+            base = Path.cwd()
+        sugar_dir = base / ".sugar"
+        if not sugar_dir.exists():
+            for parent in base.parents:
+                candidate = parent / ".sugar"
+                if candidate.exists():
+                    sugar_dir = candidate
+                    break
+            else:
+                return None
+        return sugar_dir / "memory.db"
+
     def _get_manager(self) -> Any:
         if self._manager is not None:
             return self._manager
         from sugar.memory import MemoryStore
         from sugar.memory.global_store import GlobalMemoryManager
 
-        project_store = None
-        project_dir = str(self._config.get("project_dir") or "").strip()
-        if project_dir:
-            project_store = MemoryStore(str(Path(project_dir) / ".sugar" / "memory.db"))
-        else:
-            # Same walk-up as the Sugar MCP server: nearest .sugar/ wins.
-            cwd = Path.cwd()
-            sugar_dir = cwd / ".sugar"
-            if not sugar_dir.exists():
-                for parent in cwd.parents:
-                    potential = parent / ".sugar"
-                    if potential.exists():
-                        sugar_dir = potential
-                        break
-            if sugar_dir.exists():
-                project_store = MemoryStore(str(sugar_dir / "memory.db"))
+        db_path = self._project_db_path()
+        project_store = MemoryStore(str(db_path)) if db_path is not None else None
         self._manager = GlobalMemoryManager(project_store=project_store)
         return self._manager
 
@@ -306,11 +370,23 @@ class SugarMemoryProvider(MemoryProvider):
             return
         self._session_id = session_id
         self._agent_context = str(kwargs.get("agent_context") or "primary")
-        self._config = _load_provider_config()
+        self._cwd = str(kwargs.get("cwd") or "").strip()
+        self._hermes_home = str(kwargs.get("hermes_home") or "").strip()
+        try:
+            self._config = _load_provider_config(self._hermes_home)
+        except Exception as e:  # defensive: a bad config must not break the session
+            logger.warning("Sugar config load failed (%s); using defaults", e)
+            self._config = {
+                "project_dir": "",
+                "sync_turns": False,
+                "search_limit": _DEFAULT_SEARCH_LIMIT,
+            }
         try:
             self._get_manager()
             logger.info(
-                "Sugar memory provider initialized (session %s)", session_id[:8]
+                "Sugar memory provider initialized (session %s, project store %s)",
+                session_id[:8],
+                "yes" if self._manager.project_store is not None else "no",
             )
         except Exception as e:
             logger.warning("Sugar memory provider failed to initialize: %s", e)
@@ -330,6 +406,51 @@ class SugarMemoryProvider(MemoryProvider):
         # process-level shutdown() closes it.
         return
 
+    def on_session_switch(
+        self,
+        new_session_id: str,
+        *,
+        parent_session_id: str = "",
+        reset: bool = False,
+        rewound: bool = False,
+        **kwargs,
+    ) -> None:
+        """Rebind per-session state when Hermes reassigns session_id in place.
+
+        ``/resume``, ``/branch``, ``/reset`` and ``/new`` reach us without a
+        teardown. Without this the cached recall block and stored session tags
+        would keep naming the previous conversation (and a brand-new
+        conversation would inherit the old one's recalled context).
+        """
+        if new_session_id:
+            self._session_id = str(new_session_id)
+        if reset or rewound:
+            with self._lock:
+                self._cached_block = ""
+                self._cached_count = 0
+            self._last_status = None
+
+    def backup_paths(self) -> List[str]:
+        """Sugar's stores live outside HERMES_HOME, so point ``hermes backup``
+        at them explicitly. Must work without ``initialize()`` (contract).
+        """
+        candidates: List[str] = []
+        try:
+            from sugar.memory import global_store
+
+            global_db = getattr(global_store, "GLOBAL_DB_PATH", None)
+            if global_db:
+                candidates.append(str(global_db))
+        except Exception as e:
+            logger.debug("Sugar global store path unavailable: %s", e)
+        try:
+            project_db = self._project_db_path()
+            if project_db is not None:
+                candidates.append(str(project_db))
+        except Exception as e:
+            logger.debug("Sugar project store path unavailable: %s", e)
+        return [path for path in candidates if Path(path).exists()]
+
     # -- Recall ---------------------------------------------------------------
 
     def system_prompt_block(self) -> str:
@@ -339,24 +460,35 @@ class SugarMemoryProvider(MemoryProvider):
         """Return the cached recall block; search synchronously on the first
         turn (SQLite/FTS is millisecond-fast; a warm [memory]-extra embedder
         loads once and is then reused)."""
-        with self._lock:
-            if self._cached_block:
-                return self._cached_block
         if is_trivial_prompt(query) or not self.is_available():
+            self._last_status = None
             return ""
-        return self._run_recall(query)
+        with self._lock:
+            block = self._cached_block
+            count = self._cached_count
+        if not block:
+            block = self._run_recall(query)
+            with self._lock:
+                block = self._cached_block
+                count = self._cached_count
+        # recall_status() must describe THIS prefetch, never a stale prior count.
+        if RecallStatus is None or not block:
+            self._last_status = None
+        else:
+            self._last_status = RecallStatus(provider_label="Sugar", count=count)
+        return block
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if is_trivial_prompt(query) or not self.is_available():
             return
+        # spawn_context_thread returns an UNSTARTED thread bound to this
+        # profile's contextvars; starting it is the caller's job.
         spawn_context_thread(
             self._run_recall, name="sugar-memory-prefetch", args=(query,)
-        )
+        ).start()
 
     def recall_status(self) -> Optional[Any]:
-        if RecallStatus is None or not self._cached_block:
-            return None
-        return RecallStatus(provider_label="Sugar", count=self._cached_count)
+        return self._last_status
 
     def _run_recall(self, query: str) -> str:
         try:
