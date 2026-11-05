@@ -36,9 +36,7 @@ async def run_dashboard(
             hermes_bin=hermes_bin,
             kanban_board=kanban_board,
         )
-    app = create_app(
-        db_path, read_only=read_only, service=service, events_db=events_db
-    )
+    app = create_app(db_path, read_only=read_only, service=service, events_db=events_db)
     config = uvicorn.Config(
         app,
         host=host,
