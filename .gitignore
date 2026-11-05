@@ -202,3 +202,7 @@ claude-plugins-official/
 # SkillEvaluator generated output (regenerate locally; never commit)
 skills/**/evals/results/
 reports/
+
+# Swift Package Manager build output — compiled objects and module caches,
+# never reviewable source (and rejected by the Hermes catalog scanner).
+**/.build/
