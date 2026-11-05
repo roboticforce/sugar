@@ -86,11 +86,15 @@ def plugin_module(tmp_path, monkeypatch):
             self.glyph = glyph
 
     def spawn_context_thread(target, *, name, daemon=True, args=(), kwargs=None):
-        t = threading.Thread(
+        """Mirror the real contract: returns an UNSTARTED thread.
+
+        Hermes binds profile contextvars inside this helper and leaves starting
+        to the caller, so a provider that forgets ``.start()`` silently does no
+        background work. Tests must model that rather than paper over it.
+        """
+        return threading.Thread(
             target=target, args=args, kwargs=kwargs or {}, name=name, daemon=daemon
         )
-        t.start()
-        return t
 
     provider_stub.MemoryProvider = MemoryProvider
     provider_stub.RecallStatus = RecallStatus
@@ -126,15 +130,19 @@ def plugin_module(tmp_path, monkeypatch):
 
 
 class TestSugarMemoryProvider:
-    def _provider(self, plugin_module, monkeypatch, cwd, agent_context="primary"):
+    def _provider(
+        self, plugin_module, monkeypatch, cwd, agent_context="primary", session_cwd=None
+    ):
         monkeypatch.chdir(cwd)
         p = plugin_module.SugarMemoryProvider()
-        p.initialize(
-            f"sess-{uuid4().hex[:8]}",
-            hermes_home="/tmp",
-            platform="test",
-            agent_context=agent_context,
-        )
+        kwargs = {
+            "hermes_home": str(cwd),
+            "platform": "test",
+            "agent_context": agent_context,
+        }
+        if session_cwd is not None:
+            kwargs["cwd"] = str(session_cwd)
+        p.initialize(f"sess-{uuid4().hex[:8]}", **kwargs)
         return p
 
     def test_register_calls_register_memory_provider(self, plugin_module):
@@ -292,3 +300,158 @@ class TestSugarMemoryProvider:
         # $HERMES_HOME/sugar.json (stubbed to tmp_path) overrides env
         (tmp_path / "sugar.json").write_text(json.dumps({"search_limit": 7}))
         assert plugin_module._load_provider_config()["search_limit"] == 7
+
+    # -- Hermes contract regressions ------------------------------------------
+
+    def test_spawn_context_thread_returns_unstarted_thread(self, plugin_module):
+        """The helper Hermes provides does NOT start the thread."""
+        probe = plugin_module.spawn_context_thread(lambda: None, name="probe")
+        assert probe.ident is None
+        probe.start()
+        probe.join(5)
+
+    def _recording_spawn(self, plugin_module, monkeypatch):
+        created = []
+        real = plugin_module.spawn_context_thread
+
+        def recording(target, *, name, daemon=True, args=(), kwargs=None):
+            thread = real(target, name=name, daemon=daemon, args=args, kwargs=kwargs)
+            created.append((name, thread))
+            return thread
+
+        monkeypatch.setattr(plugin_module, "spawn_context_thread", recording)
+        return created
+
+    def test_queue_prefetch_starts_its_background_thread(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        created = self._recording_spawn(plugin_module, monkeypatch)
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.queue_prefetch("a non-trivial question about deploy rules")
+        assert [name for name, _t in created] == ["sugar-memory-prefetch"]
+        thread = created[0][1]
+        thread.join(5)
+        assert not thread.is_alive()
+        p.shutdown()
+
+    def test_recall_refreshes_on_the_next_turn(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        """Regression: recall must not freeze on the first turn's result."""
+        created = self._recording_spawn(plugin_module, monkeypatch)
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.handle_tool_call(
+            "sugar_store", {"content": "Deploys go through Kamal", "scope": "global"}
+        )
+        first = p.prefetch("how do we deploy")
+        assert "Kamal" in first
+
+        p.handle_tool_call(
+            "sugar_store",
+            {"content": "Migrations use alembic upgrade head", "scope": "global"},
+        )
+        p.queue_prefetch("how do migrations run")
+        assert created, "queue_prefetch did not spawn a background refresh"
+        created[0][1].join(5)
+
+        second = p.prefetch("how do migrations run")
+        assert "alembic" in second.lower()
+        assert second != first
+        p.shutdown()
+
+    def test_recall_status_matches_only_the_last_prefetch(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.handle_tool_call(
+            "sugar_store",
+            {
+                "content": "Kamal deploy rule",
+                "memory_type": "guideline",
+                "scope": "global",
+            },
+        )
+        assert p.prefetch("Kamal deploy")
+        assert p.recall_status() is not None
+        # A trivial prompt injects nothing, so the indicator must go away.
+        assert p.prefetch("thanks!") == ""
+        assert p.recall_status() is None
+        p.shutdown()
+
+    def test_uses_session_cwd_for_project_store(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        """Regression: project memory follows the session workspace, not os.getcwd()."""
+        workspace = tmp_path / "workspace"
+        (workspace / ".sugar").mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        p = self._provider(plugin_module, monkeypatch, elsewhere, session_cwd=workspace)
+        r = json.loads(
+            p.handle_tool_call(
+                "sugar_store", {"content": "project-only fact", "scope": "project"}
+            )
+        )
+        assert r["status"] == "stored"
+        assert r["scope"] == "project"
+        assert (workspace / ".sugar" / "memory.db").exists()
+        p.shutdown()
+
+    def test_malformed_search_limit_env_does_not_break_initialize(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("SUGAR_SEARCH_LIMIT", "not-a-number")
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        assert p._config["search_limit"] == 5
+        p.shutdown()
+
+    def test_search_limit_coercion(self, plugin_module):
+        assert plugin_module._coerce_int("7", 5, 1, 20) == 7
+        assert plugin_module._coerce_int("0", 5, 1, 20) == 5
+        assert plugin_module._coerce_int("9999", 5, 1, 20) == 5
+        assert plugin_module._coerce_int(None, 5, 1, 20) == 5
+        assert plugin_module._coerce_int("abc", 5, 1, 20) == 5
+
+    def test_session_switch_rebinds_and_resets_recall(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.handle_tool_call(
+            "sugar_store", {"content": "Kamal deploy rule", "scope": "global"}
+        )
+        assert p.prefetch("Kamal deploy")
+        p.on_session_switch("brand-new-session", reset=True)
+        assert p._session_id == "brand-new-session"
+        assert p._cached_block == ""
+        assert p.recall_status() is None
+        p.shutdown()
+
+    def test_backup_paths_include_the_global_store(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        p = self._provider(plugin_module, monkeypatch, tmp_path)
+        p.handle_tool_call("sugar_store", {"content": "backup me", "scope": "global"})
+        paths = p.backup_paths()
+        assert paths and all(Path(x).exists() for x in paths)
+        assert any(x.endswith("memory.db") for x in paths)
+        p.shutdown()
+
+    def test_backup_paths_works_without_initialize(self, plugin_module):
+        assert isinstance(plugin_module.SugarMemoryProvider().backup_paths(), list)
+
+    def test_plugin_manifest_is_catalog_shaped(self):
+        import yaml
+
+        manifest = yaml.safe_load(
+            (PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8")
+        )
+        assert manifest["name"] == "sugar"
+        for field in ("version", "description", "requires_hermes"):
+            assert manifest.get(field), f"plugin.yaml is missing {field}"
+        assert (
+            "pip_dependencies" not in manifest
+        ), "use the canonical python_dependencies field"
+        deps = manifest["python_dependencies"]
+        spec = next(d for d in deps if d.startswith("sugarai"))
+        assert ">=" in spec and "<" in spec, "declare a floor and an upper bound"
