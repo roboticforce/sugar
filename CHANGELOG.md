@@ -5,6 +5,22 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.5] - 2026-11-05
+
+### Added
+- **Hermes plugin: pre-compress checkpoints (MemoryProvider API v2)** (`hermes-plugin/`): before Hermes compresses a conversation, Sugar archives the normalized user/assistant evidence to local memory, keyed by transcript digest so retries dedupe. The provider advertises `pre_compress_checkpoint_api_version = 2` - the fail-closed contract, where a normal return means the archive is committed and a failure raises so the caller keeps the uncompressed transcript. No provider bundled with Hermes advertises API v2 (#86).
+- **Hermes plugin: built-in memory mirroring**: writes to Hermes's `MEMORY.md` / `USER.md` are mirrored into Sugar (`user` -> `preference`/global, `memory` -> `research`/project) with provenance in `source_id` and content-hash dedupe, so the two memory systems stay searchable together. Removals are deliberately not mirrored - the native notification carries no stable entry id (#86).
+- **Hermes plugin: bundled `sugar:memory` skill** registered via `ctx.register_skill()`, teaching when to recall and what is worth storing (#86).
+- Plugin test coverage for all three surfaces (42 plugin tests, was 27).
+
+### Fixed
+- **CI is green again.** The test job installed only `pip install -e .`, so `claude-agent-sdk`'s unpinned `mcp>=0.1.0` resolved to the MCP SDK 2.x line while Sugar's MCP server targets the 1.x surface (`Server.list_tools`, `mcp.server.fastmcp`). That produced 21 failures on all nine matrix jobs on every push since 2026-09-16 - including the v3.10.2 and v3.10.3 releases. CI now installs the `[mcp]` extra (pinned `mcp==1.26.0`), and the MCP tests skip with a clear reason when the extra is absent or the SDK major is incompatible (#85).
+- The MCP server's missing-dependency hint told users to install `sugarai[memory]`; FastMCP comes from `sugarai[mcp]` (#85).
+
+### Changed
+- Hermes plugin version `0.3.0`.
+- Dev setup (`AGENTS.md`, `README.md`) now installs the `mcp` extra, matching CI (#85).
+
 ## [3.10.4] - 2026-11-05
 
 ### Fixed
