@@ -34,6 +34,12 @@ class SugarLoop:
         self.config = self._load_config(config_path)
         self.running = False
         self.work_queue = WorkQueue(self.config["sugar"]["storage"]["database"])
+        # Identity recorded on every claim, so a stranded task names its owner.
+        from ..identity import worker_actor
+
+        self.worker_id = (
+            self.config.get("sugar", {}).get("worker_id") or worker_actor().id
+        )
 
         # Initialize executor based on config
         self.executor = self._create_executor()
@@ -325,7 +331,7 @@ class SugarLoop:
                 logger.info("🛑 Shutdown requested, not starting new work")
                 break
 
-            work_item = await self.work_queue.get_next_work()
+            work_item = await self.work_queue.get_next_work(worker_id=self.worker_id)
             if not work_item:
                 logger.info("No work items ready for execution")
                 break

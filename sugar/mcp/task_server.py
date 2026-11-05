@@ -7,27 +7,57 @@ allowing OpenCode, Claude Code, and other MCP clients to manage autonomous tasks
 Uses FastMCP for simplified server implementation.
 """
 
-import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from sugar.identity import Actor, agent_actor
+
 logger = logging.getLogger(__name__)
 
 # Check for FastMCP availability
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import Context, FastMCP
 
     FASTMCP_AVAILABLE = True
 except ImportError:
     try:
-        from fastmcp import FastMCP
+        from fastmcp import Context, FastMCP
 
         FASTMCP_AVAILABLE = True
     except ImportError:
         FASTMCP_AVAILABLE = False
         FastMCP = None
+        Context = Any
+
+
+def _client_info_from_context(ctx: Any) -> Any:
+    """Best-effort, duck-typed access to the MCP ``clientInfo`` handshake data."""
+    if ctx is None:
+        return None
+    try:
+        session = ctx.request_context.session
+        params = session.client_params
+    except (AttributeError, ValueError):
+        return None
+    if params is None:
+        return None
+    return getattr(params, "clientInfo", None)
+
+
+def actor_from_mcp_context(ctx: Any) -> Actor:
+    """Derive the calling agent from the MCP ``initialize`` handshake.
+
+    Per ``docs/local-dashboard.md`` §10.3 the actor id is
+    ``clientInfo.name`` (kind ``agent``) and the session is
+    ``clientInfo.version``, falling back to ``"mcp-client"``. The extraction is
+    duck-typed so unit tests can pass a plain stub instead of a real context.
+    """
+    client_info = _client_info_from_context(ctx)
+    name = getattr(client_info, "name", None)
+    version = getattr(client_info, "version", None)
+    return agent_actor(name, version)
 
 
 def get_work_queue():
@@ -88,6 +118,7 @@ def create_task_mcp_server() -> "FastMCP":
         acceptance_criteria: Optional[str] = None,
         orchestrate: bool = False,
         skip_stages: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> Dict[str, Any]:
         """
         Add a new task to the Sugar work queue for autonomous execution.
@@ -108,6 +139,8 @@ def create_task_mcp_server() -> "FastMCP":
                 complex, multi-part features.
             skip_stages: Comma-separated orchestration stages to skip
                 (e.g. "research,review"). Only meaningful when orchestrate=true.
+            ctx: Injected by FastMCP; carries the MCP handshake so the task
+                records which client created it. Not part of the tool schema.
 
         Returns:
             Task creation result with task_id
@@ -121,7 +154,10 @@ def create_task_mcp_server() -> "FastMCP":
             if type not in valid_types:
                 return {
                     "success": False,
-                    "error": f"Invalid task type '{type}'. Valid: {', '.join(valid_types)}",
+                    "error": (
+                        f"Invalid task type '{type}'. "
+                        f"Valid: {', '.join(valid_types)}"
+                    ),
                 }
 
             # Validate priority
@@ -165,6 +201,9 @@ def create_task_mcp_server() -> "FastMCP":
                 "context": context,
                 "acceptance_criteria": criteria_list,
             }
+            # Provenance: who asked for the work, from the MCP handshake.
+            actor = actor_from_mcp_context(ctx)
+            task_data.update(actor.as_task_fields())
             if orchestrate:
                 task_data["orchestrate"] = True
 
@@ -400,7 +439,10 @@ def create_task_mcp_server() -> "FastMCP":
                 if type not in valid_types:
                     return {
                         "success": False,
-                        "error": f"Invalid task type '{type}'. Valid: {', '.join(valid_types)}",
+                        "error": (
+                            f"Invalid task type '{type}'. "
+                            f"Valid: {', '.join(valid_types)}"
+                        ),
                     }
                 updates["type"] = type
                 updated_fields.append("type")
@@ -558,8 +600,9 @@ def create_task_mcp_server() -> "FastMCP":
                     4: "Low",
                     5: "Minimal",
                 }.get(priority, "Normal")
+                short_id = task.get("id", "")[:8]
                 lines.append(
-                    f"- **[{priority_label}]** {task.get('title')} ({task.get('id', '')[:8]})"
+                    f"- **[{priority_label}]** {task.get('title')} ({short_id})"
                 )
 
             return "\n".join(lines)

@@ -72,8 +72,12 @@ memory = [
 opencode = [
     "aiohttp==3.13.3",
 ]
+dashboard = [
+    "starlette==0.52.1",
+    "uvicorn==0.42.0",
+]
 all = [
-    "sugarai[github,mcp,memory,opencode]",
+    "sugarai[github,mcp,memory,opencode,dashboard]",
 ]
 
 [project.scripts]
@@ -89,6 +93,9 @@ Repository = "https://github.com/roboticforce/sugar"
 where = ["."]
 include = ["sugar*"]
 exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"sugar.dashboard" = ["static/*.html"]
 
 [tool.black]
 line-length = 88
