@@ -4698,7 +4698,7 @@ def mcp_memory(ctx, transport):
     except ImportError as e:
         click.echo(
             "❌ Memory MCP dependencies not installed. Install with:\n"
-            "   pip install 'sugarai[memory]'",
+            "   pip install 'sugarai[mcp]'",
             err=True,
         )
         click.echo(f"\nMissing: {e}", err=True)
