@@ -5,7 +5,7 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.10.6] - 2026-11-05
 
 ### Added
 - **Local real-time dashboard** (`sugar dashboard`, `sugar/dashboard/`): a loopback-only Starlette server (`127.0.0.1:7331` by default) that exposes the work queue as a REST API plus a Server-Sent Events stream, with a dependency-free browser UI at `/`. Reads use plain SQL; every write goes through `WorkQueue` (`add_work`, `update_work`, `complete_work`, `fail_work`, `hold_work`, `release_work`, `remove_work`) so hold/release/complete/fail semantics stay identical to the CLI and MCP server. `GET /api/events` sends `hello` + an authoritative `snapshot`, then `upsert` / `delete` / `stats` deltas; changes are detected by polling `PRAGMA data_version` every 400 ms, so writes made by `sugar add`, the MCP server or another process show up in under a second. Flags: `--host` (loopback only), `--port`, `--db`, `--open`, `--read-only`.
