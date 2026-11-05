@@ -1,0 +1,128 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "ALL-EXCLUDING-TESTS",
+      "parameters" : {
+        "action" : "build",
+        "activeRunDestination" : {
+          "disableOnlyActiveArch" : false,
+          "hostTargetedPlatform" : null,
+          "platform" : "macosx",
+          "sdk" : "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk",
+          "sdkVariant" : null,
+          "supportedArchitectures" : [
+
+          ],
+          "targetArchitecture" : "arm64"
+        },
+        "arenaInfo" : {
+          "buildIntermediatesPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex",
+          "buildProductsPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Products",
+          "derivedDataPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+          "indexDataStoreFolderPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+          "indexEnableDataStore" : false,
+          "indexPCHPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+          "pchPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/PCH"
+        },
+        "configurationName" : "Release",
+        "overrides" : {
+          "synthesized" : {
+            "table" : {
+              "ADD_TOOLCHAIN_CONCURRENCY_BACK_DEPLOY_RPATH" : "YES",
+              "ADD_TOOLCHAIN_SPAN_BACK_DEPLOY_RPATH" : "YES",
+              "CLANG_COVERAGE_MAPPING" : "NO",
+              "COLOR_DIAGNOSTICS" : "NO",
+              "DEAD_CODE_STRIPPING" : "YES",
+              "GENERATE_TEST_ENTRYPOINTS_FOR_BUNDLES" : "YES",
+              "LM_SKIP_METADATA_EXTRACTION" : "YES",
+              "ONLY_ACTIVE_ARCH" : "YES",
+              "OTHER_CFLAGS" : "$(inherited)",
+              "OTHER_CFLAGS[__destination_platform=YES]" : "$(inherited)",
+              "OTHER_CPLUSPLUSFLAGS" : "$(inherited)",
+              "OTHER_CPLUSPLUSFLAGS[__destination_platform=YES]" : "$(inherited)",
+              "OTHER_LDFLAGS" : "$(inherited) $(OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_$(LINKER_DRIVER))",
+              "OTHER_LDFLAGS[__destination_platform=YES]" : "$(inherited)",
+              "OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_swiftc" : "$(inherited)",
+              "OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_swiftc[__destination_platform=YES]" : "$(inherited)",
+              "OTHER_SWIFT_FLAGS" : "$(inherited)",
+              "OTHER_SWIFT_FLAGS[__destination_platform=YES]" : "$(inherited)",
+              "STRIP_INSTALLED_PRODUCT" : "NO",
+              "SWIFTC_DISABLE_SANDBOX" : "YES",
+              "SWIFT_FORCE_STATIC_LINK_STDLIB" : "NO",
+              "TOOLCHAINS" : "com.apple.dt.toolchain.XcodeDefault $(inherited)"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : true,
+  "parameters" : {
+    "action" : "build",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "hostTargetedPlatform" : null,
+      "platform" : "macosx",
+      "sdk" : "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk",
+      "sdkVariant" : null,
+      "supportedArchitectures" : [
+
+      ],
+      "targetArchitecture" : "arm64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex",
+      "buildProductsPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Products",
+      "derivedDataPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+      "indexDataStoreFolderPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+      "indexEnableDataStore" : false,
+      "indexPCHPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out",
+      "pchPath" : "/Users/steve/Dev/sugar/apps/macos/.build/out/PCH"
+    },
+    "configurationName" : "Release",
+    "overrides" : {
+      "synthesized" : {
+        "table" : {
+          "ADD_TOOLCHAIN_CONCURRENCY_BACK_DEPLOY_RPATH" : "YES",
+          "ADD_TOOLCHAIN_SPAN_BACK_DEPLOY_RPATH" : "YES",
+          "CLANG_COVERAGE_MAPPING" : "NO",
+          "COLOR_DIAGNOSTICS" : "NO",
+          "DEAD_CODE_STRIPPING" : "YES",
+          "GENERATE_TEST_ENTRYPOINTS_FOR_BUNDLES" : "YES",
+          "LM_SKIP_METADATA_EXTRACTION" : "YES",
+          "ONLY_ACTIVE_ARCH" : "YES",
+          "OTHER_CFLAGS" : "$(inherited)",
+          "OTHER_CFLAGS[__destination_platform=YES]" : "$(inherited)",
+          "OTHER_CPLUSPLUSFLAGS" : "$(inherited)",
+          "OTHER_CPLUSPLUSFLAGS[__destination_platform=YES]" : "$(inherited)",
+          "OTHER_LDFLAGS" : "$(inherited) $(OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_$(LINKER_DRIVER))",
+          "OTHER_LDFLAGS[__destination_platform=YES]" : "$(inherited)",
+          "OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_swiftc" : "$(inherited)",
+          "OTHER_LDFLAGS_SWIFTC_LINKER_DRIVER_swiftc[__destination_platform=YES]" : "$(inherited)",
+          "OTHER_SWIFT_FLAGS" : "$(inherited)",
+          "OTHER_SWIFT_FLAGS[__destination_platform=YES]" : "$(inherited)",
+          "STRIP_INSTALLED_PRODUCT" : "NO",
+          "SWIFTC_DISABLE_SANDBOX" : "YES",
+          "SWIFT_FORCE_STATIC_LINK_STDLIB" : "NO",
+          "TOOLCHAINS" : "com.apple.dt.toolchain.XcodeDefault $(inherited)"
+        }
+      }
+    }
+  },
+  "recordBuildBacktraces" : false,
+  "schedulerLaneWidthOverride" : 10,
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : false,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

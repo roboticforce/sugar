@@ -1,0 +1,49 @@
+{
+  "" : {
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SugarDashTests-primary.dia",
+    "emit-module-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SugarDashTests-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SugarDashTests-primary-emit-module.dia",
+    "pch" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SugarDashTests-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SugarDashTests-primary.swiftdeps"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/DerivedSources/test_entry_point.swift" : {
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.dia",
+    "index-unit-output-path" : "/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.o",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point.swiftdeps",
+    "swiftmodule" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/test_entry_point~partial.swiftmodule"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Tests/SugarDashTests/ActivityTests.swift" : {
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.dia",
+    "index-unit-output-path" : "/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.o",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests.swiftdeps",
+    "swiftmodule" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/ActivityTests~partial.swiftmodule"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Tests/SugarDashTests/DecodingTests.swift" : {
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.dia",
+    "index-unit-output-path" : "/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.o",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests.swiftdeps",
+    "swiftmodule" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/DecodingTests~partial.swiftmodule"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Tests/SugarDashTests/SSEStreamTests.swift" : {
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.dia",
+    "index-unit-output-path" : "/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.o",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests.swiftdeps",
+    "swiftmodule" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Debug/SugarDashTests-p.build/Objects-normal/arm64/SSEStreamTests~partial.swiftmodule"
+  }
+}

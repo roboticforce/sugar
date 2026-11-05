@@ -5,6 +5,15 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.6] - 2026-11-05
+
+### Fixed
+- **Runtime dependency pins no longer block installation alongside host tools.** Hermes pins its own core dependencies exactly, and the memory-provider plugin pulls `sugarai` into that environment, so an exact `==` pin on our side is an unsatisfiable union for every Hermes user. `pyyaml`, `aiosqlite`, `sqlalchemy`, `python-dotenv`, `asyncio-throttle` and `claude-agent-sdk` now carry a floor plus an upper bound; `python-dotenv` is `>=1.2.2,<2`, which admits Hermes's `1.2.4`. `setuptools` is removed from runtime dependencies entirely - nothing imports it and it is already pinned in `[build-system]`. Reproduced on Python 3.14.9 (NousResearch/hermes-agent#149282, #91).
+- **Hermes plugin: the checkpoint message is accurate.** It claimed the full transcript was recoverable from `~/.sugar/memory.db`, but the write lands in the project store (or the global store when promoted) and is truncated at 4,000 characters. The message now names the store actually written and flags truncation (plugin `0.3.1`, #91).
+
+### Added
+- `tests/test_packaging.py` guards the dependency policy: no exact runtime pins, an upper bound on every dependency, no `setuptools` runtime dependency, and `python-dotenv` must admit the host tool's pin (#91).
+
 ## [3.10.5] - 2026-11-05
 
 ### Added

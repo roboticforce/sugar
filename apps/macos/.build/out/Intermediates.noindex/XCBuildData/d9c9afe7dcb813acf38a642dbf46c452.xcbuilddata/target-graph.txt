@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'AllExcludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'SugarDash-product' in project 'SugarDash'
+Target 'SugarDash-product' in project 'SugarDash' (no dependencies)

@@ -1,0 +1,46 @@
+{
+  "" : {
+    "const-values" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.swiftconstvalues",
+    "dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.d",
+    "diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.dia",
+    "emit-module-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary-emit-module.dia",
+    "pch" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDash-primary.swiftdeps"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/APIClient.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/APIClient.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/APIClient.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/APIClient.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/AppModel.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/AppModel.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/AppModel.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/AppModel.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/ContentView.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/ContentView.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/Models.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/Models.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/Models.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/Models.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/SugarDashApp.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDashApp.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDashApp.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/SugarDashApp.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/TaskDetailView.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskDetailView.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskDetailView.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskDetailView.o"
+  },
+  "/Users/steve/Dev/sugar/apps/macos/Sources/SugarDash/TaskEditorView.swift" : {
+    "index-unit-output-path" : "/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskEditorView.o",
+    "llvm-bc" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskEditorView.bc",
+    "object" : "/Users/steve/Dev/sugar/apps/macos/.build/out/Intermediates.noindex/SugarDash.build/Release/SugarDash-p.build/Objects-normal/arm64/TaskEditorView.o"
+  }
+}

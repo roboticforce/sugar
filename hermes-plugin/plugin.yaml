@@ -4,4 +4,4 @@ description: "Sugar - local-first persistent memory for coding agents. SQLite on
 author: Steven Leggett
 requires_hermes: ">=0.19"
 python_dependencies:
-  - "sugarai>=3.10.3,<3.11"
+  - "sugarai>=3.10.6,<3.11"
