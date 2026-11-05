@@ -178,7 +178,7 @@ git checkout develop
 # Create venv and install
 python3 -m venv venv
 source venv/bin/activate
-pip install -e ".[dev,test,github]"
+pip install -e ".[dev,test,github,mcp]"
 
 # Verify
 sugar --version
