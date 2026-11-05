@@ -1,0 +1,32 @@
+{
+  "name": "dsh-plugin-sugar",
+  "version": "0.1.0",
+  "description": "Sugar - local-first persistent memory for DeepSeek Harness. Wires the Sugar memory MCP server into a DSH profile.",
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "memory",
+    "mcp",
+    "sugar"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roboticforce/sugar.git",
+    "directory": "dsh-plugin"
+  },
+  "homepage": "https://github.com/roboticforce/sugar/tree/main/dsh-plugin",
+  "bugs": {
+    "url": "https://github.com/roboticforce/sugar/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml"
+      ]
+    }
+  }
+}

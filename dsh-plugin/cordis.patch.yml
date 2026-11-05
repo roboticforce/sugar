@@ -1,0 +1,35 @@
+# Sugar memory for DeepSeek Harness.
+#
+# A DSH bundle patch is an ordered list of loader entries. This one adds a
+# single MCP client connection to Sugar's memory server, so the agent gets
+# Sugar's memory tools as mcp__sugar__* without the user editing their profile.
+#
+# Prerequisite, in a Python environment DSH can reach:
+#   pip install "sugarai[mcp]"
+# and a `sugar` executable on PATH.
+#
+# If DSH cannot find `sugar` (common when the desktop app is launched from
+# Finder rather than a shell), replace `command: sugar` with an absolute path:
+#   command: /Users/you/.local/bin/sugar
+
+- id: mcp-sugar
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: sugar
+    transport: stdio
+    command: sugar
+    args: ['mcp', 'memory']
+    # A memory plugin with no tools is broken, not degraded: fail activation so
+    # the Plugins page shows the error instead of silently shipping no tools.
+    failOnStartupError: true
+
+# Optional: the task queue server, for Sugar-managed work items.
+#
+# - id: mcp-sugar-tasks
+#   name: '@deepseek-ai/dsh-mcp-client'
+#   config:
+#     serverName: sugar-tasks
+#     transport: stdio
+#     command: sugar
+#     args: ['mcp', 'tasks']
+#     failOnStartupError: false
