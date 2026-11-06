@@ -223,6 +223,10 @@ cd apps/macos && ./build-app.sh && open dist/SugarDash.app
 The DMG is ad-hoc signed by default; see `apps/macos/README.md` for Developer ID
 signing and notarization so recipients do not see a Gatekeeper warning.
 
+Help → Send Feedback opens an explicit feedback form (GitHub issue or private email,
+optional diagnostics, nothing sent automatically), recorded locally as a
+`feedback.submitted` activity event.
+
 About window with version/build, project links, a no-telemetry privacy statement
 and "Copy diagnostics"; Help menu links to docs, issue tracker, privacy, terms and
 support.
