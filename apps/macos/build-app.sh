@@ -108,8 +108,14 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>$APP_NAME</string>
+    <key>CFBundleDisplayName</key>
+    <string>$APP_NAME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 RoboticForce Inc. Licensed under AGPL-3.0.</string>
+    <key>NSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
     <key>CFBundleVersion</key>

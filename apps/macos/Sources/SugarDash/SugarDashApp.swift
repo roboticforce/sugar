@@ -13,6 +13,14 @@ struct SugarDashApp: App {
         }
         .defaultSize(width: 1180, height: 760)
         .windowResizability(.contentMinSize)
+        .commands { SugarDashCommands() }
+
+        Window("About SugarDash", id: WindowID.about) {
+            AboutView()
+                .environment(model)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         MenuBarExtra {
             MenuBarContentView(model: model)
@@ -25,6 +33,38 @@ struct SugarDashApp: App {
 
 enum WindowID {
     static let dashboard = "dashboard"
+    static let about = "about"
+}
+
+/// Extra app-surface menus: a real About item (macOS convention) and a Help menu
+/// that points at the docs, issue tracker, privacy/terms pages and support email.
+struct SugarDashCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    private static let docs = URL(string: "https://sugar.roboticforce.io/docs")!
+    private static let issues = URL(string: "https://github.com/roboticforce/sugar/issues")!
+    private static let website = URL(string: "https://sugar.roboticforce.io")!
+    private static let privacy = URL(string: "https://sugar.roboticforce.io/privacy")!
+    private static let terms = URL(string: "https://sugar.roboticforce.io/terms")!
+    private static let contact = URL(string: "mailto:contact@roboticforce.io")!
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About SugarDash") {
+                openWindow(id: WindowID.about)
+            }
+        }
+        CommandGroup(replacing: .help) {
+            Link("SugarDash Documentation", destination: Self.docs)
+            Link("Report an Issue", destination: Self.issues)
+            Divider()
+            Link("Sugar Website", destination: Self.website)
+            Link("Privacy Policy", destination: Self.privacy)
+            Link("Terms of Service", destination: Self.terms)
+            Divider()
+            Link("Contact RoboticForce", destination: Self.contact)
+        }
+    }
 }
 
 /// Menu bar extra: pending count in the menu bar, quick summary and
@@ -38,6 +78,11 @@ struct MenuBarContentView: View {
         Text("\(model.pendingCount) pending")
         Text("\(model.activeCount) active")
         Text("\(model.holdCount) on hold")
+        Divider()
+        Button("About SugarDash") {
+            NSApp.activate()
+            openWindow(id: WindowID.about)
+        }
         Divider()
         Button("Open Dashboard") { openDashboard() }
         Button("Reconnect") { model.reconnect() }
