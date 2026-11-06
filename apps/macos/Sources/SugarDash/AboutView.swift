@@ -7,6 +7,7 @@ import SwiftUI
 struct AboutView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
 
     @State private var copiedDiagnostics = false
 
@@ -19,13 +20,9 @@ struct AboutView: View {
     private static let licensing = URL(string: "https://sugar.roboticforce.io/licensing")!
     private static let contact = URL(string: "mailto:contact@roboticforce.io")!
 
-    private var version: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    }
+    private var version: String { AppDiagnostics.version }
 
-    private var build: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-    }
+    private var build: String { AppDiagnostics.build }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -95,6 +92,11 @@ struct AboutView: View {
             }
 
             HStack {
+                Button("Send feedback") {
+                    dismissWindow(id: WindowID.about)
+                    openWindow(id: WindowID.feedback)
+                }
+                .help("Report a bug or suggest a feature")
                 Button(copiedDiagnostics ? "Copied" : "Copy diagnostics") {
                     copyDiagnostics()
                 }
@@ -112,14 +114,7 @@ struct AboutView: View {
     }
 
     private func copyDiagnostics() {
-        let text = """
-        SugarDash \(version) (\(build))
-        macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
-        Dashboard: \(model.serverURLString)
-        Connection: \(model.connection.label)
-        Server: \(model.serverVersion ?? "unknown")
-        Tasks: \(model.tasks.count)
-        """
+        let text = AppDiagnostics.summary(for: model)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         copiedDiagnostics = true

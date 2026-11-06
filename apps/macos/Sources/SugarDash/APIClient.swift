@@ -192,6 +192,19 @@ struct HoldRequest: Encodable {
     var reason: String?
 }
 
+/// Body for `POST /api/events` (dashboard event-spine ingest). Used for local
+/// bookkeeping only — feedback itself travels through email/GitHub, never here.
+struct EventIngest: Encodable {
+    var kind: String
+    var actor: String?
+    var actorKind: String?
+    var harness: String?
+    var sessionId: String?
+    var taskId: String?
+    var project: String?
+    var payload: [String: JSONValue]?
+}
+
 // MARK: - Client
 
 /// Talks to the local Sugar dashboard over plain HTTP; the event stream uses
@@ -314,6 +327,12 @@ struct APIClient {
     func deleteTask(id: String) async throws {
         let data = try await send("api/tasks/\(escaped(id))", method: "DELETE")
         _ = try decode(DeleteResponse.self, from: data)
+    }
+
+    /// Records a local event in the dashboard's activity spine. Best-effort:
+    /// callers ignore failures so this can never block a user action.
+    func ingestEvent(_ event: EventIngest) async throws {
+        _ = try await send("api/events", method: "POST", body: event)
     }
 
     // MARK: Event stream

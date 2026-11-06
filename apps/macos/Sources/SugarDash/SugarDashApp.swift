@@ -22,6 +22,13 @@ struct SugarDashApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
+        Window("Send Feedback", id: WindowID.feedback) {
+            FeedbackView()
+                .environment(model)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         MenuBarExtra {
             MenuBarContentView(model: model)
         } label: {
@@ -34,6 +41,7 @@ struct SugarDashApp: App {
 enum WindowID {
     static let dashboard = "dashboard"
     static let about = "about"
+    static let feedback = "feedback"
 }
 
 /// Extra app-surface menus: a real About item (macOS convention) and a Help menu
@@ -55,6 +63,10 @@ struct SugarDashCommands: Commands {
             }
         }
         CommandGroup(replacing: .help) {
+            Button("Send Feedback…") {
+                openWindow(id: WindowID.feedback)
+            }
+            Divider()
             Link("SugarDash Documentation", destination: Self.docs)
             Link("Report an Issue", destination: Self.issues)
             Divider()
@@ -82,6 +94,10 @@ struct MenuBarContentView: View {
         Button("About SugarDash") {
             NSApp.activate()
             openWindow(id: WindowID.about)
+        }
+        Button("Send Feedback…") {
+            NSApp.activate()
+            openWindow(id: WindowID.feedback)
         }
         Divider()
         Button("Open Dashboard") { openDashboard() }

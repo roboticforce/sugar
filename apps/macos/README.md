@@ -95,6 +95,21 @@ The card links to <https://sugar.roboticforce.io/privacy> and
 DMG. "Copy diagnostics" copies version, macOS version, dashboard URL, connection
 state and task count to the clipboard — nothing is sent anywhere.
 
+## Feedback (explicit, never telemetry)
+
+Help → **Send Feedback…** opens a form (Bug / Feature request / Other + message +
+optional diagnostics). Nothing is sent automatically: you choose **Open GitHub
+Issue** (public, prefilled, you review and submit) or **Send via Email** (private,
+prefilled to `contact@roboticforce.io`), or copy the text. Long messages are
+truncated in the URL and the full text is copied to the clipboard so nothing is
+lost.
+
+The optional diagnostics block contains app version, macOS version, dashboard URL,
+connection state and task counts — never task titles, code, paths or credentials.
+The only local record is a `feedback.submitted` event (category, destination,
+message length) in the dashboard's activity spine, so the activity feed shows that
+feedback was sent without storing the message.
+
 ## Run
 
 ```bash

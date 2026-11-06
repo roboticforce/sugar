@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -331,6 +332,27 @@ final class AppModel {
             await self.loadActivity()
             self.activityLoadInFlight = false
         }
+    }
+
+    /// Records *that* feedback was sent (category, destination, message length)
+    /// in the local activity spine. The message itself never leaves the app
+    /// except through the email/GitHub action the user chose. Best-effort.
+    func recordFeedbackSent(category: String, destination: String, messageLength: Int) async {
+        let event = EventIngest(
+            kind: "feedback.submitted",
+            actor: NSUserName(),
+            actorKind: "human",
+            harness: "sugardash",
+            sessionId: nil,
+            taskId: nil,
+            project: nil,
+            payload: [
+                "category": .string(category),
+                "destination": .string(destination),
+                "message_length": .number(Double(messageLength)),
+            ]
+        )
+        try? await client.ingestEvent(event)
     }
 
     // MARK: - Writes
