@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **macOS app: explicit feedback capture.** Help → Send Feedback opens a form (bug / feature request / other) that sends nothing automatically: the user chooses a prefilled public GitHub issue or a private email to contact@roboticforce.io (or copies the text). An optional diagnostics block (version, macOS, dashboard URL, connection state, task counts — never task content, paths or credentials) can be turned off, and long messages are truncated in the URL with the full text copied to the clipboard. The only local record is a `feedback.submitted` event (category, destination, length) in the activity spine.
 
+### Added
+- **macOS app icon.** `apps/macos/make-icon.py` generates `Resources/AppIcon.icns` (coral→amber squircle with a white rounded "S", legible from 16px to 1024px); `build-app.sh` copies it into the bundle and sets `CFBundleIconFile`, so Finder, Dock, the DMG picker and the About window all use it.
+
+### Changed
+- **macOS app legal links point at the live pages.** About/Help now link Privacy to <https://roboticforce.io/privacy>, Terms to <https://roboticforce.io/terms> and Licensing to the repository LICENSE (the old `sugar.roboticforce.io/{privacy,terms,licensing}` URLs redirect to a 404 path on the main site).
+
 ### Security
 - **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
 

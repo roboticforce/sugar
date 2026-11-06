@@ -52,8 +52,8 @@ struct SugarDashCommands: Commands {
     private static let docs = URL(string: "https://sugar.roboticforce.io/docs")!
     private static let issues = URL(string: "https://github.com/roboticforce/sugar/issues")!
     private static let website = URL(string: "https://sugar.roboticforce.io")!
-    private static let privacy = URL(string: "https://sugar.roboticforce.io/privacy")!
-    private static let terms = URL(string: "https://sugar.roboticforce.io/terms")!
+    private static let privacy = URL(string: "https://roboticforce.io/privacy")!
+    private static let terms = URL(string: "https://roboticforce.io/terms")!
     private static let contact = URL(string: "mailto:contact@roboticforce.io")!
 
     var body: some Commands {

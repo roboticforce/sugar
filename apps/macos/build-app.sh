@@ -93,6 +93,11 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/$EXECUTABLE"
 chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE"
 
+# App icon (generate with `python3 make-icon.py`; committed so builds are reproducible)
+if [[ -f Resources/AppIcon.icns ]]; then
+    cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+fi
+
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -110,6 +115,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <string>$APP_NAME</string>
     <key>CFBundleDisplayName</key>
     <string>$APP_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>NSHumanReadableCopyright</key>
