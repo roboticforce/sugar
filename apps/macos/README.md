@@ -78,6 +78,23 @@ the build reproducible in restricted environments (CI containers, agent
 sandboxes) where nested sandboxes / the default clang module cache are denied.
 They are harmless for normal local builds.
 
+## About window and legal links
+
+The app menu's **About SugarDash** item opens a proper About card (version + build,
+website, docs, source, issue tracker, a one-line privacy statement, and
+Copyright / AGPL / commercial-licensing lines). **Help** carries the same links
+plus Privacy, Terms and a support email, and the menu bar extra has an About item
+too.
+
+`build-app.sh` writes `CFBundleDisplayName`, `NSHumanReadableCopyright`
+(© 2026 RoboticForce Inc., AGPL-3.0) and
+`NSApplicationCategoryType=public.app-category.developer-tools` into Info.plist.
+
+The card links to <https://sugar.roboticforce.io/privacy> and
+<https://sugar.roboticforce.io/terms>; keep those pages live before publishing a
+DMG. "Copy diagnostics" copies version, macOS version, dashboard URL, connection
+state and task count to the clipboard — nothing is sent anywhere.
+
 ## Run
 
 ```bash

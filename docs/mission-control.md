@@ -223,6 +223,10 @@ cd apps/macos && ./build-app.sh && open dist/SugarDash.app
 The DMG is ad-hoc signed by default; see `apps/macos/README.md` for Developer ID
 signing and notarization so recipients do not see a Gatekeeper warning.
 
+About window with version/build, project links, a no-telemetry privacy statement
+and "Copy diagnostics"; Help menu links to docs, issue tracker, privacy, terms and
+support.
+
 Window with sidebar filters, task list, detail inspector, add/edit/delete,
 hold/release, menu-bar pending count, live SSE updates with reconnect, and an
 Activity feed. It talks to the same REST/SSE contract as the browser, so the app

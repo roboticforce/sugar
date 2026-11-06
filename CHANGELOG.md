@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **macOS DMG packaging** (`apps/macos/build-dmg.sh`): builds a drag-to-Applications disk image containing a universal (arm64 + x86_64) `SugarDash.app` and an `Applications` symlink. Version comes from `pyproject.toml`; ad-hoc signed by default, and `--notarize` + `SUGAR_CODESIGN_IDENTITY`/`SUGAR_NOTARY_PROFILE` produce a Developer ID-signed, notarized, stapled DMG.
 
+### Added
+- **macOS app: About window and legal surface.** App menu → About opens a proper About card (version/build, website/docs/source/issues, a no-telemetry privacy statement, Copyright © 2026 RoboticForce Inc., AGPL-3.0 and commercial-licensing links, and a "Copy diagnostics" button that never sends anything). Help menu links to documentation, the issue tracker, privacy, terms and the support email; the menu-bar menu gains an About item. `build-app.sh` now sets `CFBundleDisplayName`, `NSHumanReadableCopyright` and `NSApplicationCategoryType` in Info.plist.
+
 ### Security
 - **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
 
