@@ -1,4 +1,6 @@
 # Sugar as a team bus: can it coordinate agents doing work together?
+> Market context, positioning and the demand-validation experiments live in
+> [agent-teams-market.md](agent-teams-market.md).
 
 Status: analysis, 2026-11-05, against `3.10.6.dev0` on `feature/local-dashboard`.
 Companions: [mission-control.md](mission-control.md) is the shipped feature overview;
