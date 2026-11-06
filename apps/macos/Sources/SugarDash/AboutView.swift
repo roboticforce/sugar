@@ -15,9 +15,9 @@ struct AboutView: View {
     private static let documentation = URL(string: "https://sugar.roboticforce.io/docs")!
     private static let repository = URL(string: "https://github.com/roboticforce/sugar")!
     private static let issues = URL(string: "https://github.com/roboticforce/sugar/issues")!
-    private static let privacy = URL(string: "https://sugar.roboticforce.io/privacy")!
-    private static let terms = URL(string: "https://sugar.roboticforce.io/terms")!
-    private static let licensing = URL(string: "https://sugar.roboticforce.io/licensing")!
+    private static let privacy = URL(string: "https://roboticforce.io/privacy")!
+    private static let terms = URL(string: "https://roboticforce.io/terms")!
+    private static let licensing = URL(string: "https://github.com/roboticforce/sugar/blob/develop/LICENSE")!
     private static let contact = URL(string: "mailto:contact@roboticforce.io")!
 
     private var version: String { AppDiagnostics.version }

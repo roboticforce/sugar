@@ -424,7 +424,7 @@ pytest tests/ -v
 **Dual License: AGPL-3.0 + Commercial**
 
 - **Open Source (AGPL-3.0)**: Free for open source and personal use
-- **Commercial License**: For proprietary use - [sugar.roboticforce.io/licensing](https://sugar.roboticforce.io/licensing)
+- **Commercial License**: For proprietary use - [contact RoboticForce](mailto:contact@roboticforce.io) or see [LICENSE](https://github.com/roboticforce/sugar/blob/develop/LICENSE)
 
 ---
 
