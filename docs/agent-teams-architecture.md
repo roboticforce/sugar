@@ -274,6 +274,8 @@ flowchart LR
   coord -. "tenancy scopes (future)" .-> billing
 ```
 
+Adapter taxonomy, rules and the conformance kit are in [adapters.md](adapters.md).
+
 Integration patterns, deliberately chosen:
 
 - **Published language** for the core contract (versioned JSON schema + SSE/event types).
