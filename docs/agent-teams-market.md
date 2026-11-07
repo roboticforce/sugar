@@ -1,6 +1,7 @@
 # Sugar for agent teams: market research, positioning, and demand validation
 
-*Research memo — 2026-11-06. Companion to [agent-teams.md](agent-teams.md) (what Sugar can already do) and
+*Research memo — 2026-11-06. Companion to [agent-teams.md](agent-teams.md) (what Sugar can already do),
+[agent-teams-architecture.md](agent-teams-architecture.md) (Wardley map, architecture, domain boundaries) and
 [mission-control.md](mission-control.md) (the dashboard/app/spine). Competitor counts are a snapshot taken on
 2026-11-06 and will drift.*
 
