@@ -23,6 +23,8 @@ from typing import Optional
 ACTOR_KINDS = ("human", "agent", "system")
 DEFAULT_LEASE_SECONDS = 900
 MAX_ACTOR_LENGTH = 128
+#: Store-neutral timestamp format for lease expiry (UTC, lexicographically sortable).
+LEASE_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 @dataclass(frozen=True)
@@ -126,9 +128,16 @@ def worker_actor(explicit: Optional[str] = None) -> Actor:
 
 
 def lease_expiry(seconds: int = DEFAULT_LEASE_SECONDS) -> str:
-    """SQLite-format UTC timestamp *seconds* from now."""
+    """UTC lease timestamp *seconds* from now, in :data:`LEASE_TIMESTAMP_FORMAT`."""
     delta = timedelta(seconds=max(1, int(seconds)))
-    return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%d %H:%M:%S")
+    return format_lease_timestamp(datetime.now(timezone.utc) + delta)
+
+
+def format_lease_timestamp(moment: datetime) -> str:
+    """Normalize a datetime to the store-neutral lease timestamp format."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).strftime(LEASE_TIMESTAMP_FORMAT)
 
 
 def lease_seconds_from_env(default: int = DEFAULT_LEASE_SECONDS) -> int:

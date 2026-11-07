@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **macOS app legal links point at the live pages.** About/Help now link Privacy to <https://roboticforce.io/privacy>, Terms to <https://roboticforce.io/terms> and Licensing to the repository LICENSE (the old `sugar.roboticforce.io/{privacy,terms,licensing}` URLs redirect to a 404 path on the main site).
 
+### Added
+- **Storage port (`TaskStore`) and conformance suite.** The coordination core now depends on `sugar.storage.ports.TaskStore` instead of SQLite directly: claim, heartbeat, reaper, state transitions, provenance and stats. `WorkQueue` is the SQLite implementation; `tests/test_task_store_conformance.py` is backend-agnostic (append a factory to `BACKENDS` to run it against another backend), covering single-winner concurrent claims, lease renewal/reaping, dependency gating, hold/release, retry limits, provenance round-trips and stats. See `docs/storage-port.md` for the backend-swap checklist (Postgres claim query, timestamps, migrations, change feed).
+
+### Changed
+- **Claims now enforce dependencies.** `get_next_work` skips pending tasks whose `blocked_by` ids are not all `completed` (missing or unreadable dependencies fail closed, matching `get_ready_subtasks`), scanning pending rows in batches so a run of blocked tasks cannot starve claimable work below them. `get_work_item` normalizes `blocked_by` to a list (NULL/empty → `[]`).
+
 ### Security
 - **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
 

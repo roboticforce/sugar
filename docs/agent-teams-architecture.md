@@ -274,7 +274,8 @@ flowchart LR
   coord -. "tenancy scopes (future)" .-> billing
 ```
 
-Adapter taxonomy, rules and the conformance kit are in [adapters.md](adapters.md).
+Adapter taxonomy, rules and the conformance kit are in [adapters.md](adapters.md); the storage
+interface and its conformance suite are in [storage-port.md](storage-port.md).
 
 Integration patterns, deliberately chosen:
 

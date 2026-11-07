@@ -7,18 +7,33 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
-from ..identity import DEFAULT_LEASE_SECONDS, lease_expiry, worker_actor
+from ..identity import (
+    DEFAULT_LEASE_SECONDS,
+    format_lease_timestamp,
+    lease_expiry,
+    worker_actor,
+)
 
 logger = logging.getLogger(__name__)
 
+#: How many pending rows a claim scans per batch while skipping blocked tasks.
+CLAIM_SCAN_BATCH = 100
+
 
 class WorkQueue:
-    """Persistent work queue with priority management"""
+    """Persistent work queue with priority management.
+
+    SQLite implementation of :class:`sugar.storage.ports.TaskStore`. The
+    coordination invariants (atomic claim, lease reaper, dependency
+    enforcement) live here for now; a future Postgres backend implements the
+    same protocol against the conformance suite in
+    ``tests/test_task_store_conformance.py``.
+    """
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -486,87 +501,134 @@ class WorkQueue:
         )
         return work_id
 
+    async def _first_incomplete_blocker(self, db, work_item: Dict[str, Any]):
+        """Return a blocker id if *work_item* has an unmet dependency, else ``None``.
+
+        ``blocked_by`` is stored as a JSON array. Semantics (matching
+        ``get_ready_subtasks``): a missing/empty list means no dependency; a task
+        is blocked unless **every** blocker exists and is ``completed``.
+        Unreadable JSON fails closed — better a visibly blocked task than work
+        running before prerequisites it cannot evaluate.
+        """
+        raw = work_item.get("blocked_by")
+        if raw in (None, "", "[]"):
+            return None
+        try:
+            blockers = json.loads(raw) if isinstance(raw, str) else list(raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Task %s has unreadable blocked_by=%r; treating as blocked",
+                work_item.get("id"),
+                raw,
+            )
+            return "<unreadable>"
+        if not blockers:
+            return None
+
+        placeholders = ",".join("?" for _ in blockers)
+        cursor = await db.execute(
+            f"SELECT id, status FROM work_items WHERE id IN ({placeholders})",
+            [str(blocker) for blocker in blockers],
+        )
+        statuses = {row[0]: row[1] async for row in cursor}
+        for blocker in blockers:
+            if statuses.get(str(blocker)) != "completed":
+                return str(blocker)
+        return None
+
     async def get_next_work(
         self,
         worker_id: Optional[str] = None,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
     ) -> Optional[Dict[str, Any]]:
-        """Get the highest priority pending work item (atomic claim).
+        """Atomically claim the highest-priority *claimable* task.
 
-        Uses BEGIN IMMEDIATE to acquire an exclusive lock before SELECT,
-        preventing two concurrent callers from claiming the same task.
+        A task is claimable when it is ``pending`` and every id in
+        ``blocked_by`` exists and is ``completed`` (missing blockers block, as in
+        ``get_ready_subtasks``). ``BEGIN IMMEDIATE`` serializes writers, so the
+        scan-then-update below is one atomic step: nobody else can claim the
+        chosen task or change its blockers mid-transaction.
 
-        The same UPDATE records *who* claimed it (``claimed_by``, from
-        ``worker_id`` or the resolved local actor) and a ``lease_expires_at``
-        so a crashed worker can be reclaimed instead of stranding the task.
+        The same UPDATE records who claimed the task (``claimed_by``, from
+        ``worker_id`` or the resolved local actor) and a ``lease_expires_at`` so a
+        crashed worker can be reaped instead of stranding the task.
         """
         async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
             db.row_factory = aiosqlite.Row
-
-            # BEGIN IMMEDIATE acquires a reserved lock upfront, serializing
-            # concurrent callers so only one can read+update at a time.
             await db.execute("BEGIN IMMEDIATE")
 
             try:
-                # Get highest priority pending work item (exclude hold status)
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM work_items
-                    WHERE status = 'pending'
-                    ORDER BY priority ASC, created_at ASC
-                    LIMIT 1
-                """
-                )
+                offset = 0
+                while True:
+                    cursor = await db.execute(
+                        """
+                        SELECT * FROM work_items
+                        WHERE status = 'pending'
+                        ORDER BY priority ASC, created_at ASC, id ASC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (CLAIM_SCAN_BATCH, offset),
+                    )
+                    rows = await cursor.fetchall()
+                    if not rows:
+                        await db.execute("ROLLBACK")
+                        return None
 
-                row = await cursor.fetchone()
+                    for row in rows:
+                        work_item = dict(row)
+                        blocker = await self._first_incomplete_blocker(db, work_item)
+                        if blocker is not None:
+                            logger.debug(
+                                "Task %s is blocked by %s; skipping",
+                                work_item.get("id"),
+                                blocker,
+                            )
+                            continue
 
-                if not row:
-                    await db.execute("ROLLBACK")
-                    return None
+                        # A claim is made by a worker, not by the human who queued it.
+                        actor = worker_actor(worker_id)
+                        lease_until = lease_expiry(lease_seconds)
+                        await db.execute(
+                            """
+                            UPDATE work_items
+                            SET status = 'active',
+                                attempts = attempts + 1,
+                                last_attempt_at = CURRENT_TIMESTAMP,
+                                started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+                                claimed_by = ?,
+                                lease_expires_at = ?,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ? AND status = 'pending'
+                            """,
+                            (actor.id, lease_until, work_item["id"]),
+                        )
+                        await db.execute("COMMIT")
 
-                work_item = dict(row)
+                        if work_item.get("context"):
+                            try:
+                                work_item["context"] = json.loads(work_item["context"])
+                            except json.JSONDecodeError:
+                                work_item["context"] = {}
+                        else:
+                            work_item["context"] = {}
 
-                # Parse JSON context
-                if work_item["context"]:
-                    try:
-                        work_item["context"] = json.loads(work_item["context"])
-                    except json.JSONDecodeError:
-                        work_item["context"] = {}
-                else:
-                    work_item["context"] = {}
+                        work_item["attempts"] = (work_item.get("attempts") or 0) + 1
+                        work_item["status"] = "active"
+                        work_item["claimed_by"] = actor.id
+                        work_item["lease_expires_at"] = lease_until
+                        logger.debug(
+                            "📋 Retrieved work item: %s (attempt #%s)",
+                            work_item["title"],
+                            work_item["attempts"],
+                        )
+                        return work_item
 
-                # A claim is made by a worker, not by the human who queued it.
-                actor = worker_actor(worker_id)
-                lease_until = lease_expiry(lease_seconds)
-
-                # Mark as active and increment attempts; the claimant + lease
-                # land in the same transaction, so a claim is one atomic step.
-                await db.execute(
-                    """
-                    UPDATE work_items
-                    SET status = 'active',
-                        attempts = attempts + 1,
-                        last_attempt_at = CURRENT_TIMESTAMP,
-                        started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
-                        claimed_by = ?,
-                        lease_expires_at = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """,
-                    (actor.id, lease_until, work_item["id"]),
-                )
-
-                await db.execute("COMMIT")
-
-                work_item["attempts"] += 1
-                work_item["status"] = "active"
-                work_item["claimed_by"] = actor.id
-                work_item["lease_expires_at"] = lease_until
-                logger.debug(
-                    f"📋 Retrieved work item: {work_item['title']} (attempt #{work_item['attempts']})"
-                )
-
-                return work_item
+                    # Nothing claimable in this batch; keep scanning so tasks
+                    # behind a long run of blocked rows are not starved.
+                    offset += len(rows)
+                    if len(rows) < CLAIM_SCAN_BATCH:
+                        await db.execute("ROLLBACK")
+                        return None
 
             except Exception:
                 await db.execute("ROLLBACK")
@@ -732,6 +794,21 @@ class WorkQueue:
                         work_item[field] = {}
                 else:
                     work_item[field] = {}
+
+            # ``blocked_by`` is a JSON array or NULL in storage; the port exposes
+            # a list. Unreadable values are returned unchanged for inspection
+            # (the claim path fails closed on them).
+            raw_blocked_by = work_item.get("blocked_by")
+            if raw_blocked_by in (None, ""):
+                work_item["blocked_by"] = []
+            elif isinstance(raw_blocked_by, str):
+                try:
+                    parsed = json.loads(raw_blocked_by)
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(parsed, list):
+                        work_item["blocked_by"] = parsed
 
             return work_item
 
@@ -1055,6 +1132,84 @@ class WorkQueue:
         if success:
             logger.info(f"▶️ Work item released from hold: {work_id}")
         return success
+
+    async def heartbeat(
+        self,
+        task_id: str,
+        worker_id: Optional[str] = None,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> bool:
+        """Extend the lease on a task owned by *worker_id*.
+
+        Returns ``False`` when the task is not active or owned by someone else,
+        so a worker that lost its claim (reaped, or reclaimed by another worker)
+        can stop instead of racing the new owner.
+        """
+        actor = worker_actor(worker_id)
+        lease_until = lease_expiry(lease_seconds)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE work_items
+                SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'active' AND claimed_by = ?
+                """,
+                (lease_until, task_id, actor.id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def requeue_expired_leases(self, now: Optional[datetime] = None) -> List[str]:
+        """Return active tasks with expired leases to ``pending``.
+
+        This is the reaper half of the lease contract: a task whose worker
+        crashed (no heartbeat) becomes claimable again instead of sitting
+        ``active`` forever. Attempts are intentionally *not* reset here — each
+        claim increments them, so a task that repeatedly dies is visible.
+
+        ``now`` is injectable for tests; storage timestamps are UTC in
+        :data:`sugar.identity.LEASE_TIMESTAMP_FORMAT` so string ordering is
+        chronological.
+        """
+        cutoff = format_lease_timestamp(now or datetime.now(timezone.utc))
+        async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    SELECT id FROM work_items
+                    WHERE status = 'active'
+                      AND lease_expires_at IS NOT NULL
+                      AND lease_expires_at < ?
+                    """,
+                    (cutoff,),
+                )
+                expired = [row["id"] for row in await cursor.fetchall()]
+                if expired:
+                    placeholders = ",".join("?" for _ in expired)
+                    await db.execute(
+                        f"""
+                        UPDATE work_items
+                        SET status = 'pending',
+                            claimed_by = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id IN ({placeholders}) AND status = 'active'
+                        """,
+                        expired,
+                    )
+                await db.execute("COMMIT")
+                if expired:
+                    logger.warning(
+                        "♻️ Requeued %d task(s) with expired leases: %s",
+                        len(expired),
+                        ", ".join(expired),
+                    )
+                return expired
+            except Exception:
+                await db.execute("ROLLBACK")
+                raise
 
     async def health_check(self) -> dict:
         """Return health status of the work queue"""
