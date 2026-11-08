@@ -16,6 +16,7 @@ from ..discovery.error_monitor import ErrorLogMonitor
 from ..discovery.github_watcher import GitHubWatcher
 from ..discovery.test_coverage import TestCoverageAnalyzer
 from ..executor.agent_sdk_executor import AgentSDKExecutor
+from ..identity import lease_seconds_from_env
 from ..orchestration.task_orchestrator import TaskOrchestrator
 from ..executor.claude_wrapper import ClaudeWrapper
 from ..learning.adaptive_scheduler import AdaptiveScheduler
@@ -40,6 +41,11 @@ class SugarLoop:
         self.worker_id = (
             self.config.get("sugar", {}).get("worker_id") or worker_actor().id
         )
+
+        # Lease bookkeeping: the claim takes a lease, a keeper renews it while the
+        # executor works, and the reaper returns crashed workers' tasks to the queue.
+        self.lease_seconds = lease_seconds_from_env()
+        self.heartbeat_interval = max(10.0, self.lease_seconds / 3)
 
         # Initialize executor based on config
         self.executor = self._create_executor()
@@ -325,13 +331,18 @@ class SugarLoop:
         """Execute the highest priority work item"""
         max_concurrent = self.config["sugar"]["max_concurrent_work"]
 
+        # Recover tasks stranded by workers that died without heartbeating.
+        await self._requeue_expired_leases()
+
         for _ in range(max_concurrent):
             # Check for shutdown before starting new work
             if shutdown_event and shutdown_event.is_set():
                 logger.info("🛑 Shutdown requested, not starting new work")
                 break
 
-            work_item = await self.work_queue.get_next_work(worker_id=self.worker_id)
+            work_item = await self.work_queue.get_next_work(
+                worker_id=self.worker_id, lease_seconds=self.lease_seconds
+            )
             if not work_item:
                 logger.info("No work items ready for execution")
                 break
@@ -348,7 +359,9 @@ class SugarLoop:
             # this loop slot, then complete via the normal commit/complete path.
             try:
                 if await self.task_orchestrator.should_orchestrate(work_item):
-                    orch_result = await self.task_orchestrator.orchestrate(work_item)
+                    orch_result = await self._run_with_lease(
+                        work_item, self.task_orchestrator.orchestrate(work_item)
+                    )
                     execution_time = (
                         datetime.now(timezone.utc) - start_time
                     ).total_seconds()
@@ -433,7 +446,9 @@ class SugarLoop:
 
             try:
                 # Execute with Claude Code
-                result = await self.executor.execute_work(work_item)
+                result = await self._run_with_lease(
+                    work_item, self.executor.execute_work(work_item)
+                )
 
                 # Calculate execution time
                 execution_time = (
@@ -496,6 +511,74 @@ class SugarLoop:
 
                 # Handle failed workflow cleanup
                 await self._handle_failed_workflow(work_item, workflow, str(e))
+
+    async def _run_with_lease(self, work_item: dict, coro):
+        """Await *coro* while a background keeper renews the task's lease.
+
+        Execution can take longer than a lease (agent runs, test suites). Without
+        renewal the reaper would requeue the task underneath a live worker; the
+        keeper turns the lease into a heartbeat. If the lease is lost (reaped or
+        reclaimed), the keeper logs it and stops renewing.
+        """
+        task_id = work_item.get("id", "unknown")
+        stop = asyncio.Event()
+        keeper = asyncio.create_task(
+            self._lease_keeper(task_id, stop), name=f"sugar-lease-keeper-{task_id}"
+        )
+        try:
+            return await coro
+        finally:
+            stop.set()
+            keeper.cancel()
+            try:
+                await keeper
+            except asyncio.CancelledError:
+                pass
+
+    async def _lease_keeper(self, task_id: str, stop: asyncio.Event) -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=self.heartbeat_interval)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                renewed = await self.work_queue.heartbeat(
+                    task_id,
+                    worker_id=self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                )
+            except Exception:  # pragma: no cover - heartbeat must not kill work
+                logger.warning(
+                    "lease keeper: heartbeat failed for %s", task_id, exc_info=True
+                )
+                return
+            if not renewed:
+                logger.warning(
+                    "⚠️ lease for %s was lost (reaped or reclaimed); stopping heartbeat",
+                    task_id,
+                )
+                return
+
+    async def _requeue_expired_leases(self) -> List[str]:
+        """Run the storage reaper; best effort, never blocks the loop."""
+        reaper = getattr(self.work_queue, "requeue_expired_leases", None)
+        if reaper is None:  # pragma: no cover - legacy/custom stores
+            return []
+        try:
+            reaped = await reaper()
+        except Exception:  # pragma: no cover - reaping must not kill the loop
+            logger.warning("lease reaper failed", exc_info=True)
+            return []
+        if not isinstance(reaped, (list, tuple)):
+            return []
+        if reaped:
+            logger.warning(
+                "♻️ Requeued %d task(s) whose worker stopped heartbeating: %s",
+                len(reaped),
+                ", ".join(reaped),
+            )
+        return list(reaped)
 
     async def _process_feedback(self):
         """Process execution results and learn from them"""

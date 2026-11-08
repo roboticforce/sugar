@@ -5,8 +5,10 @@ release / complete / fail semantics stay identical to the CLI and MCP server.
 Reads go through :class:`~sugar.dashboard.store.TaskStore` (plain SQL).
 """
 
+import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -208,6 +210,12 @@ class DashboardService:
         self.state = DashboardState(self.store, self.broadcaster, poll_interval)
         self.spine = None  # optional EventSpine, wired by create_app
         self.started_at: Optional[float] = None
+        # Reap expired leases (crashed workers) periodically. Reads are cheap;
+        # writes happen only when a lease actually expired.
+        self.reap_interval = max(
+            1.0, float(os.environ.get("SUGAR_REAP_INTERVAL", "30"))
+        )
+        self._reaper: Optional[asyncio.Task] = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -224,9 +232,63 @@ class DashboardService:
         self.state.spine = self.spine
         await self.state.start()
         self.started_at = self.state.started_at
+        if not self.read_only:
+            self._reaper = asyncio.create_task(
+                self._reap_loop(), name="sugar-dashboard-reaper"
+            )
 
     async def stop(self) -> None:
+        reaper = self._reaper
+        self._reaper = None
+        if reaper is not None:
+            reaper.cancel()
+            try:
+                await reaper
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("dashboard reaper exited with error", exc_info=True)
         await self.state.stop()
+
+    # -- lease reaper ------------------------------------------------------
+
+    async def _reap_loop(self) -> None:
+        """Periodically return expired leases to the queue."""
+        while True:
+            await asyncio.sleep(self.reap_interval)
+            try:
+                await self._reap_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # pragma: no cover - reaping must not kill the server
+                logger.exception("dashboard: lease reaper failed")
+
+    async def _reap_once(self) -> List[str]:
+        """Reap once; emit a ``task.lease_expired`` activity event per task.
+
+        The generic status-diff observer is suppressed for these ids so the
+        activity feed shows one precise event instead of a diff duplicate.
+        """
+        if self.read_only:
+            return []
+        reaped = await self.queue.requeue_expired_leases()
+        if not reaped:
+            return []
+        await self.state.refresh(suppress_activity_for=set(reaped))
+        for task_id in reaped:
+            task = self.state.get_task(task_id)
+            if task is None:  # pragma: no cover - task deleted mid-reap
+                continue
+            await self.state.record_activity(
+                "task.lease_expired",
+                task,
+                actor="sugar-reaper",
+                actor_kind="system",
+                previous_status="active",
+                extra={"reason": "lease expired without heartbeat"},
+            )
+        logger.warning("♻️ dashboard reaped %d expired lease(s)", len(reaped))
+        return reaped
 
     # -- helpers -----------------------------------------------------------
 

@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .store import TaskStore
 
@@ -124,12 +124,18 @@ class DashboardState:
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         return self._tasks.get(task_id)
 
-    async def refresh(self, publish: bool = True) -> None:
+    async def refresh(
+        self,
+        publish: bool = True,
+        suppress_activity_for: Optional[Set[str]] = None,
+    ) -> None:
         """Re-read all rows, diff against the snapshot, publish deltas.
 
         A local write handler calls this directly so events go out immediately
         instead of waiting for the next poll; the watcher also calls it when
-        ``data_version`` changes.
+        ``data_version`` changes. ``suppress_activity_for`` lets a caller that
+        already emitted a more specific activity event (e.g. the lease reaper)
+        keep the generic status-diff event from duplicating it.
         """
         async with self._lock:
             tasks_list = await self.store.fetch_all()
@@ -153,7 +159,9 @@ class DashboardState:
             if not publish:
                 return
             if self.spine is not None:
-                await self._emit_activity(previous, tasks)
+                await self._emit_activity(
+                    previous, tasks, suppress_activity_for or set()
+                )
             for task in upserts:
                 self.broadcaster.publish("upsert", {"task": task})
             for task_id in deletes:
@@ -162,7 +170,10 @@ class DashboardState:
                 self.broadcaster.publish("stats", stats)
 
     async def _emit_activity(
-        self, previous: Dict[str, Dict[str, Any]], current: Dict[str, Dict[str, Any]]
+        self,
+        previous: Dict[str, Dict[str, Any]],
+        current: Dict[str, Dict[str, Any]],
+        suppress: Set[str],
     ) -> None:
         """Best-effort: record status transitions on the Sugar queue."""
         status_kinds = {
@@ -173,6 +184,8 @@ class DashboardState:
             "pending": "task.released",
         }
         for task_id, task in current.items():
+            if task_id in suppress:
+                continue
             old = previous.get(task_id)
             if old is None:
                 kind = "task.created"
@@ -210,6 +223,51 @@ class DashboardState:
                 logger.debug("spine: sugar activity append failed", exc_info=True)
                 continue
             self.broadcaster.publish("activity", event)
+
+    async def record_activity(
+        self,
+        kind: str,
+        task: Dict[str, Any],
+        *,
+        actor: Optional[str] = None,
+        actor_kind: Optional[str] = None,
+        previous_status: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Append one explicit activity event for a task and broadcast it.
+
+        Used when the transition is not visible as a plain status diff — e.g. the
+        lease reaper returning an expired task to ``pending``. Best effort: the
+        spine is optional and a write failure must never break the dashboard.
+        """
+        if self.spine is None:
+            return None
+        payload: Dict[str, Any] = {
+            "title": task.get("title"),
+            "status": task.get("status"),
+            "previous_status": previous_status,
+            "source": task.get("source"),
+        }
+        if extra:
+            payload.update(extra)
+        body = {
+            "kind": kind,
+            "actor": actor or task.get("created_by"),
+            "actor_kind": actor_kind or task.get("created_by_kind"),
+            "harness": "sugar",
+            "session_id": task.get("created_by_session"),
+            "task_id": task.get("id"),
+            "project": None,
+            "source": "observer:sugar",
+            "payload": payload,
+        }
+        try:
+            event = await self.spine.append(body, source="observer:sugar")
+        except Exception:  # pragma: no cover - spine must stay best effort
+            logger.debug("spine: activity append failed", exc_info=True)
+            return None
+        self.broadcaster.publish("activity", event)
+        return event
 
     async def _watch_loop(self) -> None:
         while True:

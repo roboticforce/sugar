@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Claims now enforce dependencies.** `get_next_work` skips pending tasks whose `blocked_by` ids are not all `completed` (missing or unreadable dependencies fail closed, matching `get_ready_subtasks`), scanning pending rows in batches so a run of blocked tasks cannot starve claimable work below them. `get_work_item` normalizes `blocked_by` to a list (NULL/empty → `[]`).
 
+### Added
+- **Runtime lease heartbeats and reaping.** `sugar run` now claims with a lease (`$SUGAR_LEASE_SECONDS`, default 900s), renews it every third of the lease (min 10s) while the executor/orchestrator is working, and stops renewing when the lease is lost — a long task no longer looks dead. The loop reaps expired leases before each execution cycle, and the dashboard reaps in the background (`$SUGAR_REAP_INTERVAL`, default 30s) on writable boards, emitting one explicit `task.lease_expired` activity event per requeued task (actor `sugar-reaper`, `actor_kind=system`) instead of a generic diff. Read-only dashboards never reap. Tests: `tests/test_core_loop_leases.py`, `tests/test_dashboard_reaper.py`; contract updated in `docs/local-dashboard.md` and `docs/storage-port.md`.
+
 ### Security
 - **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
 
