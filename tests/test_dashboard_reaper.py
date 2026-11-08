@@ -54,7 +54,7 @@ def test_reaper_requeues_expired_lease_and_emits_activity(tmp_path):
     _force_expiry(db_path, task_id)
 
     async def go():
-        service = DashboardService(str(db_path), poll_interval=0.05)
+        service = DashboardService(str(db_path), poll_interval=5.0)
         spine = EventSpine(events_path)
         await spine.start()
         service.spine = spine
@@ -98,7 +98,7 @@ def test_reaper_does_not_run_on_read_only_services(tmp_path):
     _force_expiry(db_path, task_id)
 
     async def go():
-        service = DashboardService(str(db_path), read_only=True, poll_interval=0.05)
+        service = DashboardService(str(db_path), read_only=True, poll_interval=5.0)
         await service.queue.initialize()
         assert await service._reap_once() == []
         await service.queue.close()
@@ -111,7 +111,7 @@ def test_reaper_is_a_noop_when_nothing_expired(tmp_path):
     _seed_claimed_task(db_path)  # claimed with a live 60s lease
 
     async def go():
-        service = DashboardService(str(db_path), poll_interval=0.05)
+        service = DashboardService(str(db_path), poll_interval=5.0)
         await service.queue.initialize()
         assert await service._reap_once() == []
         await service.queue.close()
