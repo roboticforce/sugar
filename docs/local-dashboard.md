@@ -560,7 +560,8 @@ Retention: raw events are pruned after 30 days (`SUGAR_EVENTS_RETENTION_DAYS`,
 
 `task.created`, `task.updated`, `task.claimed`, `task.held`, `task.released`,
 `task.blocked`, `task.unblocked`, `task.assigned`, `task.commented`,
-`task.completed`, `task.failed`, `task.archived`; plus free-form ingest kinds
+`task.completed`, `task.failed`, `task.archived`, `task.lease_expired` (lease
+reaper); plus free-form ingest kinds
 (`run.started`, `run.ended`, `tool.invoked`, `memory.recalled`, `signal.*`).
 
 ### 11.3 HTTP
@@ -583,5 +584,7 @@ Retention: raw events are pruned after 30 days (`SUGAR_EVENTS_RETENTION_DAYS`,
 - **Sugar queue:** snapshot diffs (the dashboard already computes them) emit
   `task.created` / `task.updated` / `task.claimed` / `task.completed` / `task.failed` /
   `task.held` / `task.released` with the queue's own `created_by`/`claimed_by`.
+  The lease reaper emits an explicit `task.lease_expired` event instead of a
+  generic diff (see `docs/storage-port.md`).
 
 Observers are best-effort: a spine failure must never break the dashboard or a task.

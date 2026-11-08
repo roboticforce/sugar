@@ -100,13 +100,25 @@ What it proves:
 The conformance suite is the gate: a Postgres implementation that does not pass it is not a valid backend, even
 if it "works" for the happy path.
 
-## 6. Non-goals of this change (explicit)
+## 6. Runtime wiring (landed after the port)
+
+The lease contract is now enforced at runtime, not just in the store:
+
+- **`sugar run` heartbeats while work is in flight.** After claiming with
+  `lease_seconds` (default 900, `$SUGAR_LEASE_SECONDS`), the loop starts a keeper task that renews the lease
+  every `lease_seconds / 3` (minimum 10 s) while the executor or orchestrator runs, and stops it on
+  success/failure/cancel. If the lease was lost (reaped or reclaimed), the keeper logs it and stops renewing
+  instead of racing the new owner.
+- **The loop reaps on every execution cycle.** Before claiming, `requeue_expired_leases()` returns crashed
+  workers' tasks to `pending`, so a dead worker can no longer strand work until a human notices.
+- **The dashboard reaps in the background** (`SUGAR_REAP_INTERVAL`, default 30 s) when the board is writable,
+  and records one explicit `task.lease_expired` activity event per requeued task (actor `sugar-reaper`,
+  `actor_kind=system`) while suppressing the generic status-diff duplicate. Read-only dashboards never reap.
+
+### Non-goals still open
 
 - **No Postgres implementation yet** — waiting for the team/hosted validation signal (see
   [agent-teams-market.md](agent-teams-market.md)).
-- **Heartbeat/reaper are not wired into the execution loop yet.** `sugar run` still claims once with a lease;
-  a follow-up should call `heartbeat` during long tasks and run `requeue_expired_leases` periodically (or on
-  startup), with events emitted for reaped tasks.
 - **Event emission is not in the store** — the dashboard's spine/observers capture transitions. When the store
   learns to append events, it must do so in the same transaction as the mutation.
 - **Single-process concurrency only.** `BEGIN IMMEDIATE` protects within one process/host; cross-machine claims
@@ -116,8 +128,9 @@ if it "works" for the happy path.
 
 ## 7. Next steps
 
-1. Wire the reaper + heartbeat into `sugar run` (and the dashboard's background refresh), emitting
-   `task.lease_expired` events.
+1. ~~Wire the reaper + heartbeat into `sugar run` and the dashboard background refresh, emitting
+   `task.lease_expired` events.~~ Done; covered by `tests/test_core_loop_leases.py` and
+   `tests/test_dashboard_reaper.py`.
 2. Add `schema_version` + a single migrations path for SQLite.
 3. Implement `PostgresTaskStore` behind the port; run the conformance suite in CI with a service container.
 4. Point `sugar board` at a store by URL/driver so self-hosted teams can choose the backend without changing
