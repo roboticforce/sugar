@@ -5499,5 +5499,220 @@ def opencode_setup(ctx, yes, dry_run, config_path, memory, tasks):
         click.echo("  • sugar_recall - Search memories")
 
 
+# =============================================================================
+# Audit Export Commands
+# =============================================================================
+
+
+def _audit_events_db(db_option):
+    """Resolve the event-spine database for the audit CLI."""
+    from pathlib import Path
+
+    from .dashboard.spine import default_events_db_path
+
+    if db_option:
+        return str(Path(db_option).expanduser().resolve())
+    return str(default_events_db_path().expanduser())
+
+
+def _audit_print_export(result, json_output):
+    import json as _json
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        return
+    click.echo("✅ Audit export written")
+    click.echo(f"   JSONL:    {result.jsonl_path}")
+    click.echo(f"   Manifest: {result.manifest_path}")
+    if result.count:
+        click.echo(
+            f"   Events:   {result.count} "
+            f"(first_id={result.first_id}, last_id={result.last_id})"
+        )
+    else:
+        click.echo("   Events:   0 (empty range)")
+    click.echo(f"   SHA-256:  {result.sha256}")
+    if result.signed:
+        click.echo(f"   Signed:   hmac-sha256 key_id={result.key_id}")
+    else:
+        click.echo("   Signed:   no (hash-only export)")
+    filters = result.filters
+    if any(
+        (
+            filters.get("since"),
+            filters.get("until"),
+            filters.get("kinds"),
+            filters.get("limit"),
+        )
+    ):
+        kinds = ",".join(filters.get("kinds") or []) or "all"
+        click.echo(
+            f"   Filters:  since={filters.get('since')} "
+            f"until={filters.get('until')} kinds={kinds} "
+            f"limit={filters.get('limit')}"
+        )
+    if result.truncated:
+        click.echo(
+            "   ⚠️  Truncated at --limit: more events matched than were exported."
+        )
+
+
+@cli.group()
+@click.pass_context
+def audit(ctx):
+    """Export and verify tamper-evident audit logs of the event spine"""
+    pass
+
+
+@audit.command("export")
+@click.option(
+    "--out",
+    "out_path",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=str),
+    help="JSONL output path; the manifest is written next to it",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--since", default=None, help="Only events with ts >= ISO-8601")
+@click.option("--until", default=None, help="Only events with ts <= ISO-8601")
+@click.option(
+    "--kinds", default=None, metavar="a,b", help="Comma-separated event kinds"
+)
+@click.option(
+    "--limit",
+    default=None,
+    type=int,
+    help="Maximum events to export (safety guard; sets truncated)",
+)
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key (never the key)",
+)
+@click.option("--force", is_flag=True, help="Overwrite existing export files")
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+@click.pass_context
+def audit_export(
+    ctx,
+    out_path,
+    db_path,
+    since,
+    until,
+    kinds,
+    limit,
+    sign_key_env,
+    force,
+    json_output,
+):
+    """Export the event spine to canonical JSONL plus a manifest
+
+    Examples:
+
+        sugar audit export --out /secure/audit/2026-11.jsonl
+
+        sugar audit export --out audit.jsonl --since 2026-11-01T00:00:00Z
+
+        SUGAR_AUDIT_HMAC_KEY=... sugar audit export --out audit.jsonl \
+            --sign-key-env SUGAR_AUDIT_HMAC_KEY
+
+    The export is read-only against the spine. Keep the output private: it
+    contains task metadata (see docs/audit.md).
+    """
+    import asyncio
+
+    from .audit.export import AuditError, export_events
+
+    kind_list = None
+    if kinds is not None:
+        kind_list = [part.strip() for part in kinds.split(",") if part.strip()]
+        if not kind_list:
+            click.echo("❌ --kinds must contain at least one event kind", err=True)
+            sys.exit(1)
+
+    try:
+        result = asyncio.run(
+            export_events(
+                _audit_events_db(db_path),
+                out_path,
+                since=since,
+                until=until,
+                kinds=kind_list,
+                limit=limit,
+                sign_key_env=sign_key_env,
+                force=force,
+            )
+        )
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+
+    _audit_print_export(result, json_output)
+
+
+@audit.command("verify")
+@click.argument("jsonl_path", type=click.Path(dir_okay=False, path_type=str))
+@click.argument("manifest_path", type=click.Path(dir_okay=False, path_type=str))
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify(jsonl_path, manifest_path, sign_key_env, json_output):
+    """Verify an audit export offline; exits non-zero on any mismatch
+
+    Recomputes the JSONL SHA-256 and checks count/first/last ids, canonical
+    JSON, id ordering and (when signed) the HMAC-SHA256 signature.
+    """
+    import json as _json
+
+    from .audit.export import AuditError, verify_export
+
+    try:
+        result = verify_export(jsonl_path, manifest_path, key_env=sign_key_env)
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    elif result.ok:
+        manifest = result.manifest or {}
+        click.echo("✅ Audit export verified")
+        click.echo(f"   JSONL:    {result.jsonl_path}")
+        click.echo(f"   Manifest: {result.manifest_path}")
+        click.echo(
+            f"   Events:   {result.count} "
+            f"(first_id={manifest.get('first_id')}, "
+            f"last_id={manifest.get('last_id')})"
+        )
+        click.echo(f"   SHA-256:  {result.sha256}")
+        if result.signed:
+            click.echo(f"   Signed:   hmac-sha256 key_id={result.key_id}")
+        else:
+            click.echo("   Signed:   no (hash-only verification)")
+        if manifest.get("truncated"):
+            click.echo(
+                "   Note:     export was truncated by --limit "
+                "(manifest.truncated=true)"
+            )
+    else:
+        click.echo("❌ Audit export verification FAILED", err=True)
+        for error in result.errors:
+            click.echo(f"   • {error}", err=True)
+
+    if not result.ok:
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
