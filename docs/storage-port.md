@@ -83,6 +83,15 @@ What it proves:
   increment them.
 - **Reads**: `get_work_item` normalizes `blocked_by` (NULL/`"[]"` → `[]`, valid JSON array → list, unreadable →
   left raw for inspection) and parses `context`/`result`.
+- **Schema migrations**: the store owns a versioned ledger (`sugar/storage/migrations.py`). `SCHEMA_VERSION` is
+  the schema this code writes, `MIGRATIONS` is an ordered, append-only registry of idempotent upgrades, and each
+  version runs in its own `BEGIN IMMEDIATE` transaction that records `PRAGMA user_version` **in the same
+  transaction** — a crash cannot record a version whose DDL did not commit. Pre-ledger databases
+  (`user_version == 0` with tables already present) run the same idempotent registry and get their version
+  recorded. Probes detect a ledger that is ahead of reality (e.g. an old tool dropped a column) and re-apply
+  instead of silently trusting it. A database **newer** than `SCHEMA_VERSION` is refused
+  (`SchemaVersionError`) rather than written with an unknown schema. `WorkQueue.schema_version` exposes the
+  applied version and `migrations.get_schema_version(db)` reads it.
 
 ## 5. What a Postgres backend must implement
 
@@ -92,7 +101,7 @@ What it proves:
 | Reaper | `UPDATE … WHERE status='active' AND lease_expires_at < ?` under `BEGIN IMMEDIATE` | `UPDATE … WHERE … RETURNING id`; `now()` in UTC |
 | Leases | text UTC timestamp | `timestamptz` (normalize to UTC); conformance suite only sees the port values |
 | JSON fields | TEXT JSON | `jsonb` (or keep TEXT for parity; JSONB enables indexing) |
-| Migrations | ad-hoc `_migrate_*` + `PRAGMA table_info` | per-dialect DDL + a `schema_version` ledger (worth adding for SQLite too) |
+| Migrations | versioned ledger: ordered idempotent registry in `sugar/storage/migrations.py`, recorded in `PRAGMA user_version`, atomic per version | per-dialect DDL + the backend's **own** ledger (e.g. a `schema_migrations` table or `COMMENT ON DATABASE`); the port deliberately does not expose migrations |
 | Change detection | dashboard polls `PRAGMA data_version` | consume the **event spine** (or `LISTEN/NOTIFY`); don't leak backend change feeds into surfaces |
 | Read-only UI connections | `PRAGMA query_only` | read-only role / `SET TRANSACTION READ ONLY` |
 | Isolation | single-writer WAL | MVCC + `lock_timeout` retry policy for the claim |
@@ -123,15 +132,18 @@ The lease contract is now enforced at runtime, not just in the store:
   learns to append events, it must do so in the same transaction as the mutation.
 - **Single-process concurrency only.** `BEGIN IMMEDIATE` protects within one process/host; cross-machine claims
   need a central board server (one process) or a backend with row-level locking (Postgres).
-- **No schema migration ledger yet** — the existing incremental migrations remain; adding `schema_version` is the
-  next storage-hygiene step.
+- **Auxiliary tables still migrate themselves.** The ledger covers the task-store schema (`work_items`,
+  `task_types`); `TaskTypeManager` (model routing, hooks, …) and the memory/event stores keep their own ad-hoc
+  upgrades. Folding every SQLite store into one ledger is future work.
 
 ## 7. Next steps
 
 1. ~~Wire the reaper + heartbeat into `sugar run` and the dashboard background refresh, emitting
    `task.lease_expired` events.~~ Done; covered by `tests/test_core_loop_leases.py` and
    `tests/test_dashboard_reaper.py`.
-2. Add `schema_version` + a single migrations path for SQLite.
+2. ~~Add `schema_version` + a single migrations path for SQLite.~~ Done; `sugar/storage/migrations.py`
+   (`SCHEMA_VERSION = 1`, ordered idempotent registry, atomic ledger), covered by
+   `tests/test_schema_migrations.py`.
 3. Implement `PostgresTaskStore` behind the port; run the conformance suite in CI with a service container.
 4. Point `sugar board` at a store by URL/driver so self-hosted teams can choose the backend without changing
    adapters or surfaces.

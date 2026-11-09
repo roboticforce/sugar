@@ -18,6 +18,7 @@ from ..identity import (
     lease_expiry,
     worker_actor,
 )
+from .migrations import SCHEMA_VERSION, apply_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,29 @@ class WorkQueue:
     ``tests/test_task_store_conformance.py``.
     """
 
+    #: Schema version this implementation writes/expects (see migrations.py).
+    SCHEMA_VERSION = SCHEMA_VERSION
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._initialized = False
+        self._schema_version = 0
         self._init_lock = asyncio.Lock()
 
+    @property
+    def schema_version(self) -> int:
+        """Schema version applied by the last :meth:`initialize` (0 before)."""
+        return self._schema_version
+
     async def initialize(self):
-        """Initialize the database and create tables"""
+        """Create or upgrade the database schema (idempotent).
+
+        All SQLite DDL lives in :mod:`sugar.storage.migrations`; this method
+        only opens the connection and asks the ledger to bring the database to
+        :data:`~sugar.storage.migrations.SCHEMA_VERSION`. Legacy databases
+        (``user_version == 0`` with tables already present) are upgraded by the
+        same idempotent registry.
+        """
         if self._initialized:
             return
 
@@ -50,366 +67,14 @@ class WorkQueue:
                 return
 
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS work_items (
-                        id TEXT PRIMARY KEY,
-                        type TEXT NOT NULL,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        priority INTEGER DEFAULT 3,
-                        status TEXT DEFAULT 'pending',
-                        source TEXT,
-                        source_file TEXT,
-                        context TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        attempts INTEGER DEFAULT 0,
-                        last_attempt_at TIMESTAMP,
-                        completed_at TIMESTAMP,
-                        result TEXT,
-                        error_message TEXT,
-                        total_execution_time REAL DEFAULT 0.0,
-                        started_at TIMESTAMP,
-                        total_elapsed_time REAL DEFAULT 0.0,
-                        commit_sha TEXT
-                    )
-                """
-                )
+                self._schema_version = await apply_migrations(db)
 
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
-                    ON work_items (priority ASC, status, created_at)
-                """
-                )
-
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_work_items_status
-                    ON work_items (status)
-                """
-                )
-
-                # Migrate existing databases to add timing columns and task types table
-                await self._migrate_timing_columns(db)
-                await self._migrate_task_types_table(db)
-                await self._migrate_orchestration_columns(db)
-                await self._migrate_acceptance_criteria_column(db)
-                await self._migrate_verification_columns(db)
-                await self._migrate_thinking_columns(db)
-                await self._migrate_identity_columns(db)
-
-                await db.commit()
-
+            logger.debug(
+                "✅ Work queue initialized: %s (schema v%d)",
+                self.db_path,
+                self._schema_version,
+            )
             self._initialized = True
-
-    async def _migrate_timing_columns(self, db):
-        """Add timing columns to existing databases if they don't exist"""
-        try:
-            # Check if timing columns exist
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add missing timing columns
-            if "total_execution_time" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN total_execution_time REAL DEFAULT 0.0"
-                )
-                logger.info("Added total_execution_time column to existing database")
-
-            if "started_at" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN started_at TIMESTAMP"
-                )
-                logger.info("Added started_at column to existing database")
-
-            if "total_elapsed_time" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN total_elapsed_time REAL DEFAULT 0.0"
-                )
-                logger.info("Added total_elapsed_time column to existing database")
-
-            if "commit_sha" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN commit_sha TEXT")
-                logger.info("Added commit_sha column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Migration warning (non-critical): {e}")
-
-    async def _migrate_task_types_table(self, db):
-        """Create task_types table and populate with defaults if it doesn't exist"""
-        try:
-            # Check if task_types table exists
-            cursor = await db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_types'"
-            )
-            table_exists = await cursor.fetchone()
-
-            if not table_exists:
-                # Create task_types table
-                await db.execute(
-                    """
-                    CREATE TABLE task_types (
-                        id TEXT PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        description TEXT,
-                        agent TEXT,
-                        commit_template TEXT,
-                        emoji TEXT,
-                        file_patterns TEXT,
-                        is_default BOOLEAN DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """
-                )
-
-                # Insert default task types
-                default_types = [
-                    {
-                        "id": "bug_fix",
-                        "name": "Bug Fix",
-                        "description": "Fix existing issues or bugs",
-                        "agent": "tech-lead",
-                        "commit_template": "fix: {title}",
-                        "emoji": "🐛",
-                        "file_patterns": '["src/components/buggy_component.py", "tests/test_fix.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "feature",
-                        "name": "Feature",
-                        "description": "Add new functionality",
-                        "agent": "general-purpose",
-                        "commit_template": "feat: {title}",
-                        "emoji": "✨",
-                        "file_patterns": '["src/features/new_feature.py", "src/api/feature_endpoint.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "test",
-                        "name": "Test",
-                        "description": "Add or update tests",
-                        "agent": "general-purpose",
-                        "commit_template": "test: {title}",
-                        "emoji": "🧪",
-                        "file_patterns": '["tests/test_*.py", "spec/*.spec.js"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "refactor",
-                        "name": "Refactor",
-                        "description": "Code refactoring without changing functionality",
-                        "agent": "code-reviewer",
-                        "commit_template": "refactor: {title}",
-                        "emoji": "♻️",
-                        "file_patterns": '["src/legacy_code.py", "src/improved_code.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "documentation",
-                        "name": "Documentation",
-                        "description": "Documentation updates and improvements",
-                        "agent": "general-purpose",
-                        "commit_template": "docs: {title}",
-                        "emoji": "📝",
-                        "file_patterns": '["README.md", "docs/api_documentation.md"]',
-                        "is_default": 1,
-                    },
-                ]
-
-                for task_type in default_types:
-                    await db.execute(
-                        """
-                        INSERT INTO task_types
-                        (id, name, description, agent, commit_template, emoji, file_patterns, is_default)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            task_type["id"],
-                            task_type["name"],
-                            task_type["description"],
-                            task_type["agent"],
-                            task_type["commit_template"],
-                            task_type["emoji"],
-                            task_type["file_patterns"],
-                            task_type["is_default"],
-                        ),
-                    )
-
-                logger.info("Created task_types table and populated with default types")
-
-        except Exception as e:
-            logger.error(f"Error migrating task_types table: {e}")
-            # Continue without task_types table
-
-        logger.debug(f"✅ Work queue initialized: {self.db_path}")
-
-    async def _migrate_orchestration_columns(self, db):
-        """Add orchestration columns to work_items table"""
-        try:
-            # Check if orchestration columns exist
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add orchestrate column (boolean flag)
-            if "orchestrate" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN orchestrate BOOLEAN DEFAULT 0"
-                )
-                logger.info("Added orchestrate column to existing database")
-
-            # Add parent_task_id column (foreign key to work_items.id)
-            if "parent_task_id" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN parent_task_id TEXT"
-                )
-                logger.info("Added parent_task_id column to existing database")
-
-            # Add stage column (current orchestration stage)
-            if "stage" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN stage TEXT")
-                logger.info("Added stage column to existing database")
-
-            # Add blocked_by column (JSON array of task IDs)
-            if "blocked_by" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN blocked_by TEXT")
-                logger.info("Added blocked_by column to existing database")
-
-            # Add context_path column (path to orchestration context)
-            if "context_path" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN context_path TEXT")
-                logger.info("Added context_path column to existing database")
-
-            # Add assigned_agent column (specialist agent)
-            if "assigned_agent" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN assigned_agent TEXT"
-                )
-                logger.info("Added assigned_agent column to existing database")
-
-            # Create index for parent_task_id queries
-            await db.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_work_items_parent_task_id
-                ON work_items (parent_task_id)
-            """
-            )
-
-        except Exception as e:
-            logger.warning(f"Orchestration migration warning (non-critical): {e}")
-
-    async def _migrate_acceptance_criteria_column(self, db):
-        """Add acceptance_criteria column to work_items table"""
-        try:
-            # Check if acceptance_criteria column exists
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add acceptance_criteria column (JSON field)
-            if "acceptance_criteria" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN acceptance_criteria TEXT"
-                )
-                logger.info("Added acceptance_criteria column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Acceptance criteria migration warning (non-critical): {e}")
-
-    async def _migrate_verification_columns(self, db):
-        """Add verification columns to work_items table (AUTO-005)"""
-        try:
-            # Check existing columns
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add verification_required column (boolean flag)
-            if "verification_required" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_required BOOLEAN DEFAULT 0"
-                )
-                logger.info("Added verification_required column to existing database")
-
-            # Add verification_status column (pending, verified, failed)
-            if "verification_status" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_status TEXT DEFAULT 'pending'"
-                )
-                logger.info("Added verification_status column to existing database")
-
-            # Add verification_results column (JSON field storing detailed results)
-            if "verification_results" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_results TEXT"
-                )
-                logger.info("Added verification_results column to existing database")
-
-        except Exception as e:
-            logger.warning(
-                f"Verification columns migration warning (non-critical): {e}"
-            )
-
-    async def _migrate_thinking_columns(self, db):
-        """Add thinking columns to work_items table for capturing Claude's reasoning"""
-        try:
-            # Check existing columns
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add thinking_log_path column (path to thinking markdown file)
-            if "thinking_log_path" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_log_path TEXT"
-                )
-                logger.info("Added thinking_log_path column to existing database")
-
-            # Add thinking_summary column (summary of thinking captured)
-            if "thinking_summary" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_summary TEXT"
-                )
-                logger.info("Added thinking_summary column to existing database")
-
-            # Add thinking_stats column (JSON field with thinking statistics)
-            if "thinking_stats" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_stats TEXT"
-                )
-                logger.info("Added thinking_stats column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Thinking columns migration warning (non-critical): {e}")
-
-    async def _migrate_identity_columns(self, db):
-        """Add provenance/lease columns (created_by, claimed_by, lease_expires_at).
-
-        Legacy rows keep NULL: "unknown" is a truthful value and is not
-        backfilled to a guess. See ``sugar.identity`` for the model.
-        """
-        try:
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = {row[1] for row in await cursor.fetchall()}
-            additions = (
-                ("created_by", "TEXT"),
-                ("created_by_kind", "TEXT"),
-                ("created_by_session", "TEXT"),
-                ("claimed_by", "TEXT"),
-                ("lease_expires_at", "TIMESTAMP"),
-            )
-            for name, column_type in additions:
-                if name not in columns:
-                    await db.execute(
-                        f"ALTER TABLE work_items ADD COLUMN {name} {column_type}"
-                    )
-                    logger.info("Added %s column to existing database", name)
-        except Exception as e:
-            logger.warning(f"Identity migration warning (non-critical): {e}")
 
     async def close(self):
         """Close the work queue (for testing)"""
