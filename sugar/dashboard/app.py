@@ -14,7 +14,12 @@ from starlette.applications import Starlette
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.routing import Route
 
 from ..__version__ import __version__ as SUGAR_VERSION
@@ -24,7 +29,14 @@ from .service import (
     DashboardService,
     resolve_request_actor,
 )
-from .security import MAX_BODY_BYTES, DashboardGuardMiddleware
+from .security import (
+    MAX_BODY_BYTES,
+    BoardAuthMiddleware,
+    DashboardGuardMiddleware,
+    TokenRegistry,
+    set_board_cookie,
+    unauthorized_response,
+)
 from .spine import EventSpine, SpineError
 
 logger = logging.getLogger(__name__)
@@ -95,6 +107,23 @@ async def _read_json_object(request: Request) -> dict:
 
 
 async def homepage(request: Request) -> HTMLResponse:
+    tokens = getattr(request.app.state, "tokens", None)
+    if isinstance(tokens, TokenRegistry) and not tokens.is_empty:
+        query_token = request.query_params.get("token")
+        if query_token is not None:
+            record = tokens.find(query_token)
+            if record is None:
+                return unauthorized_response()
+            # Exchange the URL token for an HttpOnly cookie, then drop it from
+            # the address bar so it never lands in history or a Referer header.
+            response = RedirectResponse("/", status_code=303)
+            set_board_cookie(
+                response,
+                record.secret,
+                secure=request.url.scheme == "https",
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
     try:
         html = INDEX_HTML.read_text(encoding="utf-8")
     except OSError:
@@ -263,6 +292,8 @@ def create_app(
     poll_interval: float = 0.4,
     service: Any = None,
     events_db: Any = None,
+    tokens: TokenRegistry | None = None,
+    trust_same_origin: bool | None = None,
 ) -> Starlette:
     """Build the dashboard ASGI app for ``db_path``.
 
@@ -270,6 +301,12 @@ def create_app(
     before the first request is served. Pass ``service`` to serve a different
     board (e.g. :class:`sugar.dashboard.kanban.service.KanbanService`); the
     service must expose the same read/write surface as ``DashboardService``.
+
+    ``tokens`` is an optional :class:`~sugar.dashboard.security.TokenRegistry`.
+    When present every ``/api/*`` request except ``/api/health`` needs a scoped
+    bearer token or the ``sugar_board`` cookie, and same-host origins are
+    accepted for writes (remote browser UI). With no tokens (the default) the
+    server keeps its loopback-only, unauthenticated behaviour.
     """
     resolved_db = str(Path(db_path).expanduser().resolve())
     dashboard = service or DashboardService(
@@ -322,10 +359,19 @@ def create_app(
         Route("/api/events", ingest_event, methods=["POST"]),
     ]
 
+    registry = tokens if isinstance(tokens, TokenRegistry) else None
+    if trust_same_origin is None:
+        trust_same_origin = bool(registry and not registry.is_empty)
+    middleware = [
+        Middleware(DashboardGuardMiddleware, trust_same_origin=trust_same_origin)
+    ]
+    if registry is not None and not registry.is_empty:
+        middleware.append(Middleware(BoardAuthMiddleware, tokens=registry))
+
     app = Starlette(
         routes=routes,
         lifespan=lifespan,
-        middleware=[Middleware(DashboardGuardMiddleware)],
+        middleware=middleware,
         exception_handlers={
             DashboardError: _dashboard_error_handler,
             StarletteHTTPException: _http_error_handler,
@@ -334,4 +380,5 @@ def create_app(
     )
     app.state.dashboard = dashboard
     app.state.spine = spine
+    app.state.tokens = registry
     return app

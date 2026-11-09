@@ -450,6 +450,7 @@
   let reconnectTimer = null;
   let retryDelay = 1000;
   let toastTimer = null;
+  let authNoticeShown = false;
   let feedRenderTimer = null;
   let activityGap = false;
 
@@ -598,8 +599,25 @@
   };
 
   function reportError(error) {
+    if (error && error.status === 401) {
+      if (!authNoticeShown) {
+        authNoticeShown = true;
+        toast(
+          "Unauthorized — open this board once with /?token=<your-token> " +
+            "to create a session cookie.",
+          true
+        );
+      }
+      setConnection(false, "unauthorized");
+      return;
+    }
     if (error && error.status === 403) {
-      toast("Dashboard is read-only.", true);
+      const code = error.data && error.data.error;
+      if (code === "forbidden_scope") {
+        toast("This token only allows read access.", true);
+        return;
+      }
+      toast("Dashboard is read-only or this token may not write.", true);
       return;
     }
     toast(error && error.message ? error.message : "Request failed", true);

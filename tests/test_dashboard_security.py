@@ -11,7 +11,12 @@ import pytest
 from starlette.testclient import TestClient
 
 from sugar.dashboard.app import create_app
-from sugar.dashboard.security import MAX_BODY_BYTES, origin_allowed
+from sugar.dashboard.security import (
+    MAX_BODY_BYTES,
+    BoardToken,
+    TokenRegistry,
+    origin_allowed,
+)
 
 
 class TestOriginPolicy:
@@ -115,6 +120,50 @@ class TestHeaders:
             response = client.get("/api/tasks/does-not-exist")
             assert response.status_code == 404
             assert response.headers["x-content-type-options"] == "nosniff"
+
+
+class TestRemoteModeGuards:
+    """Token mode relaxes the Origin gate to same-host, nothing else."""
+
+    @staticmethod
+    def _registry():
+        return TokenRegistry([BoardToken("writer", "write", "write-token-123")])
+
+    def test_same_host_origin_is_allowed_when_tokens_are_on(self, tmp_path):
+        app = create_app(str(tmp_path / "sugar.db"), tokens=self._registry())
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/tasks",
+                json={"title": "remote browser"},
+                headers={
+                    "Authorization": "Bearer write-token-123",
+                    "Origin": "http://testserver",
+                },
+            )
+            assert response.status_code == 201, response.text
+
+    def test_foreign_origin_is_still_blocked_with_tokens(self, tmp_path):
+        app = create_app(str(tmp_path / "sugar.db"), tokens=self._registry())
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/tasks",
+                json={"title": "cross site"},
+                headers={
+                    "Authorization": "Bearer write-token-123",
+                    "Origin": "https://evil.example",
+                },
+            )
+            assert response.status_code == 403
+            assert response.json()["error"] == "forbidden_origin"
+
+    def test_auth_rejections_get_security_headers(self, tmp_path):
+        app = create_app(str(tmp_path / "sugar.db"), tokens=self._registry())
+        with TestClient(app) as client:
+            response = client.get("/api/tasks")
+            assert response.status_code == 401
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["x-frame-options"] == "DENY"
+            assert response.headers["referrer-policy"] == "no-referrer"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes only")
