@@ -44,10 +44,11 @@ enum StatusFilter: String, CaseIterable, Identifiable {
 
 // MARK: - Sidebar selection
 
-/// The sidebar has one selection; task filters and the Activity feed share it
-/// so only one row is highlighted at a time.
+/// The sidebar has one selection; task filters, the Live floor and the
+/// Activity feed share it so only one row is highlighted at a time.
 enum SidebarItem: Hashable {
     case status(StatusFilter)
+    case live
     case activity
 }
 
@@ -80,6 +81,13 @@ final class AppModel {
         }
     }
 
+    /// Where the Live floor's data comes from: a fresh presence snapshot, or
+    /// the task-lease fallback for older servers / dropped presence.
+    enum PresenceSource: Equatable {
+        case presence(updatedAt: Date)
+        case derived
+    }
+
     static let defaultServerURL = "http://127.0.0.1:7331"
     static let serverURLDefaultsKey = "SugarDash.serverURL"
     /// Upper bound for the in-memory activity feed (the browser client uses
@@ -99,6 +107,12 @@ final class AppModel {
     private(set) var activityEvents: [ActivityEvent] = []
     private(set) var activityUnavailable = false
 
+    // Ephemeral live presence: the latest `presence` SSE payload. Never
+    // persisted server-side; replaced outright on every event and cleared when
+    // switching servers. `liveAgents` falls back to task leases when absent or
+    // stale (older servers); see `presenceSource(at:)`.
+    private(set) var presence: PresenceSnapshot?
+
     // Connection state.
     private(set) var connection: ConnectionState = .idle
     private(set) var hasEverConnected = false
@@ -113,6 +127,9 @@ final class AppModel {
     /// switches from the task list to the feed. Default (false) is the task
     /// list, which keeps the existing app behaviour unchanged.
     var showsActivity = false
+    /// True while the sidebar's Live row is selected; the middle pane shows the
+    /// "Agents at work" floor. Mutually exclusive with `showsActivity`.
+    var showsLive = false
 
     // Configuration.
     private(set) var serverURLString: String
@@ -190,6 +207,63 @@ final class AppModel {
             return stats.count(status)
         }
         return tasks.filter { $0.status == status }.count
+    }
+
+    // MARK: - Live floor (presence + task-lease fallback)
+
+    /// Fresh presence wins; otherwise derive agents from active, claimed tasks.
+    /// `now` is injected so tests (and the ticking UI) control staleness.
+    func presenceSource(at now: Date = Date()) -> PresenceSource {
+        if let presence, let updatedAt = presence.ts, presence.isFresh(at: now) {
+            return .presence(updatedAt: updatedAt)
+        }
+        return .derived
+    }
+
+    func liveAgents(at now: Date = Date()) -> [LiveAgent] {
+        switch presenceSource(at: now) {
+        case .presence:
+            return presence?.agents ?? []
+        case .derived:
+            return LiveAgent.derived(from: tasks)
+        }
+    }
+
+    /// The floor's agents, newest presence / task state at the moment of
+    /// evaluation. The pane re-evaluates this inside a 1 s TimelineView.
+    var liveAgents: [LiveAgent] {
+        liveAgents(at: Date())
+    }
+
+    /// One group per actor, each with its cards (tasks) in working order.
+    var liveAgentGroups: [LiveAgentGroup] {
+        LiveAgent.groupedByActor(liveAgents)
+    }
+
+    var workingAgentsByActor: [String: [LiveAgent]] {
+        Dictionary(grouping: liveAgents, by: \.actor)
+    }
+
+    /// Distinct actors currently working (what the toolbar chip counts).
+    var liveAgentCount: Int {
+        Set(liveAgents.map(\.actor)).count
+    }
+
+    /// Distinct active tasks currently being worked (cards on the floor).
+    var liveTaskCount: Int {
+        liveAgents.count
+    }
+
+    /// Sidebar/toolbar entry point: show the Live floor.
+    func showLive() {
+        showsActivity = false
+        showsLive = true
+    }
+
+    /// Counterpart for the Activity row / empty-state escape hatch.
+    func showActivity() {
+        showsLive = false
+        showsActivity = true
     }
 
     // MARK: - Lifecycle
@@ -503,7 +577,9 @@ final class AppModel {
         loadActivityInBackground()
     }
 
-    private func handle(_ event: SSEEvent) {
+    /// Applies one SSE event. Internal (not private) so the offline tests can
+    /// feed fixtures through the same code path as the live stream.
+    func handle(_ event: SSEEvent) {
         let decoder = SugarJSON.makeDecoder()
 
         switch event.event {
@@ -533,6 +609,13 @@ final class AppModel {
                 return
             }
             stats = payload
+        case "presence":
+            // Ephemeral live floor (§presence): the newest snapshot wins as-is.
+            // Not persisted, not merged; staleness falls back to task leases.
+            guard let payload = try? decoder.decode(PresenceSnapshot.self, from: event.data) else {
+                return
+            }
+            presence = payload
         case "activity":
             // §11.3: `data: <Event>` — one append-only spine event. The feed is
             // best-effort; a malformed event is dropped, never surfaced.
@@ -557,10 +640,11 @@ final class AppModel {
         activityUnavailable = false
     }
 
-    /// Activity row → task list: select the referenced task and leave the feed.
-    /// Only resets the status filter / search when the task would otherwise be
-    /// hidden, so the user's filters survive normal jumps.
+    /// Activity/Live row → task list: select the referenced task and leave the
+    /// feed. Only resets the status filter / search when the task would
+    /// otherwise be hidden, so the user's filters survive normal jumps.
     func focusTask(id: String) {
+        showsLive = false
         showsActivity = false
         selection = id
         if !filteredTasks.contains(where: { $0.id == id }) {
@@ -620,6 +704,7 @@ final class AppModel {
         taskTypesError = nil
         activityEvents = []
         activityUnavailable = false
+        presence = nil
         selection = nil
         hasEverConnected = false
         serverVersion = nil

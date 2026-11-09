@@ -134,18 +134,30 @@ open dist/SugarDash.app
 The app opens one window:
 
 - **Sidebar** — status filters (All / Pending / Active / Hold / Completed /
-  Failed) with live counters, the server URL field (persisted in
-  `UserDefaults`), connection state, and the server's DB path/version.
+  Failed) with live counters, **Live** (agents at work), **Activity** (event
+  feed), the server URL field (persisted in `UserDefaults`), connection state,
+  and the server's DB path/version.
+- **Live floor** — "Agents at work": one card per active task grouped by agent,
+  with a pulsing lease-health dot (green > 60 s, amber < 60 s, red
+  expired/missing), task title, "working for 3m 12s", lease countdown and an
+  attempts badge. Values tick every second via `TimelineView` (no network
+  polling); the bottom ticker shows the last 12 activity events. Tapping a card
+  or ticker row jumps to the task. If the server doesn't emit the ephemeral
+  `presence` event, the floor derives agents from active task leases and says
+  so ("derived from task leases").
 - **Task list** — priority, status, type, title, assigned agent, attempts and
   relative update time; searchable and filterable.
 - **Detail** — full task facts, description, context, acceptance criteria,
   result, error, thinking summary.
-- **Toolbar** — New Task (⌘N), Refresh (⌘R), Reconnect, connection dot.
+- **Toolbar** — New Task (⌘N), Refresh (⌘R), Reconnect, connection dot, and an
+  "N agents working" chip that opens the Live floor.
 
 Features:
 
 - Live updates over SSE (`/api/events`); no polling loop. Reconnects with
   1 s → 10 s backoff and treats the new `snapshot` as authoritative.
+- Ephemeral `presence` events drive the Live floor; presence is trusted for
+  10 s, then the floor falls back to task leases (older servers never send it).
 - Full CRUD: create, edit (including status transitions), hold/release, delete
   with a confirmation dialog.
 - Type picker populated from `GET /api/task-types`; priority 1 (Urgent) – 5
@@ -161,7 +173,10 @@ Features:
 
 Decoding is covered by XCTest fixtures copied verbatim from the contract
 (`Tests/SugarDashTests/DecodingTests.swift`): a null-heavy task, the SSE snapshot
-with stats, and an ISO-8601 `Z` timestamp.
+with stats, and an ISO-8601 `Z` timestamp. `LiveTests.swift` covers the
+`presence` payload (nulls, missing keys, unknown fields), lease-health
+thresholds, actor grouping/order, the task-lease fallback and the live
+formatting helpers; `ActivityTests.swift` covers the event spine.
 
 ```bash
 swift test
@@ -184,14 +199,18 @@ apps/macos/
 ├── Package.swift                     # swift-tools-version 6.0, macOS 14, language mode v5
 ├── Sources/SugarDash/
 │   ├── SugarDashApp.swift            # @main, WindowGroup + MenuBarExtra
-│   ├── Models.swift                  # Task / Stats / TaskType / Health + JSON & date decoding
-│   ├── APIClient.swift               # REST + SSE (URLSession async bytes/lines)
+│   ├── Models.swift                  # Task / Stats / Health / LiveAgent + JSON & date decoding
+│   ├── APIClient.swift               # REST + SSE (delegate-backed transport)
 │   ├── AppModel.swift                # @MainActor @Observable store
-│   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar
+│   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar + Activity feed
+│   ├── LiveFloorPane.swift           # "Agents at work" floor + pulsing dot + activity ticker
 │   ├── TaskDetailView.swift          # read-only detail + actions
 │   └── TaskEditorView.swift          # add/edit sheet
 ├── Tests/SugarDashTests/
-│   └── DecodingTests.swift
+│   ├── DecodingTests.swift
+│   ├── ActivityTests.swift
+│   ├── SSEStreamTests.swift
+│   └── LiveTests.swift
 ├── build-app.sh
 └── README.md
 ```

@@ -391,6 +391,288 @@ struct ActivityResponse: Decodable, Sendable {
     }
 }
 
+// MARK: - Live presence (ephemeral SSE `presence` event)
+
+/// Lease health for a live agent card. The app's rule of thumb: more than a
+/// minute left is healthy (green), under a minute is expiring (amber), and an
+/// expired or missing lease is treated as a dead claim (red).
+enum LeaseHealth: String, Hashable, Sendable {
+    case healthy
+    case expiring
+    case expired
+}
+
+/// One agent currently working a task, as carried by the ephemeral SSE
+/// `presence` event:
+///
+/// ```json
+/// {"actor":"claude-code","task_id":"…","title":"…","status":"active",
+///  "lease_expires_at":"…Z"|null,"started_at":"…Z"|null,"attempts":2}
+/// ```
+///
+/// Presence is not persisted server-side and older servers never emit it, so
+/// every field except `actor` is decoded tolerantly and the app has a
+/// task-derived fallback (``LiveAgent/derived(from:)``).
+struct LiveAgent: Decodable, Identifiable, Hashable, Sendable {
+    var actor: String
+    var taskId: String
+    var title: String
+    var status: String
+    var leaseExpiresAt: Date?
+    var startedAt: Date?
+    var attempts: Int
+
+    /// One card per task; an actor may hold several tasks. The composite key
+    /// only matters for pathological payloads without a task id.
+    var id: String {
+        if !taskId.isEmpty { return taskId }
+        return "\(actor)|\(title)|\(startedAt?.timeIntervalSince1970 ?? 0)"
+    }
+
+    var displayTitle: String {
+        title.isEmpty ? "(untitled task)" : title
+    }
+
+    init(
+        actor: String,
+        taskId: String = "",
+        title: String = "",
+        status: String = "active",
+        leaseExpiresAt: Date? = nil,
+        startedAt: Date? = nil,
+        attempts: Int = 0
+    ) {
+        self.actor = actor
+        self.taskId = taskId
+        self.title = title
+        self.status = status
+        self.leaseExpiresAt = leaseExpiresAt
+        self.startedAt = startedAt
+        self.attempts = attempts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case actor
+        case taskId
+        case title
+        case status
+        case leaseExpiresAt
+        case startedAt
+        case attempts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawActor = try container.decodeIfPresent(String.self, forKey: .actor) ?? ""
+        let trimmedActor = rawActor.trimmingCharacters(in: .whitespacesAndNewlines)
+        actor = trimmedActor.isEmpty ? "unknown" : trimmedActor
+        taskId = try container.decodeIfPresent(String.self, forKey: .taskId) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
+        leaseExpiresAt = try container.decodeIfPresent(Date.self, forKey: .leaseExpiresAt)
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        attempts = try container.decodeIfPresent(Int.self, forKey: .attempts) ?? 0
+    }
+
+    // MARK: Time helpers (pure; the UI feeds them a TimelineView date)
+
+    /// Seconds until the lease expires; negative when already expired, `nil`
+    /// when the server did not record a lease at all.
+    func leaseRemaining(at now: Date = Date()) -> TimeInterval? {
+        guard let leaseExpiresAt else { return nil }
+        return leaseExpiresAt.timeIntervalSince(now)
+    }
+
+    func leaseHealth(at now: Date = Date()) -> LeaseHealth {
+        guard let remaining = leaseRemaining(at: now) else { return .expired }
+        if remaining <= 0 { return .expired }
+        return remaining < 60 ? .expiring : .healthy
+    }
+
+    /// How long the agent has been on the task, clamped at zero for clock
+    /// skew; `nil` when the server did not record a start time.
+    func workingDuration(at now: Date = Date()) -> TimeInterval? {
+        guard let startedAt else { return nil }
+        return max(0, now.timeIntervalSince(startedAt))
+    }
+
+    // MARK: Fallback derivation
+
+    /// Fallback for servers that predate the presence event: an active task
+    /// that recorded who claimed it is, by definition, being worked on.
+    static func derived(from tasks: [Task]) -> [LiveAgent] {
+        tasks.compactMap { task in
+            guard task.status == "active" else { return nil }
+            guard let claimedBy = task.claimedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !claimedBy.isEmpty else { return nil }
+            return LiveAgent(
+                actor: claimedBy,
+                taskId: task.id,
+                title: task.title,
+                status: task.status,
+                leaseExpiresAt: task.leaseExpiresAt,
+                startedAt: task.startedAt,
+                attempts: task.attempts
+            )
+        }
+        .sorted(by: LiveAgent.workingOrder)
+    }
+
+    /// Longest-working first (missing start times last), then by actor/task for
+    /// a stable order across presence ticks.
+    static func workingOrder(_ lhs: LiveAgent, _ rhs: LiveAgent) -> Bool {
+        let left = lhs.startedAt ?? .distantFuture
+        let right = rhs.startedAt ?? .distantFuture
+        if left != right { return left < right }
+        if lhs.actor != rhs.actor {
+            return lhs.actor.localizedCaseInsensitiveCompare(rhs.actor) == .orderedAscending
+        }
+        return lhs.taskId < rhs.taskId
+    }
+
+    /// Groups cards under their actor, with the longest-working actor first.
+    static func groupedByActor(_ agents: [LiveAgent]) -> [LiveAgentGroup] {
+        Dictionary(grouping: agents, by: \.actor)
+            .map { actor, agents in
+                LiveAgentGroup(actor: actor, agents: agents.sorted(by: LiveAgent.workingOrder))
+            }
+            .sorted { lhs, rhs in
+                let left = lhs.agents.compactMap(\.startedAt).min() ?? .distantFuture
+                let right = rhs.agents.compactMap(\.startedAt).min() ?? .distantFuture
+                if left != right { return left < right }
+                return lhs.actor.localizedCaseInsensitiveCompare(rhs.actor) == .orderedAscending
+            }
+    }
+}
+
+/// One actor heading plus the cards for the tasks it currently holds.
+struct LiveAgentGroup: Identifiable, Hashable, Sendable {
+    let actor: String
+    let agents: [LiveAgent]
+
+    var id: String { actor }
+}
+
+/// Queue counters carried by the presence event.
+struct PresenceCounts: Decodable, Hashable, Sendable {
+    var active: Int
+    var pending: Int
+    var hold: Int
+    var total: Int
+
+    init(active: Int = 0, pending: Int = 0, hold: Int = 0, total: Int = 0) {
+        self.active = active
+        self.pending = pending
+        self.hold = hold
+        self.total = total
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case active
+        case pending
+        case hold
+        case total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        active = try container.decodeIfPresent(Int.self, forKey: .active) ?? 0
+        pending = try container.decodeIfPresent(Int.self, forKey: .pending) ?? 0
+        hold = try container.decodeIfPresent(Int.self, forKey: .hold) ?? 0
+        total = try container.decodeIfPresent(Int.self, forKey: .total) ?? 0
+    }
+}
+
+/// Payload of the ephemeral SSE `presence` event (cadence ~2 s, not
+/// persisted). The snapshot is authoritative while fresh; the app falls back
+/// to task leases when it is absent or stale.
+struct PresenceSnapshot: Decodable, Hashable, Sendable {
+    /// How long a presence snapshot is trusted before the app falls back to
+    /// deriving agents from task leases. The server emits every ~2 s.
+    static let staleAfter: TimeInterval = 10
+
+    var ts: Date?
+    var agents: [LiveAgent]
+    var counts: PresenceCounts
+    var uptimeS: Double
+
+    init(
+        ts: Date? = nil,
+        agents: [LiveAgent] = [],
+        counts: PresenceCounts = PresenceCounts(),
+        uptimeS: Double = 0
+    ) {
+        self.ts = ts
+        self.agents = agents
+        self.counts = counts
+        self.uptimeS = uptimeS
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ts
+        case agents
+        case counts
+        case uptimeS
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ts = try container.decodeIfPresent(Date.self, forKey: .ts)
+        agents = try container.decodeIfPresent([LiveAgent].self, forKey: .agents) ?? []
+        counts = try container.decodeIfPresent(PresenceCounts.self, forKey: .counts) ?? PresenceCounts()
+        uptimeS = try container.decodeIfPresent(Double.self, forKey: .uptimeS) ?? 0
+    }
+
+    func isFresh(at now: Date = Date()) -> Bool {
+        guard let ts else { return false }
+        // Tolerate a little clock skew: a slightly future timestamp is fresh.
+        return now.timeIntervalSince(ts) <= Self.staleAfter
+    }
+}
+
+/// Formatting for the live floor. Kept pure so the ticking UI and the tests
+/// agree on the exact strings.
+enum LiveFormat {
+    /// How long an agent has been working: "45s", "3m 12s", "1h 2m".
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        if total < 60 { return "\(total)s" }
+        let minutes = total / 60
+        let secs = total % 60
+        if minutes < 60 { return "\(minutes)m \(secs)s" }
+        let hours = minutes / 60
+        return "\(hours)h \(minutes % 60)m"
+    }
+
+    /// Lease countdown (rounded up so a lease is never shown as expired a
+    /// fraction early): "4:32", "0:00", "1:02:03".
+    static func countdown(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.up)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
+    }
+
+    /// Presence freshness: "just now", "3s ago", "1m 4s ago", "2h ago".
+    static func ago(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        if total < 1 { return "just now" }
+        if total < 60 { return "\(total)s ago" }
+        let minutes = total / 60
+        let secs = total % 60
+        if minutes < 60 {
+            return secs == 0 ? "\(minutes)m ago" : "\(minutes)m \(secs)s ago"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return mins == 0 ? "\(hours)h ago" : "\(hours)h \(mins)m ago"
+    }
+}
+
 // MARK: - Stats / health / task types
 
 struct Stats: Codable, Hashable {
