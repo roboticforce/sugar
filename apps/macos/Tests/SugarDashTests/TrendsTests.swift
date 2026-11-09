@@ -372,7 +372,7 @@ final class TrendsAppModelTests: XCTestCase {
 
     func testTrendsQueryKeyTracksRangeAndDimension() {
         let model = AppModel()
-        XCTAssertEqual(model.trendsQueryKey, "24h-actor")
+        XCTAssertEqual(model.trendsQueryKey, "7d-actor")
 
         model.trendsRange = .month
         model.trendsDimension = .harness

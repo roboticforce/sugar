@@ -181,3 +181,19 @@ API response. The CLI reads the events DB read-only (`--db`, default
   (the spine itself only writes normalized timestamps).
 - Zero-filled buckets are derived from the requested range, not from the data;
   a series that only has activity in one bucket still returns all buckets.
+
+## Seeding demo data
+
+The Trends view needs history. To fill a **throwaway** event-spine database with
+two weeks of synthetic work across projects and agents (never your real
+`~/.sugar/events.db`):
+
+```bash
+python scripts/seed_demo_trends.py \
+  --db /tmp/sugar-dashboard-demo/.sugar/events.db --days 14 --reset
+```
+
+Seeded rows use `source="seed-trends"` and `machine="demo"`; `--reset` deletes
+only those rows. Combine with `scripts/simulate_agent_activity.py` for live
+activity on top of the seeded history, and point SugarDash at the demo board to
+see the charts populated.
