@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **SugarDash hides the empty inspector.** When no task is selected the detail column collapses (Tasks/Live/Activity/Trends get the full width instead of a "No Task Selected" placeholder); selecting a task expands it, clearing the selection collapses it again, and a toolbar Inspector toggle appears while a task is selected.
+
 ### Added
 - **Work trends** (`GET /api/trends`, `sugar trends`, SugarDash Trends view): time-bucketed analytics from the event spine — tasks created/claimed/completed/failed, events, tokens and cost by `actor|harness|project`, plus per-series claim→completion cycle time. Zero-filled UTC hour/day/week buckets (week starts Monday), bounded scan with `truncated`, defaults to last 7 days grouped by actor. `sugar trends` prints a table or `--json`; SugarDash gains a **Trends** sidebar view with range (24h/7d/30d) and dimension pickers, stat tiles (completed, failure rate, avg cycle, cost, events), Swift Charts line/area + per-group bar charts with x-selection tooltips, and last-view persistence. See `docs/trends.md`.
 - **Demo trend seeding** (`scripts/seed_demo_trends.py`): writes backdated synthetic task/usage/tool events across four projects and five agents into a throwaway event DB (source `seed-trends`, `--reset` cleans them) so the Trends UI can be demoed with realistic history.

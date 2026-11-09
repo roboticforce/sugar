@@ -59,6 +59,9 @@ struct ContentView: View {
 
     @State private var showCreateTask = false
     @State private var editingTask: Task?
+    /// The task inspector is only shown while a task is selected; otherwise the
+    /// content pane gets the full width (no "No Task Selected" placeholder).
+    @State private var showInspector = false
 
     /// Remember the last top-level view (Tasks / Live / Activity / Trends) so a
     /// relaunch returns to it. Defaults to Tasks.
@@ -68,7 +71,7 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 215, ideal: 245, max: 300)
-        } content: {
+        } detail: {
             Group {
                 if model.showsLive {
                     LiveFloorPane()
@@ -80,15 +83,23 @@ struct ContentView: View {
                     TaskListPane(showCreateTask: $showCreateTask, editingTask: $editingTask)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 340, ideal: 440)
-        } detail: {
-            DetailPane(editingTask: $editingTask)
+            .frame(minWidth: 640)
+            .inspector(isPresented: $showInspector) {
+                DetailPane(editingTask: $editingTask)
+                    .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
+            }
         }
         .toolbar { toolbarContent }
         .navigationTitle("Sugar Dashboard")
         .frame(minWidth: 940, minHeight: 560)
         .task { model.start() }
-        .onAppear { model.restoreSection(raw: persistedSection) }
+        .onAppear {
+            model.restoreSection(raw: persistedSection)
+            syncInspectorVisibility(model.selectedTask != nil)
+        }
+        .onChange(of: model.selectedTask?.id) { _, _ in
+            syncInspectorVisibility(model.selectedTask != nil)
+        }
         .onChange(of: model.activeSection) { _, section in
             persistedSection = section.rawValue
         }
@@ -99,6 +110,15 @@ struct ContentView: View {
         .sheet(item: $editingTask) { task in
             TaskEditorView(mode: .edit(task))
                 .environment(model)
+        }
+    }
+
+    /// Show the inspector exactly when there is a task to inspect. Selecting a
+    /// task reveals it; clearing the selection hides it (no empty panel).
+    private func syncInspectorVisibility(_ hasSelection: Bool) {
+        guard showInspector != hasSelection else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showInspector = hasSelection
         }
     }
 
@@ -138,6 +158,15 @@ struct ContentView: View {
             .disabled(model.isReadOnly)
             .keyboardShortcut("n", modifiers: .command)
             .help(model.isReadOnly ? "The server is read-only" : "Create a new task")
+
+            if model.selectedTask != nil {
+                Button {
+                    showInspector.toggle()
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.right")
+                }
+                .help("Show or hide the task inspector")
+            }
 
             Button {
                 model.refresh()
