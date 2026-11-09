@@ -133,7 +133,17 @@ async def homepage(request: Request) -> HTMLResponse:
 
 
 async def health(request: Request) -> JSONResponse:
-    return JSONResponse(_service(request).health())
+    """Liveness probe; intentionally unauthenticated in token mode.
+
+    In token mode this is reachable without a credential, so it exposes only
+    ``{ok, version}`` — never the absolute database path, read-only flag or
+    uptime, which are useful to an attacker and useless to a liveness probe.
+    """
+    service = _service(request)
+    tokens = getattr(request.app.state, "tokens", None)
+    if isinstance(tokens, TokenRegistry) and not tokens.is_empty:
+        return JSONResponse({"ok": True, "version": service.health()["version"]})
+    return JSONResponse(service.health())
 
 
 async def list_tasks(request: Request) -> JSONResponse:

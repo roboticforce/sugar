@@ -241,6 +241,15 @@ class TestBearerAuth:
     def test_health_is_public(self, client):
         assert client.get("/api/health").status_code == 200
 
+    def test_health_is_minimal_in_token_mode(self, client):
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        body = response.json()
+        # Liveness only: no db path, read-only flag or uptime without auth.
+        assert set(body) == {"ok", "version"}
+        assert body["ok"] is True
+        assert "db" not in body
+
     def test_missing_token_is_401(self, client):
         response = client.get("/api/tasks")
         assert response.status_code == 401

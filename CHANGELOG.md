@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Usage/cost attribution** (`sugar dashboard`, `sugar usage`, Activity panel): harnesses report spend through `POST /api/events` with kind `usage.reported` (or `run.ended`) carrying `{tokens_in, tokens_out, cost_usd, model?}`. `GET /api/usage?group_by=actor|harness|task|project|day|kind` returns grouped totals (tolerant normalization: bad telemetry is skipped, never 500s; negatives/NaN ignored), `sugar usage` prints the same table or `--json`, and the browser Activity view shows totals plus top harnesses/actors by cost. Bounded spine reads with a `truncated` flag; no pricing table or provider billing reconciliation — cost is whatever the harness reports. See `docs/usage.md`.
+
+### Security
+- **`/api/health` no longer leaks host details in token mode.** On a remote/team board the endpoint is intentionally unauthenticated, so it now returns only `{ok, version}` instead of the version, absolute database path, read-only flag and uptime. Local (no-token) mode keeps the richer response for tooling.
+
+### Added
+- **Tamper-evident audit exports** (`sugar audit export|verify`): streams the append-only event spine to canonical JSONL plus a manifest (format, generated_at, version, source, first/last event id, count, SHA-256 of the JSONL bytes, filters, optional HMAC-SHA256 signature keyed by `--sign-key-env VAR`). `sugar audit verify` recomputes the hash and, when signed, the HMAC — exits non-zero on tampering or a wrong key. Export files contain task metadata and must be handled like logs; retention is still operator policy (`$SUGAR_EVENTS_RETENTION_DAYS`), so export before pruning. No trusted timestamping/notarization is provided. See `docs/audit.md`.
+
+### Added
+- **Business strategy** (`docs/business-strategy.md`): positioning ("coordination and evidence layer for agent teams"), ICP and willingness-to-pay ladder, open-core tiers and pricing hypotheses, dual-licensing, developer-led growth engine with upgrade triggers, 0–24 month revenue-tied roadmap, metrics and risks.
+
+### Added
 - **Versioned storage schema.** `sugar/storage/migrations.py` replaces the ad-hoc `_migrate_*` chain with a `PRAGMA user_version` ledger and an ordered, idempotent migration registry: each version commits its DDL and ledger bump in one `BEGIN IMMEDIATE` transaction, legacy `user_version=0` databases upgrade through the same registry, stale ledgers are repaired by per-version probes, and a database newer than the code raises `SchemaVersionError` instead of being written. Exposed as `WorkQueue.schema_version` / `SCHEMA_VERSION`; `WorkQueue.initialize()` delegates. Covered by `tests/test_schema_migrations.py`; see `docs/storage-port.md`.
 - **Team board server (opt-in remote access).** `sugar dashboard --bind ADDR --allow-remote --token-file PATH` serves one board to a LAN/host with scoped bearer tokens: `name:scope:token` lines (`read` or `write`; write implies read), 0600 token-file enforcement, constant-time comparison, tokens never logged or persisted. The browser exchanges `GET /?token=...` for an HttpOnly `SameSite=Strict` `sugar_board` cookie and redirects without the token; API and SSE accept `Authorization: Bearer` or the cookie, `/api/health` stays public, read tokens are GET/HEAD-only. Default mode is unchanged (loopback, no auth); non-loopback binds require `--allow-remote` plus a token source, and `--host` remains a deprecated alias. In token mode same-host origins are accepted for writes behind the token check, while the foreign-Origin guard stays. No TLS termination, SSO, per-user identity or per-task ACLs are provided — see `docs/board-server.md` for the threat model and reverse-proxy guidance.
 
