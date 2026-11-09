@@ -114,9 +114,10 @@ Errors are JSON and never echo the supplied token:
 | valid `read` token used for a write | `403` | `{"error":"forbidden_scope","detail":"'read' token may not use POST"}` |
 | write from a foreign browser origin | `403` | `{"error":"forbidden_origin",...}` |
 
-`GET /api/health` is intentionally public (clients probe liveness). It exposes
-the version, absolute DB path, read-only flag and uptime — keep that in mind
-before exposing a board to an untrusted network.
+`GET /api/health` is intentionally public (clients probe liveness). In token
+mode it returns only `{ok, version}` — no absolute DB path, read-only flag or
+uptime — because an unauthenticated endpoint should not disclose host details
+to the network. Local (no-token) mode keeps the richer response for tooling.
 
 ## 5. Client authentication
 
