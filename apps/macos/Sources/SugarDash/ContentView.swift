@@ -66,7 +66,9 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 215, ideal: 245, max: 300)
         } content: {
             Group {
-                if model.showsActivity {
+                if model.showsLive {
+                    LiveFloorPane()
+                } else if model.showsActivity {
                     ActivityFeedPane()
                 } else {
                     TaskListPane(showCreateTask: $showCreateTask, editingTask: $editingTask)
@@ -101,6 +103,21 @@ struct ContentView: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.orange.opacity(0.15)))
                     .help("The server was started with --read-only; writes are rejected.")
+            }
+
+            if model.liveAgentCount > 0 {
+                Button {
+                    model.showLive()
+                } label: {
+                    HStack(spacing: 5) {
+                        LivePulseDot(color: .green, size: 6)
+                        Text(model.liveAgentCount == 1
+                             ? "1 agent working"
+                             : "\(model.liveAgentCount) agents working")
+                            .font(.caption)
+                    }
+                }
+                .help("Show the live \"Agents at work\" floor")
             }
 
             Button {
@@ -150,15 +167,23 @@ struct SidebarView: View {
 
     private var sidebarSelection: Binding<SidebarItem?> {
         Binding(
-            get: { model.showsActivity ? .activity : .status(model.statusFilter) },
+            get: {
+                if model.showsLive { return .live }
+                if model.showsActivity { return .activity }
+                return .status(model.statusFilter)
+            },
             set: { newValue in
                 switch newValue {
+                case .live:
+                    model.showLive()
                 case .activity:
-                    model.showsActivity = true
+                    model.showActivity()
                 case .status(let filter):
+                    model.showsLive = false
                     model.showsActivity = false
                     model.statusFilter = filter
                 case nil:
+                    model.showsLive = false
                     model.showsActivity = false
                     model.statusFilter = .all
                 }
@@ -185,6 +210,26 @@ struct SidebarView: View {
             }
 
             Section("Live") {
+                HStack(spacing: 8) {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .frame(width: 18)
+                        .foregroundStyle(model.showsLive ? Color.accentColor : .secondary)
+                    Text("Live")
+                    Spacer(minLength: 8)
+                    if model.liveAgentCount > 0 {
+                        HStack(spacing: 4) {
+                            LivePulseDot(color: .green, size: 5)
+                            Text("\(model.liveAgentCount)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .tag(SidebarItem.live)
+                .accessibilityLabel(model.liveAgentCount > 0
+                                    ? "Live, \(model.liveAgentCount) agents working"
+                                    : "Live")
+
                 HStack(spacing: 8) {
                     Image(systemName: "waveform.path.ecg")
                         .frame(width: 18)
