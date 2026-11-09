@@ -1074,3 +1074,476 @@ enum TaskFormat {
         String(id.prefix(8))
     }
 }
+
+// MARK: - Trends (`GET /api/trends`)
+
+/// One zero-filled bucket of trend metrics. Every metric defaults to zero so a
+/// sparse/older payload still renders; only `bucket` is required for identity.
+struct TrendPoint: Identifiable, Decodable, Hashable, Sendable {
+    var bucket: Date
+    var tasksCreated: Int
+    var tasksClaimed: Int
+    var tasksCompleted: Int
+    var tasksFailed: Int
+    var events: Int
+    var tokensIn: Int
+    var tokensOut: Int
+    var costUsd: Double
+
+    var id: Date { bucket }
+
+    init(
+        bucket: Date,
+        tasksCreated: Int = 0,
+        tasksClaimed: Int = 0,
+        tasksCompleted: Int = 0,
+        tasksFailed: Int = 0,
+        events: Int = 0,
+        tokensIn: Int = 0,
+        tokensOut: Int = 0,
+        costUsd: Double = 0
+    ) {
+        self.bucket = bucket
+        self.tasksCreated = tasksCreated
+        self.tasksClaimed = tasksClaimed
+        self.tasksCompleted = tasksCompleted
+        self.tasksFailed = tasksFailed
+        self.events = events
+        self.tokensIn = tokensIn
+        self.tokensOut = tokensOut
+        self.costUsd = costUsd
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bucket
+        case tasksCreated
+        case tasksClaimed
+        case tasksCompleted
+        case tasksFailed
+        case events
+        case tokensIn
+        case tokensOut
+        case costUsd
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bucket = try container.decode(Date.self, forKey: .bucket)
+        tasksCreated = try container.decodeIfPresent(Int.self, forKey: .tasksCreated) ?? 0
+        tasksClaimed = try container.decodeIfPresent(Int.self, forKey: .tasksClaimed) ?? 0
+        tasksCompleted = try container.decodeIfPresent(Int.self, forKey: .tasksCompleted) ?? 0
+        tasksFailed = try container.decodeIfPresent(Int.self, forKey: .tasksFailed) ?? 0
+        events = try container.decodeIfPresent(Int.self, forKey: .events) ?? 0
+        tokensIn = try container.decodeIfPresent(Int.self, forKey: .tokensIn) ?? 0
+        tokensOut = try container.decodeIfPresent(Int.self, forKey: .tokensOut) ?? 0
+        costUsd = try container.decodeIfPresent(Double.self, forKey: .costUsd) ?? 0
+    }
+}
+
+/// Aggregate numbers for a range / series (same fields as a point, no bucket).
+struct TrendTotals: Decodable, Hashable, Sendable {
+    var tasksCreated: Int
+    var tasksClaimed: Int
+    var tasksCompleted: Int
+    var tasksFailed: Int
+    var events: Int
+    var tokensIn: Int
+    var tokensOut: Int
+    var costUsd: Double
+
+    var isZero: Bool {
+        tasksCreated == 0
+            && tasksClaimed == 0
+            && tasksCompleted == 0
+            && tasksFailed == 0
+            && events == 0
+            && tokensIn == 0
+            && tokensOut == 0
+            && costUsd == 0
+    }
+
+    init(
+        tasksCreated: Int = 0,
+        tasksClaimed: Int = 0,
+        tasksCompleted: Int = 0,
+        tasksFailed: Int = 0,
+        events: Int = 0,
+        tokensIn: Int = 0,
+        tokensOut: Int = 0,
+        costUsd: Double = 0
+    ) {
+        self.tasksCreated = tasksCreated
+        self.tasksClaimed = tasksClaimed
+        self.tasksCompleted = tasksCompleted
+        self.tasksFailed = tasksFailed
+        self.events = events
+        self.tokensIn = tokensIn
+        self.tokensOut = tokensOut
+        self.costUsd = costUsd
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tasksCreated
+        case tasksClaimed
+        case tasksCompleted
+        case tasksFailed
+        case events
+        case tokensIn
+        case tokensOut
+        case costUsd
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tasksCreated = try container.decodeIfPresent(Int.self, forKey: .tasksCreated) ?? 0
+        tasksClaimed = try container.decodeIfPresent(Int.self, forKey: .tasksClaimed) ?? 0
+        tasksCompleted = try container.decodeIfPresent(Int.self, forKey: .tasksCompleted) ?? 0
+        tasksFailed = try container.decodeIfPresent(Int.self, forKey: .tasksFailed) ?? 0
+        events = try container.decodeIfPresent(Int.self, forKey: .events) ?? 0
+        tokensIn = try container.decodeIfPresent(Int.self, forKey: .tokensIn) ?? 0
+        tokensOut = try container.decodeIfPresent(Int.self, forKey: .tokensOut) ?? 0
+        costUsd = try container.decodeIfPresent(Double.self, forKey: .costUsd) ?? 0
+    }
+}
+
+/// One group's trend line (`key` is the actor / project / harness name).
+struct TrendSeries: Identifiable, Decodable, Hashable, Sendable {
+    var key: String
+    var points: [TrendPoint]
+    var totals: TrendTotals
+    var avgCycleTimeS: Double?
+
+    var id: String { key }
+
+    init(
+        key: String,
+        points: [TrendPoint] = [],
+        totals: TrendTotals = TrendTotals(),
+        avgCycleTimeS: Double? = nil
+    ) {
+        self.key = key
+        self.points = points
+        self.totals = totals
+        self.avgCycleTimeS = avgCycleTimeS
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case points
+        case totals
+        case avgCycleTimeS
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        points = try container.decodeIfPresent([TrendPoint].self, forKey: .points) ?? []
+        totals = try container.decodeIfPresent(TrendTotals.self, forKey: .totals) ?? TrendTotals()
+        avgCycleTimeS = try container.decodeIfPresent(Double.self, forKey: .avgCycleTimeS)
+    }
+
+    /// Aligns a series to the response's zero-filled bucket list, inserting
+    /// all-zero points for buckets the server omitted.
+    func alignedPoints(buckets: [Date]) -> [TrendPoint] {
+        var bySecond: [Int: TrendPoint] = [:]
+        for point in points {
+            bySecond[Int(point.bucket.timeIntervalSince1970.rounded())] = point
+        }
+        return buckets.map { bucket in
+            bySecond[Int(bucket.timeIntervalSince1970.rounded())] ?? TrendPoint(bucket: bucket)
+        }
+    }
+
+    func point(at bucket: Date) -> TrendPoint? {
+        let target = Int(bucket.timeIntervalSince1970.rounded())
+        return points.first { Int($0.bucket.timeIntervalSince1970.rounded()) == target }
+    }
+}
+
+/// Frozen `GET /api/trends` response contract. Optional/absent keys fall back
+/// to empty data rather than failing the whole view.
+struct TrendsResponse: Decodable, Sendable {
+    var since: Date?
+    var until: Date?
+    var bucket: String
+    var groupBy: String
+    var buckets: [Date]
+    var series: [TrendSeries]
+    var totals: TrendTotals
+    var eventCount: Int
+    var truncated: Bool
+
+    init(
+        since: Date? = nil,
+        until: Date? = nil,
+        bucket: String = "day",
+        groupBy: String = "actor",
+        buckets: [Date] = [],
+        series: [TrendSeries] = [],
+        totals: TrendTotals = TrendTotals(),
+        eventCount: Int = 0,
+        truncated: Bool = false
+    ) {
+        self.since = since
+        self.until = until
+        self.bucket = bucket
+        self.groupBy = groupBy
+        self.buckets = buckets
+        self.series = series
+        self.totals = totals
+        self.eventCount = eventCount
+        self.truncated = truncated
+    }
+
+    /// True when there is genuinely nothing to plot (used for the empty state).
+    var isEmpty: Bool {
+        eventCount == 0
+            && totals.isZero
+            && series.allSatisfy { $0.totals.isZero && $0.points.allSatisfy(\.isEmptyPoint) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case since
+        case until
+        case bucket
+        case groupBy
+        case buckets
+        case series
+        case totals
+        case eventCount
+        case truncated
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        since = try container.decodeIfPresent(Date.self, forKey: .since)
+        until = try container.decodeIfPresent(Date.self, forKey: .until)
+        bucket = try container.decodeIfPresent(String.self, forKey: .bucket) ?? "day"
+        groupBy = try container.decodeIfPresent(String.self, forKey: .groupBy) ?? "actor"
+        buckets = try container.decodeIfPresent([Date].self, forKey: .buckets) ?? []
+        series = try container.decodeIfPresent([TrendSeries].self, forKey: .series) ?? []
+        totals = try container.decodeIfPresent(TrendTotals.self, forKey: .totals) ?? TrendTotals()
+        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
+        truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+}
+
+private extension TrendPoint {
+    var isEmptyPoint: Bool {
+        tasksCreated == 0
+            && tasksClaimed == 0
+            && tasksCompleted == 0
+            && tasksFailed == 0
+            && events == 0
+            && tokensIn == 0
+            && tokensOut == 0
+            && costUsd == 0
+    }
+}
+
+/// Time range for the Trends view: the API bucket is implied (24h → hour,
+/// 7d/30d → day).
+enum TrendsRange: String, CaseIterable, Identifiable, Sendable {
+    case day = "24h"
+    case week = "7d"
+    case month = "30d"
+
+    var id: String { rawValue }
+    var title: String { rawValue }
+
+    var bucket: String {
+        switch self {
+        case .day: return "hour"
+        case .week, .month: return "day"
+        }
+    }
+
+    var duration: TimeInterval {
+        switch self {
+        case .day: return 24 * 60 * 60
+        case .week: return 7 * 24 * 60 * 60
+        case .month: return 30 * 24 * 60 * 60
+        }
+    }
+
+    /// Since/until for the request, relative to an injected `now` so the window
+    /// math is testable (and refresh keeps moving).
+    func window(endingAt now: Date) -> (since: Date, until: Date) {
+        (since: now.addingTimeInterval(-duration), until: now)
+    }
+}
+
+/// Grouping dimension. The API expects `actor` / `project` / `harness`; the UI
+/// labels them Agent / Project / Harness.
+enum TrendsDimension: String, CaseIterable, Identifiable, Sendable {
+    case actor
+    case project
+    case harness
+
+    var id: String { rawValue }
+    var groupBy: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .actor: return "Agent"
+        case .project: return "Project"
+        case .harness: return "Harness"
+        }
+    }
+}
+
+/// Which metric the main chart / bar chart plots.
+enum TrendsMetric: String, CaseIterable, Identifiable, Sendable {
+    case completed
+    case failed
+    case events
+    case cost
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .completed: return "Tasks completed"
+        case .failed: return "Tasks failed"
+        case .events: return "Events"
+        case .cost: return "Cost"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .completed: return "Completed"
+        case .failed: return "Failed"
+        case .events: return "Events"
+        case .cost: return "Cost"
+        }
+    }
+
+    var isCurrency: Bool { self == .cost }
+
+    func value(for point: TrendPoint) -> Double {
+        switch self {
+        case .completed: return Double(point.tasksCompleted)
+        case .failed: return Double(point.tasksFailed)
+        case .events: return Double(point.events)
+        case .cost: return point.costUsd
+        }
+    }
+
+    func total(in totals: TrendTotals) -> Double {
+        switch self {
+        case .completed: return Double(totals.tasksCompleted)
+        case .failed: return Double(totals.tasksFailed)
+        case .events: return Double(totals.events)
+        case .cost: return totals.costUsd
+        }
+    }
+}
+
+/// Aggregations that the stat tiles need but the API only provides per-series.
+enum TrendsMath {
+    /// failed / (completed + failed); nil when there is no denominator.
+    static func failureRate(_ totals: TrendTotals) -> Double? {
+        let attempts = totals.tasksCompleted + totals.tasksFailed
+        guard attempts > 0 else { return nil }
+        return Double(totals.tasksFailed) / Double(attempts)
+    }
+
+    /// Weighted average cycle time: weight each series by its completed count.
+    /// Returns nil ("—") when no series has a usable average.
+    static func averageCycleTime(series: [TrendSeries]) -> Double? {
+        var weightedSum = 0.0
+        var weight = 0
+
+        for item in series {
+            guard let average = item.avgCycleTimeS, average > 0,
+                  item.totals.tasksCompleted > 0 else {
+                continue
+            }
+            weightedSum += average * Double(item.totals.tasksCompleted)
+            weight += item.totals.tasksCompleted
+        }
+
+        guard weight > 0 else { return nil }
+        return weightedSum / Double(weight)
+    }
+}
+
+/// Display formatting for the Trends view. Fixed en_US formatting keeps the
+/// output stable across machines and test runs.
+enum TrendsFormat {
+    private static let decimalFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        formatter.groupingSize = 3
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static let currencyFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
+
+    private static let tinyCurrencyFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 4
+        formatter.maximumFractionDigits = 4
+        return formatter
+    }()
+
+    static func count(_ value: Int) -> String {
+        decimalFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func count(_ value: Double) -> String {
+        count(Int(value.rounded()))
+    }
+
+    static func currency(_ value: Double) -> String {
+        if value != 0, abs(value) < 0.01 {
+            return tinyCurrencyFormatter.string(from: NSNumber(value: value))
+                ?? String(format: "$%.4f", value)
+        }
+        return currencyFormatter.string(from: NSNumber(value: value))
+            ?? String(format: "$%.2f", value)
+    }
+
+    static func percent(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        let percentage = value * 100
+        if percentage.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f%%", percentage)
+        }
+        return String(format: "%.1f%%", percentage)
+    }
+
+    static func duration(_ seconds: Double?) -> String {
+        guard let seconds, seconds > 0 else { return "—" }
+        return LiveFormat.elapsed(seconds)
+    }
+
+    /// Compact bucket label for chart axes: hour → "14:00", day/week → "Nov 9".
+    static func bucketLabel(
+        _ date: Date,
+        bucket: String,
+        timeZone: TimeZone = .current
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = bucket == "hour" ? "HH:mm" : "MMM d"
+        return formatter.string(from: date)
+    }
+}
