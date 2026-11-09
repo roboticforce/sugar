@@ -235,6 +235,28 @@
   .act-body { margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
   .muted { color: var(--muted); }
 
+  /* Usage/cost panel (§ usage). Sits above the live feed inside the Activity
+     pane; read-only summary loaded from /api/usage on view open. */
+  .usage-panel {
+    flex: none; display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 12px; background: var(--panel-2); border-bottom: 1px solid var(--border);
+  }
+  .usage-panel[hidden] { display: none; }
+  .usage-head {
+    display: flex; align-items: baseline; gap: 8px; color: var(--muted);
+    font-size: 11.5px; letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .usage-head .usage-live { margin-left: auto; letter-spacing: normal; text-transform: none; }
+  .usage-totals { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; }
+  .usage-metric { color: var(--muted); white-space: nowrap; }
+  .usage-metric b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .usage-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; }
+  .usage-col h4 { margin: 0 0 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+  .usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12.5px; padding: 1px 0; }
+  .usage-key { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usage-nums { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+  .usage-empty { color: var(--muted); font-size: 12px; }
+
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(3, 6, 10, 0.66); z-index: 40;
     display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px;
@@ -318,6 +340,15 @@
     <div class="empty" id="empty" hidden>No tasks match the current filters.</div>
   </div>
   <div class="feed-wrap" id="activity-pane" hidden>
+    <section class="usage-panel" id="usage-panel" aria-label="Usage and cost summary">
+      <div class="usage-head">
+        <span>Usage</span>
+        <span class="usage-scope muted" id="usage-scope"></span>
+        <span class="usage-live muted" id="usage-live"></span>
+      </div>
+      <div class="usage-totals" id="usage-totals"></div>
+      <div class="usage-cols" id="usage-cols"></div>
+    </section>
     <div class="feed-head">
       <span class="dot" id="feed-dot"></span>
       <span id="feed-live-label">connecting…</span>
@@ -956,8 +987,13 @@
   }
 
   function setView(view) {
-    state.view = view === "activity" ? "activity" : "tasks";
+    const next = view === "activity" ? "activity" : "tasks";
+    const enteringActivity = next === "activity" && state.view !== "activity";
+    state.view = next;
     renderView();
+    // Usage is a read-only snapshot, not an SSE stream: refresh when the
+    // Activity view opens (docs/usage.md).
+    if (enteringActivity) loadUsage();
   }
 
   function drawerSection(label, content) {
@@ -1347,6 +1383,116 @@
         if (state.view === "activity") renderFeed();
         return;
       }
+      reportError(error);
+    }
+  }
+
+  // --------------------------------------------------- usage/cost (usage.md)
+
+  function formatTokens(value) {
+    const number = Number(value) || 0;
+    if (number >= 1e9) return (number / 1e9).toFixed(2) + "B";
+    if (number >= 1e6) return (number / 1e6).toFixed(2) + "M";
+    if (number >= 1e3) return (number / 1e3).toFixed(1) + "k";
+    return String(number);
+  }
+
+  function formatCost(value) {
+    const number = Number(value) || 0;
+    return number >= 1 ? "$" + number.toFixed(2) : "$" + number.toFixed(4);
+  }
+
+  function usageMetric(label, value) {
+    const metric = el("span", "usage-metric");
+    metric.appendChild(el("b", null, value));
+    metric.appendChild(document.createTextNode(" " + label));
+    return metric;
+  }
+
+  function usageGroupRow(group) {
+    const row = el("div", "usage-row");
+    const key = el("span", "usage-key", group.key || "unknown");
+    key.title = "key: " + (group.key || "unknown");
+    const nums = el("span", "usage-nums",
+      formatCost(group.cost_usd) + " · " + formatTokens(group.tokens_total) + " tok · " +
+      (group.events || 0) + (group.events === 1 ? " event" : " events"));
+    nums.title = "tokens in " + (group.tokens_in || 0) + ", tokens out " +
+      (group.tokens_out || 0) + ", cost $" + Number(group.cost_usd || 0).toFixed(4);
+    row.appendChild(key);
+    row.appendChild(nums);
+    return row;
+  }
+
+  function usageColumn(title, groups) {
+    const column = el("div", "usage-col");
+    column.appendChild(el("h4", null, title));
+    const items = Array.isArray(groups) ? groups : [];
+    if (!items.length) {
+      column.appendChild(el("div", "usage-empty", "no usage in range"));
+      return column;
+    }
+    items.slice(0, 5).forEach(function (group) {
+      column.appendChild(usageGroupRow(group));
+    });
+    if (items.length > 5) {
+      column.appendChild(el("div", "usage-empty", "+" + (items.length - 5) + " more"));
+    }
+    return column;
+  }
+
+  function renderUsage(byHarness, byActor) {
+    const totals = (byHarness && byHarness.totals) || {};
+    const scope = $("usage-scope");
+    if (scope) {
+      const since = byHarness && byHarness.since;
+      const until = byHarness && byHarness.until;
+      const parts = [];
+      if (since) parts.push("from " + fullTime(since));
+      if (until) parts.push("to " + fullTime(until));
+      if (byHarness && byHarness.truncated) parts.push("scan truncated");
+      scope.textContent = parts.length ? parts.join(" ") : "all time";
+    }
+    const live = $("usage-live");
+    if (live) live.textContent = "";
+    const totalsBox = $("usage-totals");
+    if (totalsBox) {
+      totalsBox.replaceChildren(
+        usageMetric("usage events", String(totals.events || 0)),
+        usageMetric("tokens in", formatTokens(totals.tokens_in)),
+        usageMetric("tokens out", formatTokens(totals.tokens_out)),
+        usageMetric("tokens total", formatTokens(totals.tokens_total)),
+        usageMetric("reported cost", formatCost(totals.cost_usd))
+      );
+    }
+    const columns = $("usage-cols");
+    if (columns) {
+      columns.replaceChildren(
+        usageColumn("By harness", byHarness && byHarness.groups),
+        usageColumn("By actor", byActor && byActor.groups)
+      );
+    }
+  }
+
+  async function loadUsage() {
+    const panel = $("usage-panel");
+    if (!panel) return;
+    const live = $("usage-live");
+    if (live) live.textContent = "loading…";
+    try {
+      // Two small bounded reads: the panel is a summary, not an analytics tool.
+      const [byHarness, byActor] = await Promise.all([
+        api.get("/api/usage?group_by=harness&limit=5000"),
+        api.get("/api/usage?group_by=actor&limit=5000")
+      ]);
+      panel.hidden = false;
+      renderUsage(byHarness, byActor);
+    } catch (error) {
+      // Older/smaller servers do not expose /api/usage: hide the panel quietly.
+      if (error && (error.status === 404 || error.status === 503)) {
+        panel.hidden = true;
+        return;
+      }
+      if (live) live.textContent = "unavailable";
       reportError(error);
     }
   }
