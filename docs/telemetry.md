@@ -225,3 +225,22 @@ down board, with a one-line reason).
   `docs/board-server.md`).
 - The ingest endpoint rejects when the spine is disabled on the server
   (`503 spine_unavailable`); `sugar emit` reports that as a clear error (exit 1).
+
+## Demoing with the simulator
+
+To see the live path without running real agents, claim a few tasks and run the
+dependency-free simulator, which posts realistic `run.started` / `tool.invoked` /
+`agent.activity` / `usage.reported` events for the tasks currently claimed:
+
+```bash
+# in one terminal: a board with tasks
+sugar dashboard
+# claim some work (e.g. `sugar run` in another project, or the MCP tool)
+# then stream simulated activity:
+python scripts/simulate_agent_activity.py --interval 0.7
+```
+
+The dashboard's Activity feed and SugarDash's Live floor/console update as the
+events arrive. The simulator is a demo/UI-development tool, not an agent: real
+harnesses should call `sugar emit` (one command per tool call) or the MCP
+`sugar_emit_event` tool.
