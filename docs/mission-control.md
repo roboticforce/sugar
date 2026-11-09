@@ -231,6 +231,8 @@ optional diagnostics, nothing sent automatically), recorded locally as a
 heartbeat — actor, task, ticking elapsed/lease countdowns, lease-health dots and a live
 activity ticker (no DB writes, no audit noise), falling back to task leases on older servers.
 
+![SugarDash Live view: agents at work](images/live-agents.png)
+
 About window with version/build, project links, a no-telemetry privacy statement
 and "Copy diagnostics"; Help menu links to docs, issue tracker, privacy, terms and
 support.
