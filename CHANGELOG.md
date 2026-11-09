@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Usage/cost attribution** (`sugar dashboard`, `sugar usage`, Activity panel): harnesses report spend through `POST /api/events` with kind `usage.reported` (or `run.ended`) carrying `{tokens_in, tokens_out, cost_usd, model?}`. `GET /api/usage?group_by=actor|harness|task|project|day|kind` returns grouped totals (tolerant normalization: bad telemetry is skipped, never 500s; negatives/NaN ignored), `sugar usage` prints the same table or `--json`, and the browser Activity view shows totals plus top harnesses/actors by cost. Bounded spine reads with a `truncated` flag; no pricing table or provider billing reconciliation — cost is whatever the harness reports. See `docs/usage.md`.
+
 ### Security
 - **`/api/health` no longer leaks host details in token mode.** On a remote/team board the endpoint is intentionally unauthenticated, so it now returns only `{ok, version}` instead of the version, absolute database path, read-only flag and uptime. Local (no-token) mode keeps the richer response for tooling.
 

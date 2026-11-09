@@ -579,6 +579,9 @@ reaper); plus free-form ingest kinds
 
 - `GET /api/activity?since_id=&limit=100&kind=&actor=&task_id=` →
   `{"events": [Event], "last_id": N}` (newest last, so a client can page forward).
+- `GET /api/usage?since=&until=&group_by=actor|harness|task|project|day|kind&limit=` —
+  aggregates harness-reported usage (`usage.reported` / `run.ended` payloads) from
+  the spine: totals and grouped token/cost rows (see `docs/usage.md`).
 - `POST /api/events` — harness telemetry. Body: `{kind*, actor?, actor_kind?,
   harness?, session_id?, task_id?, run_id?, project?, trace_id?, payload?}`;
   server fills `ts`, `machine`, `source="ingest"`, `id`, `ingested_at`. Unknown
