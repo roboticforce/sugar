@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live agent telemetry producer** (`sugar emit` + MCP `sugar_emit_event` + `docs/telemetry.md`): harnesses and scripts can stream what they are doing as event-spine events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`) with `--message`/repeatable `--payload` (JSON-coerced), board URL/token via `$SUGAR_BOARD_URL`/`$SUGAR_BOARD_TOKEN`, safe errors that never expose the token. The same stream feeds the Activity feed, audit exports and the macOS app.
+- **SugarDash Live "current action" + streaming Console**: each working agent's card now shows the latest activity line (message/command/tool+file, icon by kind, animated replacement, relative age, "waiting for activity…" fallback); a Ticker↔Console toggle adds a monospaced streaming log (auto-follow with "Jump to latest", All/tool/run/task/memory filters, `N ev/min` rate, click-to-task); the task detail pane gets a Live-activity strip; the header dot pulses on every event batch. Reduce Motion respected.
+- **Agent activity simulator** (`scripts/simulate_agent_activity.py`): dependency-free script that posts realistic activity/usage events for currently-claimed tasks so the live UI can be demoed and load-tested without running real agents.
+
+### Added
 - **Live "Agents at work" view in SugarDash** driven by a new ephemeral SSE `presence` stream: the server publishes who is working on what (actor, task, lease expiry, started-at, attempts, status counts) every `$SUGAR_PRESENCE_INTERVAL` seconds (default 2s) to connected clients, derived from the in-memory snapshot with no DB query per tick and **never written to the event spine** (no audit noise). The macOS app gains a **Live** sidebar row (pulsing agent count) and a floor of agent cards with lease-health dots (green >60s, amber <60s, red expired), ticking "working for"/"lease" countdowns via a 1s `TimelineView`, per-actor sections, tap-to-open-task, a live activity ticker, and a toolbar "N agents working" chip. Older servers fall back to deriving agents from active claimed tasks. Presence is documented in `docs/local-dashboard.md` §3 and §11.5; app tests cover decoding, grouping, lease thresholds and the fallback.
 
 ### Added
