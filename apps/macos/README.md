@@ -139,16 +139,23 @@ The app opens one window:
   and the server's DB path/version.
 - **Live floor** — "Agents at work": one card per active task grouped by agent,
   with a pulsing lease-health dot (green > 60 s, amber < 60 s, red
-  expired/missing), task title, "working for 3m 12s", lease countdown and an
-  attempts badge. Values tick every second via `TimelineView` (no network
-  polling); the bottom ticker shows the last 12 activity events. Tapping a card
-  or ticker row jumps to the task. If the server doesn't emit the ephemeral
-  `presence` event, the floor derives agents from active task leases and says
-  so ("derived from task leases").
+  expired/missing), task title, **a live "current action" line** (the latest
+  activity event for that task: message / command / tool + file, with kind icon
+  and relative time; "waiting for activity…" after 120 s of quiet), "working for
+  3m 12s", lease countdown and an attempts badge. Values tick every second via
+  `TimelineView` (no network polling).
+  The bottom strip is either the compact ticker (last 12 events) or the
+  **Console**: a monospaced, streaming log (newest at the bottom, auto-follow
+  until you scroll up, then "Jump to latest") with All / tool / run / task /
+  memory filter chips and an "N ev/min" live rate. The header dot also pulses
+  on each new event batch. Tapping a card, ticker row or console line jumps to
+  the task. If the server doesn't emit the ephemeral `presence` event, the floor
+  derives agents from active task leases and says so ("derived from task leases").
 - **Task list** — priority, status, type, title, assigned agent, attempts and
   relative update time; searchable and filterable.
-- **Detail** — full task facts, description, context, acceptance criteria,
-  result, error, thinking summary.
+- **Detail** — a compact **Live activity** strip (last 5 events for the task,
+  with kind icons, message and relative time) above the full task facts,
+  description, context, acceptance criteria, result, error and thinking summary.
 - **Toolbar** — New Task (⌘N), Refresh (⌘R), Reconnect, connection dot, and an
   "N agents working" chip that opens the Live floor.
 
@@ -158,6 +165,10 @@ Features:
   1 s → 10 s backoff and treats the new `snapshot` as authoritative.
 - Ephemeral `presence` events drive the Live floor; presence is trusted for
   10 s, then the floor falls back to task leases (older servers never send it).
+- Harness activity events (`tool.invoked`, `run.started`/`run.ended`,
+  `agent.activity`, `memory.recalled`, `usage.reported`, …) drive each agent's
+  current-action line, the Live console and the detail strip. Newest 500 events
+  are kept in memory; the console shows exactly that window.
 - Full CRUD: create, edit (including status transitions), hold/release, delete
   with a confirmation dialog.
 - Type picker populated from `GET /api/task-types`; priority 1 (Urgent) – 5
@@ -175,8 +186,11 @@ Decoding is covered by XCTest fixtures copied verbatim from the contract
 (`Tests/SugarDashTests/DecodingTests.swift`): a null-heavy task, the SSE snapshot
 with stats, and an ISO-8601 `Z` timestamp. `LiveTests.swift` covers the
 `presence` payload (nulls, missing keys, unknown fields), lease-health
-thresholds, actor grouping/order, the task-lease fallback and the live
-formatting helpers; `ActivityTests.swift` covers the event spine.
+thresholds, actor grouping/order, the task-lease fallback, the live
+formatting helpers, latest-action selection (task match / actor fallback /
+120 s freshness), payload message extraction priority, console filtering /
+ordering / rate math and the task-detail event selection; `ActivityTests.swift`
+covers the event spine.
 
 ```bash
 swift test
@@ -203,7 +217,8 @@ apps/macos/
 │   ├── APIClient.swift               # REST + SSE (delegate-backed transport)
 │   ├── AppModel.swift                # @MainActor @Observable store
 │   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar + Activity feed
-│   ├── LiveFloorPane.swift           # "Agents at work" floor + pulsing dot + activity ticker
+│   ├── LiveFloorPane.swift           # "Agents at work" floor + current action + ticker
+│   ├── LiveConsolePane.swift         # streaming console, filters, auto-scroll
 │   ├── TaskDetailView.swift          # read-only detail + actions
 │   └── TaskEditorView.swift          # add/edit sheet
 ├── Tests/SugarDashTests/

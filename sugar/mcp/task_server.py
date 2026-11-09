@@ -5,14 +5,22 @@ Provides MCP (Model Context Protocol) server for Sugar task queue management,
 allowing OpenCode, Claude Code, and other MCP clients to manage autonomous tasks.
 
 Uses FastMCP for simplified server implementation.
+
+Besides task CRUD, ``sugar_emit_event`` streams live harness activity
+(``tool.invoked`` / ``run.started`` / ``run.ended`` / ``agent.activity`` /
+``usage.reported``) to the dashboard's ``POST /api/events`` ingest endpoint so
+the dashboard/macOS app can show what agents are doing in real time. See
+``docs/telemetry.md``.
 """
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sugar.identity import Actor, agent_actor
+from sugar.activity import ActivityError, emit_activity_async
+from sugar.identity import Actor, agent_actor, resolve_actor
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +105,46 @@ def get_valid_task_types() -> List[str]:
         "ci",
         "security",
     ]
+
+
+async def emit_activity_event(
+    kind: str,
+    message: Optional[str] = None,
+    task_id: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    actor: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Shared implementation of the ``sugar_emit_event`` MCP tool.
+
+    Posts one live activity event to the dashboard via :mod:`sugar.activity`
+    (``$SUGAR_BOARD_URL`` / ``$SUGAR_BOARD_TOKEN``). Never raises: returns
+    ``{"ok": True, "id": ...}`` on success or ``{"ok": False, "error": ...}``.
+    The bearer token is never included in the error text.
+    """
+    merged: Dict[str, Any] = {}
+    if payload is not None:
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "payload must be a JSON object"}
+        merged.update(payload)
+    if message is not None:
+        merged["message"] = message
+    try:
+        identity = resolve_actor(actor, kind="agent")
+        event = await emit_activity_async(
+            kind,
+            actor=identity.id,
+            actor_kind=identity.kind,
+            harness=os.environ.get("SUGAR_HARNESS") or "mcp",
+            session_id=identity.session,
+            task_id=task_id,
+            payload=merged or None,
+        )
+    except ActivityError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:  # never raise out of an MCP tool
+        logger.warning("sugar_emit_event failed: %s", type(exc).__name__)
+        return {"ok": False, "error": f"emit failed: {type(exc).__name__}"}
+    return {"ok": True, "id": event.get("id")}
 
 
 def create_task_mcp_server() -> "FastMCP":
@@ -572,6 +620,47 @@ def create_task_mcp_server() -> "FastMCP":
         except Exception as e:
             logger.error(f"sugar_remove_task failed: {e}")
             return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def sugar_emit_event(
+        kind: str,
+        message: Optional[str] = None,
+        task_id: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Emit a live activity event for the dashboard's "agents at work" view.
+
+        Posts to the running dashboard's ``POST /api/events`` endpoint
+        (``$SUGAR_BOARD_URL``, default ``http://127.0.0.1:7331``; bearer
+        ``$SUGAR_BOARD_TOKEN`` when the board has tokens). These events appear
+        live in the dashboard activity feed / macOS Live floor and are stored in
+        the event spine (subject to its retention policy). This tool never
+        raises and never returns the bearer token.
+
+        Args:
+            kind: Event kind, e.g. ``tool.invoked``, ``run.started``,
+                ``run.ended``, ``agent.activity``, ``usage.reported``.
+            message: Human-readable one-line description of what just happened.
+            task_id: Related Sugar/macOS task id, when there is one.
+            payload: Extra structured fields (``tool``, ``command``, ``file``,
+                ``tokens_in``, ``tokens_out``, ``cost_usd``, ...). ``message``
+                wins over ``payload["message"]`` when both are provided.
+            actor: Actor id; defaults to the MCP agent identity
+                (``$SUGAR_ACTOR`` / ``$SUGAR_AGENT_ID`` / ``$USER@host``).
+
+        Returns:
+            ``{"ok": true, "id": <event id>}`` on success, or
+            ``{"ok": false, "error": "<safe message>"}`` if the board is
+            unreachable / rejects the event.
+        """
+        return await emit_activity_event(
+            kind,
+            message=message,
+            task_id=task_id,
+            payload=payload,
+            actor=actor,
+        )
 
     @mcp.resource("sugar://tasks/pending")
     async def pending_tasks_resource() -> str:

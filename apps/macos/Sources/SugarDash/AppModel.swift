@@ -106,6 +106,10 @@ final class AppModel {
     // only degrades this pane and never raises the global error banner.
     private(set) var activityEvents: [ActivityEvent] = []
     private(set) var activityUnavailable = false
+    /// Bumped whenever a batch of activity arrives (SSE or initial REST load).
+    /// The Live header watches this to pulse its dot, so watchers *see* work
+    /// happening even without reading a line.
+    private(set) var activityPulse = 0
 
     // Ephemeral live presence: the latest `presence` SSE payload. Never
     // persisted server-side; replaced outright on every event and cleared when
@@ -266,6 +270,24 @@ final class AppModel {
         showsActivity = true
     }
 
+    // MARK: - Live action (what each agent is doing right now)
+
+    /// Latest activity line for one agent: task-id match first, actor fallback,
+    /// both constrained to a 120 s freshness window.
+    func latestAction(for agent: LiveAgent, at now: Date = Date()) -> AgentAction? {
+        ActivityInsight.latestAction(for: agent, in: activityEvents, now: now)
+    }
+
+    /// Last activity events for one task, newest first (task-detail strip).
+    func taskActivity(forTask taskId: String, limit: Int = 5) -> [ActivityEvent] {
+        ActivityInsight.recentEvents(forTask: taskId, in: activityEvents, limit: limit)
+    }
+
+    /// Activity events in the last minute, for the console's "N ev/min".
+    func activityRate(at now: Date = Date()) -> Int {
+        ActivityInsight.eventsPerMinute(activityEvents, now: now)
+    }
+
     // MARK: - Lifecycle
 
     /// Idempotent: safe to call from `.task` every time the window appears.
@@ -389,6 +411,9 @@ final class AppModel {
             // Contract: oldest first; the feed renders newest first.
             activityEvents = Array(response.events.reversed().prefix(Self.activityLimit))
             activityUnavailable = false
+            if !activityEvents.isEmpty {
+                activityPulse += 1
+            }
         } catch {
             guard self.client.baseURL == client.baseURL else { return }
             // Keep whatever we already have: a short outage should not blank
@@ -638,6 +663,7 @@ final class AppModel {
             activityEvents.removeLast(activityEvents.count - Self.activityLimit)
         }
         activityUnavailable = false
+        activityPulse += 1
     }
 
     /// Activity/Live row → task list: select the referenced task and leave the
@@ -704,6 +730,7 @@ final class AppModel {
         taskTypesError = nil
         activityEvents = []
         activityUnavailable = false
+        activityPulse = 0
         presence = nil
         selection = nil
         hasEverConnected = false

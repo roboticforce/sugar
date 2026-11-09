@@ -10,19 +10,23 @@ enum LivePresentation {
         case .expired: return .red
         }
     }
-
 }
 
 // MARK: - Pulsing dot
 
 /// A small status dot with an expanding ring, used for presence and lease
-/// health. Respects Reduce Motion by rendering a static dot.
+/// health. `burstToken` fires an extra one-shot ring whenever new activity
+/// lands, so the Live header visibly reacts to work. Respects Reduce Motion by
+/// rendering a static dot.
 struct LivePulseDot: View {
     let color: Color
     var size: CGFloat = 8
+    var burstToken: Int = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
+    @State private var burstScale: CGFloat = 1
+    @State private var burstOpacity: Double = 0
 
     var body: some View {
         ZStack {
@@ -35,12 +39,27 @@ struct LivePulseDot: View {
                 .frame(width: size, height: size)
                 .scaleEffect(pulse ? 2.3 : 1)
                 .opacity(pulse ? 0 : 0.55)
+
+            Circle()
+                .stroke(color, lineWidth: 1.1)
+                .frame(width: size, height: size)
+                .scaleEffect(burstScale)
+                .opacity(burstOpacity)
         }
         .frame(width: size * 2.5, height: size * 2.5)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
                 pulse = true
+            }
+        }
+        .onChange(of: burstToken) { _, _ in
+            guard !reduceMotion else { return }
+            burstScale = 1
+            burstOpacity = 0.8
+            withAnimation(.easeOut(duration: 0.7)) {
+                burstScale = 3.8
+                burstOpacity = 0
             }
         }
         .accessibilityHidden(true)
@@ -57,10 +76,22 @@ struct LivePulseDot: View {
 /// fallback for older servers.
 struct LiveFloorPane: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let cardColumns: [GridItem] = [
         GridItem(.adaptive(minimum: 250, maximum: 430), spacing: 10, alignment: .top)
     ]
+
+    /// The bottom strip is either the compact ticker or the full console.
+    private enum BottomMode: String, CaseIterable, Identifiable {
+        case ticker
+        case console
+
+        var id: String { rawValue }
+    }
+
+    @State private var bottomMode: BottomMode = .ticker
+    @State private var consoleCategory: ConsoleCategory = .all
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,7 +107,7 @@ struct LiveFloorPane: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            tickerTimeline
+            footer
         }
         .navigationTitle("Live")
     }
@@ -117,10 +148,58 @@ struct LiveFloorPane: View {
         }
     }
 
-    private var tickerTimeline: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            ticker
+    /// Ticker ↔ console switch plus the live event-rate readout. The rate and
+    /// ticker tick every second; the console only re-renders when events or the
+    /// filter change (its timestamps are absolute, not relative).
+    private var footer: some View {
+        VStack(spacing: 0) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                footerBar(now: context.date)
+            }
+
+            if bottomMode == .console {
+                LiveConsolePane(category: $consoleCategory)
+                    .frame(height: 260)
+            } else {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    ticker
+                }
+            }
         }
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func footerBar(now: Date) -> some View {
+        let rate = model.activityRate(at: now)
+        return HStack(spacing: 8) {
+            Picker("Bottom panel", selection: $bottomMode) {
+                Text("Ticker").tag(BottomMode.ticker)
+                Text("Console").tag(BottomMode.console)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 152)
+            .help("Ticker: last 12 events · Console: full streaming log")
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 5) {
+                LivePulseDot(color: rate > 0 ? .green : .gray, size: 4)
+                Text("\(rate) ev/min")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(rate > 0 ? Color.green : Color.secondary)
+            }
+            .help("Activity events in the last 60 seconds")
+
+            if bottomMode == .ticker {
+                Text("\(model.activityEvents.count) events")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     // MARK: Header
@@ -132,8 +211,12 @@ struct LiveFloorPane: View {
         taskCount: Int
     ) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            LivePulseDot(color: headerDotColor(source: source, hasAgents: agentCount > 0), size: 10)
-                .frame(width: 36, height: 36)
+            LivePulseDot(
+                color: headerDotColor(source: source, hasAgents: agentCount > 0),
+                size: 10,
+                burstToken: model.activityPulse
+            )
+            .frame(width: 36, height: 36)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -267,29 +350,18 @@ struct LiveFloorPane: View {
     }
 
     private var ticker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("Recent activity")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text("\(model.activityEvents.count) events")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-
+        Group {
             if recentEvents.isEmpty {
-                Text(model.activityUnavailable
-                     ? "The activity feed isn't available on this server."
-                     : "Waiting for activity…")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 10)
+                HStack(spacing: 4) {
+                    Text(model.activityUnavailable
+                         ? "The activity feed isn't available on this server."
+                         : "Waiting for activity…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -299,14 +371,13 @@ struct LiveFloorPane: View {
                         }
                     }
                     .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                 }
                 .frame(maxHeight: 188)
-                .animation(.easeOut(duration: 0.25), value: recentEvents.map(\.id))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: recentEvents.map(\.id))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
     }
 }
 
@@ -316,12 +387,23 @@ struct LiveFloorPane: View {
 /// list (the floor is the map, the list/detail is the drill-down).
 struct LiveAgentCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let agent: LiveAgent
     let now: Date
 
     private var health: LeaseHealth { agent.leaseHealth(at: now) }
     private var leaseColor: Color { LivePresentation.leaseColor(health) }
+
+    /// The newest activity line for this task (task match, actor fallback),
+    /// or nil when the agent has been quiet for longer than the freshness window.
+    private var action: AgentAction? {
+        model.latestAction(for: agent, at: now)
+    }
+
+    private var actionStyle: ActivityPresentation.KindStyle? {
+        action.map { ActivityPresentation.style(for: $0.kind) }
+    }
 
     var body: some View {
         Button {
@@ -360,6 +442,8 @@ struct LiveAgentCard: View {
                 }
             }
 
+            actionRow
+
             HStack(spacing: 10) {
                 Label(workingText, systemImage: "clock")
                 Label(leaseText, systemImage: "hourglass")
@@ -394,6 +478,50 @@ struct LiveAgentCard: View {
                 .stroke(leaseColor.opacity(0.35), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 10))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: action?.id)
+    }
+
+    /// What the agent is doing *right now* (the anti-static line): kind icon,
+    /// latest payload message/command/tool line, relative age. Falls back to a
+    /// quiet "waiting for activity…" prompt when the freshness window is empty.
+    @ViewBuilder
+    private var actionRow: some View {
+        if let action, let style = actionStyle {
+            HStack(spacing: 5) {
+                Image(systemName: style.icon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(style.color)
+
+                Text(action.line)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 4)
+
+                Text(LiveFormat.ago(now.timeIntervalSince(action.ts)))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(style.color.opacity(0.10))
+            )
+            .help(action.line)
+            .id(action.id)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 9))
+                Text("waiting for activity…")
+                    .font(.system(size: 10))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.tertiary)
+        }
     }
 
     private var workingText: String {

@@ -4,6 +4,7 @@ import SwiftUI
 /// release, delete-with-confirmation).
 struct TaskDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let task: Task
     let onEdit: () -> Void
@@ -21,6 +22,7 @@ struct TaskDetailView: View {
                     errorSection(taskError)
                 }
 
+                liveActivitySection
                 facts
                 descriptionSection
                 acceptanceSection
@@ -367,6 +369,61 @@ struct TaskDetailView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    // MARK: - Live activity (what the harness is doing on this task)
+
+    private var recentActivity: [ActivityEvent] {
+        model.taskActivity(forTask: task.id, limit: 5)
+    }
+
+    private var liveActivitySection: some View {
+        let events = recentActivity
+        return section("Live activity") {
+            if events.isEmpty {
+                Text("No harness activity recorded for this task yet.")
+                    .font(.caption)
+                    .italic()
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(events) { event in
+                        TaskActivityRow(event: event)
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: events.map(\.id))
+            }
+        }
+    }
+}
+
+/// One compact activity row inside the task detail's "Live activity" section.
+private struct TaskActivityRow: View {
+    let event: ActivityEvent
+
+    private var style: ActivityPresentation.KindStyle {
+        ActivityPresentation.style(for: event.kind)
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: style.icon)
+                .font(.caption2)
+                .foregroundStyle(style.color)
+                .frame(width: 14)
+
+            Text(ActivityInsight.line(from: event))
+                .font(.caption)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 6)
+
+            Text(TaskFormat.relative(event.ts))
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .help(TaskFormat.timestamp(event.ts))
         }
     }
 }
