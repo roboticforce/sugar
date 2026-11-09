@@ -131,7 +131,7 @@ final class AppModel {
 
     // Trends (`GET /api/trends`): a separate REST surface with its own loading,
     // error and "older server" states. Only fetched while the pane is visible.
-    var trendsRange: TrendsRange = .day
+    var trendsRange: TrendsRange = .week
     var trendsDimension: TrendsDimension = .actor
     var trendsMetric: TrendsMetric = .completed
     private(set) var trends: TrendsResponse?

@@ -76,7 +76,7 @@ struct TrendsPane: View {
                         Label("truncated", systemImage: "exclamationmark.triangle")
                             .font(.caption2)
                             .foregroundStyle(.orange)
-                            .help("The server limited the number of series; totals cover the returned series only.")
+                            .help("The server scanned as many events as it allows for this range; totals cover the scanned events only.")
                     }
 
                     Text("· \(trends.bucket) buckets")

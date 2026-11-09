@@ -304,19 +304,17 @@ struct APIClient {
     func trends(
         range: TrendsRange,
         dimension: TrendsDimension,
-        limit: Int = 12,
         now: Date = Date()
     ) async throws -> TrendsResponse {
         let window = range.window(endingAt: now)
-        var queryItems = [
+        // No `limit`: that query parameter bounds the *event scan* server-side
+        // (default 50k), not the number of returned series.
+        let queryItems = [
             URLQueryItem(name: "since", value: SugarDate.string(from: window.since)),
             URLQueryItem(name: "until", value: SugarDate.string(from: window.until)),
             URLQueryItem(name: "bucket", value: range.bucket),
             URLQueryItem(name: "group_by", value: dimension.groupBy),
         ]
-        if limit > 0 {
-            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
-        }
         var request = makeRequest(path: "api/trends", method: "GET")
         request.url = url(path: "api/trends", queryItems: queryItems)
         let data = try await perform(request)
