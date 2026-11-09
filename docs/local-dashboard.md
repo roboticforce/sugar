@@ -606,6 +606,9 @@ reaper); plus free-form ingest kinds
 - `GET /api/usage?since=&until=&group_by=actor|harness|task|project|day|kind&limit=` —
   aggregates harness-reported usage (`usage.reported` / `run.ended` payloads) from
   the spine: totals and grouped token/cost rows (see `docs/usage.md`).
+- `GET /api/trends?since=&until=&bucket=hour|day|week&group_by=actor|harness|project&limit=` —
+  zero-filled UTC time buckets of task counts, event volume, tokens/cost and
+  cycle time from the spine (see `docs/trends.md`).
 - `POST /api/events` — harness telemetry. Body: `{kind*, actor?, actor_kind?,
   harness?, session_id?, task_id?, run_id?, project?, trace_id?, payload?}`;
   server fills `ts`, `machine`, `source="ingest"`, `id`, `ingested_at`. Unknown
