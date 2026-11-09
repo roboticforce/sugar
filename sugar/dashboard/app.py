@@ -38,6 +38,7 @@ from .security import (
     unauthorized_response,
 )
 from .spine import EventSpine, SpineError
+from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
 
 logger = logging.getLogger(__name__)
@@ -257,6 +258,28 @@ async def usage(request: Request) -> JSONResponse:
     return JSONResponse(report)
 
 
+async def trends(request: Request) -> JSONResponse:
+    """Time-bucketed work analytics from the event spine (``docs/trends.md``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await trends_report(
+            spine.db_path,
+            since=params.get("since"),
+            until=params.get("until"),
+            bucket=params.get("bucket"),
+            group_by=params.get("group_by"),
+            limit=params.get("limit"),
+        )
+    except TrendsQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
 async def ingest_event(request: Request) -> JSONResponse:
     spine = getattr(request.app.state, "spine", None)
     if spine is None:
@@ -400,6 +423,7 @@ def create_app(
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),
+        Route("/api/trends", trends, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
     ]

@@ -5966,5 +5966,100 @@ def emit(
         click.echo(f"✅ emitted event {event_id} ({kind})")
 
 
+# =============================================================================
+# Trends Command
+# =============================================================================
+
+
+@cli.command("trends")
+@click.option(
+    "--db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option("--since", default=None, help="Range start (ISO-8601; default until-7d)")
+@click.option("--until", default=None, help="Range end (ISO-8601; default now)")
+@click.option(
+    "--bucket",
+    type=click.Choice(["hour", "day", "week"], case_sensitive=False),
+    default="day",
+    show_default=True,
+    help="Bucket size (UTC-aligned; week starts Monday)",
+)
+@click.option(
+    "--group-by",
+    type=click.Choice(["actor", "harness", "project"], case_sensitive=False),
+    default="actor",
+    show_default=True,
+    help="Series dimension",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=50000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 200000)",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def trends(events_db, since, until, bucket, group_by, limit, as_json):
+    """Show time-bucketed work trends from the event spine
+
+    Counts task.created/claimed/completed/failed events, tokens/cost reported
+    by harnesses, and pairs task.completed with the latest prior task.claimed
+    for the same task_id to compute cycle time. Buckets are UTC-aligned and
+    zero-filled, so every bucket in the range appears.
+
+    Examples:
+
+        sugar trends
+
+        sugar trends --since 2026-11-01 --bucket hour --group-by harness
+
+        sugar trends --since 2026-10-01 --until 2026-11-01 --bucket week --json
+
+    The events DB is read-only here; the computation matches
+    ``GET /api/trends`` on the dashboard. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.spine import default_events_db_path
+        from .dashboard.trends import (
+            TrendsQueryError,
+            format_trends_table,
+            trends_report,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the trends command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        report = asyncio.run(
+            trends_report(
+                db_path,
+                since=since,
+                until=until,
+                bucket=bucket,
+                group_by=group_by,
+                limit=limit,
+            )
+        )
+    except TrendsQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(format_trends_table(report))
+
+
 if __name__ == "__main__":
     cli()
