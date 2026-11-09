@@ -38,6 +38,7 @@ from .security import (
     unauthorized_response,
 )
 from .spine import EventSpine, SpineError
+from .usage import UsageQueryError, usage_report
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,30 @@ async def activity(request: Request) -> JSONResponse:
     return JSONResponse({"events": events, "last_id": last_id})
 
 
+async def usage(request: Request) -> JSONResponse:
+    """Aggregate usage/cost telemetry from the event spine (``docs/usage.md``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await usage_report(
+            spine.db_path,
+            since=params.get("since"),
+            until=params.get("until"),
+            group_by=params.get("group_by"),
+            kinds=(params.get("kinds") or params.get("kind") or "").strip() or None,
+            actor=(params.get("actor") or "").strip() or None,
+            harness=(params.get("harness") or "").strip() or None,
+            limit=params.get("limit"),
+        )
+    except UsageQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
 async def ingest_event(request: Request) -> JSONResponse:
     spine = getattr(request.app.state, "spine", None)
     if spine is None:
@@ -355,6 +380,7 @@ def create_app(
         Route("/api/stats", stats, methods=["GET"]),
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
+        Route("/api/usage", usage, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
     ]

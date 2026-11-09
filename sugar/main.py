@@ -4957,6 +4957,102 @@ def dashboard(
 
 
 # =============================================================================
+# Usage / Cost Attribution Command
+# =============================================================================
+
+
+@cli.command("usage")
+@click.option(
+    "--db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option(
+    "--since", default=None, help="Only events at/after this ISO-8601 timestamp"
+)
+@click.option(
+    "--until", default=None, help="Only events at/before this ISO-8601 timestamp"
+)
+@click.option(
+    "--group-by",
+    type=click.Choice(
+        ["actor", "harness", "task", "project", "day", "kind"],
+        case_sensitive=False,
+    ),
+    default=None,
+    help="Break down by this dimension (default: totals only)",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 50000)",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def usage(events_db, since, until, group_by, limit, as_json):
+    """Show agent token/cost usage reported to the event spine
+
+    Usage is reported by harnesses, not inferred by Sugar. Post a
+    ``usage.reported`` event (or a ``run.ended`` event carrying the same
+    payload fields) to the dashboard's event API:
+
+        POST /api/events
+        {"kind": "usage.reported", "harness": "dsh", "actor": "dsh",
+         "payload": {"tokens_in": 1200, "tokens_out": 800, "cost_usd": 0.42}}
+
+    Examples:
+
+        sugar usage
+
+        sugar usage --since 2026-11-01 --group-by day
+
+        sugar usage --group-by harness --json
+
+    The events DB is read-only here; the aggregation matches
+    ``GET /api/usage`` on the dashboard. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.spine import default_events_db_path
+        from .dashboard.usage import (
+            UsageQueryError,
+            format_usage_table,
+            usage_report,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the usage command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        report = asyncio.run(
+            usage_report(
+                db_path,
+                since=since,
+                until=until,
+                group_by=group_by,
+                limit=limit,
+            )
+        )
+    except UsageQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(format_usage_table(report))
+
+
+# =============================================================================
 # MCP Server Commands
 # =============================================================================
 
