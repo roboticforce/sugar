@@ -391,6 +391,229 @@ struct ActivityResponse: Decodable, Sendable {
     }
 }
 
+// MARK: - Activity insight (live "what is the agent doing")
+
+/// A recent activity event distilled into the single line the Live floor shows
+/// under an agent's card. `id` is the activity event id, so replacing the line
+/// with a newer action gives SwiftUI a stable identity to animate.
+struct AgentAction: Identifiable, Hashable, Sendable {
+    let id: Int
+    let kind: String
+    let actor: String
+    let taskId: String?
+    let line: String
+    let ts: Date
+}
+
+/// Pure derivation helpers over the activity spine: latest action per agent,
+/// the human line extracted from an event payload, console lines/rate, and a
+/// task's recent events.
+enum ActivityInsight {
+    /// Activity older than this is no longer "what the agent is doing right
+    /// now". The Live card falls back to "waiting for activity…".
+    static let actionFreshness: TimeInterval = 120
+
+    /// Most recent activity event for this agent within `actionFreshness`:
+    /// prefer an event whose `task_id` matches the agent's task, then fall back
+    /// to a matching actor. Returns `nil` when there is nothing recent.
+    static func latestAction(
+        for agent: LiveAgent,
+        in events: [ActivityEvent],
+        now: Date = Date()
+    ) -> AgentAction? {
+        let fresh = events.filter { now.timeIntervalSince($0.ts) <= actionFreshness }
+
+        let taskMatch = fresh
+            .filter { event in
+                guard !agent.taskId.isEmpty, let taskId = event.taskId else { return false }
+                return taskId == agent.taskId
+            }
+            .max { lhs, rhs in lhs.ts < rhs.ts }
+
+        let actorMatch = fresh
+            .filter { actorMatches($0.actor, agent.actor) }
+            .max { lhs, rhs in lhs.ts < rhs.ts }
+
+        guard let event = taskMatch ?? actorMatch else { return nil }
+        return AgentAction(
+            id: event.id,
+            kind: event.kind,
+            actor: event.actorLabel,
+            taskId: event.taskId,
+            line: line(from: event),
+            ts: event.ts
+        )
+    }
+
+    /// What to render for an event, in priority order:
+    /// `message` → `command` → `tool` (+ `file`) → payload `title` → kind.
+    static func line(from event: ActivityEvent) -> String {
+        let payload = event.payload.objectValue
+
+        if let message = nonEmpty(payload?["message"]?.stringValue) {
+            return message
+        }
+        if let command = nonEmpty(payload?["command"]?.stringValue) {
+            return command
+        }
+        if let tool = nonEmpty(payload?["tool"]?.stringValue) {
+            if let file = nonEmpty(payload?["file"]?.stringValue) {
+                return "\(tool) · \(file)"
+            }
+            return tool
+        }
+        if let title = event.payloadTitle {
+            return title
+        }
+        return event.kind
+    }
+
+    /// The last `limit` events for one task, newest first.
+    static func recentEvents(
+        forTask taskId: String,
+        in events: [ActivityEvent],
+        limit: Int = 5
+    ) -> [ActivityEvent] {
+        guard !taskId.isEmpty, limit > 0 else { return [] }
+        return Array(
+            events
+                .filter { $0.taskId == taskId }
+                .sorted { lhs, rhs in
+                    if lhs.ts != rhs.ts { return lhs.ts > rhs.ts }
+                    return lhs.id > rhs.id
+                }
+                .prefix(limit)
+        )
+    }
+
+    /// Events in the last `window` seconds (the "N ev/min" readout).
+    static func eventsPerMinute(
+        _ events: [ActivityEvent],
+        now: Date = Date(),
+        window: TimeInterval = 60
+    ) -> Int {
+        events.reduce(into: 0) { count, event in
+            let age = now.timeIntervalSince(event.ts)
+            if age >= 0, age <= window {
+                count += 1
+            }
+        }
+    }
+
+    private static func actorMatches(_ eventActor: String?, _ agentActor: String) -> Bool {
+        guard let eventActor else { return false }
+        let lhs = eventActor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rhs = agentActor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !lhs.isEmpty && lhs == rhs
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// MARK: - Live console
+
+/// Client-side console filters (All plus the four categories the harness
+/// payloads are grouped into).
+enum ConsoleCategory: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case tool
+    case run
+    case task
+    case memory
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .tool: return "tool"
+        case .run: return "run"
+        case .task: return "task"
+        case .memory: return "memory"
+        }
+    }
+
+    func includes(kind: String) -> Bool {
+        switch self {
+        case .all: return true
+        case .tool: return kind.hasPrefix("tool.")
+        case .run: return kind.hasPrefix("run.")
+        case .task: return kind.hasPrefix("task.")
+        case .memory: return kind.hasPrefix("memory.")
+        }
+    }
+}
+
+/// One fully formatted console row.
+struct ConsoleLine: Identifiable, Hashable, Sendable {
+    let id: Int
+    let ts: Date
+    let kind: String
+    let actor: String
+    /// Task short id (`task 1a2b3c4d`), else the tool name, else the kind.
+    let context: String
+    let message: String
+    let taskId: String?
+}
+
+/// Presentation helpers for the streaming console. Kept pure so the tests and
+/// the ticking view agree on formatting, filtering, ordering and rate.
+enum LiveConsole {
+    /// The in-memory activity window is 500; the console never shows more.
+    static let lineLimit = 500
+
+    static func timeString(_ date: Date, timeZone: TimeZone = .current) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.hour, .minute, .second], from: date)
+        return String(
+            format: "%02d:%02d:%02d",
+            parts.hour ?? 0,
+            parts.minute ?? 0,
+            parts.second ?? 0
+        )
+    }
+
+    static func line(for event: ActivityEvent) -> ConsoleLine {
+        ConsoleLine(
+            id: event.id,
+            ts: event.ts,
+            kind: event.kind,
+            actor: event.actorLabel,
+            context: context(for: event),
+            message: ActivityInsight.line(from: event),
+            taskId: event.taskId
+        )
+    }
+
+    /// Console input is the app's newest-first feed; the console renders oldest
+    /// first so the newest line lands at the bottom.
+    static func lines(
+        from events: [ActivityEvent],
+        category: ConsoleCategory = .all
+    ) -> [ConsoleLine] {
+        events
+            .filter { category.includes(kind: $0.kind) }
+            .reversed()
+            .map(line(for:))
+    }
+
+    private static func context(for event: ActivityEvent) -> String {
+        if let taskId = event.taskId, !taskId.isEmpty {
+            return "task \(String(taskId.prefix(8)))"
+        }
+        if let tool = event.payload.objectValue?["tool"]?.stringValue,
+           !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return tool
+        }
+        return event.kind
+    }
+}
+
 // MARK: - Live presence (ephemeral SSE `presence` event)
 
 /// Lease health for a live agent card. The app's rule of thumb: more than a

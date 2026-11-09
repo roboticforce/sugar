@@ -393,3 +393,294 @@ final class LiveAppModelTests: XCTestCase {
         XCTAssertFalse(model.showsActivity)
     }
 }
+
+// MARK: - Current action (what each agent is doing)
+
+final class LiveActionTests: XCTestCase {
+    private let agent = LiveAgent(actor: "claude-code", taskId: "task-A", title: "Task A")
+
+    func testLatestActionPrefersTaskMatchOverNewerActorEvent() throws {
+        let taskEvent = try makeActivityEvent(id: 1, kind: "tool.invoked", age: 40, taskId: "task-A")
+        let newerActorEvent = try makeActivityEvent(id: 2, kind: "tool.invoked", age: 2, taskId: "task-B")
+
+        let action = ActivityInsight.latestAction(for: agent, in: [newerActorEvent, taskEvent], now: liveTestNow)
+
+        XCTAssertEqual(action?.id, 1)
+        XCTAssertEqual(action?.taskId, "task-A")
+    }
+
+    func testLatestActionFallsBackToActor() throws {
+        let otherActor = try makeActivityEvent(id: 1, kind: "tool.invoked", age: 10, actor: "dsh", taskId: "task-X")
+        let matchingActor = try makeActivityEvent(id: 2, kind: "tool.invoked", age: 5, taskId: "task-Y")
+
+        let action = ActivityInsight.latestAction(for: agent, in: [otherActor, matchingActor], now: liveTestNow)
+
+        XCTAssertEqual(action?.id, 2)
+    }
+
+    func testLatestActionRespectsFreshnessWindow() throws {
+        let staleTask = try makeActivityEvent(id: 1, kind: "tool.invoked", age: 121, taskId: "task-A")
+        let staleActor = try makeActivityEvent(id: 2, kind: "tool.invoked", age: 200, taskId: "task-Z")
+
+        XCTAssertNil(ActivityInsight.latestAction(for: agent, in: [staleTask, staleActor], now: liveTestNow))
+
+        let freshTask = try makeActivityEvent(id: 3, kind: "tool.invoked", age: 119, taskId: "task-A")
+        XCTAssertEqual(
+            ActivityInsight.latestAction(for: agent, in: [staleTask, freshTask], now: liveTestNow)?.id,
+            3
+        )
+
+        // A stale task match must not shadow a fresh actor fallback.
+        let freshActor = try makeActivityEvent(id: 4, kind: "tool.invoked", age: 10, taskId: "task-B")
+        XCTAssertEqual(
+            ActivityInsight.latestAction(for: agent, in: [staleTask, freshActor], now: liveTestNow)?.id,
+            4
+        )
+    }
+
+    func testActionLineExtractionPriority() throws {
+        let allFields = try makeActivityEvent(
+            id: 1,
+            kind: "tool.invoked",
+            age: 1,
+            payload: #"{"message":"Reading the diff","command":"git diff","tool":"Bash","file":"x.swift","title":"T"}"#
+        )
+        XCTAssertEqual(ActivityInsight.line(from: allFields), "Reading the diff")
+
+        let command = try makeActivityEvent(
+            id: 2,
+            kind: "tool.invoked",
+            age: 1,
+            payload: #"{"command":"swift test","tool":"Bash","file":"x.swift","title":"T"}"#
+        )
+        XCTAssertEqual(ActivityInsight.line(from: command), "swift test")
+
+        let toolAndFile = try makeActivityEvent(
+            id: 3,
+            kind: "tool.invoked",
+            age: 1,
+            payload: #"{"tool":"Edit","file":"AppModel.swift","title":"T"}"#
+        )
+        XCTAssertEqual(ActivityInsight.line(from: toolAndFile), "Edit · AppModel.swift")
+
+        let toolOnly = try makeActivityEvent(id: 4, kind: "tool.invoked", age: 1, payload: #"{"tool":"Read"}"#)
+        XCTAssertEqual(ActivityInsight.line(from: toolOnly), "Read")
+
+        let titleOnly = try makeActivityEvent(id: 5, kind: "task.updated", age: 1, payload: #"{"title":"Fix flaky test"}"#)
+        XCTAssertEqual(ActivityInsight.line(from: titleOnly), "Fix flaky test")
+
+        let blankMessage = try makeActivityEvent(
+            id: 6,
+            kind: "tool.invoked",
+            age: 1,
+            payload: #"{"message":"   ","command":"echo hi"}"#
+        )
+        XCTAssertEqual(ActivityInsight.line(from: blankMessage), "echo hi")
+
+        let kindOnly = try makeActivityEvent(id: 7, kind: "tool.invoked", age: 1, payload: "{}")
+        XCTAssertEqual(ActivityInsight.line(from: kindOnly), "tool.invoked")
+    }
+
+    func testActionCarriesMetadataForAnimation() throws {
+        let event = try makeActivityEvent(
+            id: 42,
+            kind: "tool.invoked",
+            age: 3,
+            taskId: "task-A",
+            payload: #"{"message":"Editing AppModel.swift"}"#
+        )
+        let action = ActivityInsight.latestAction(for: agent, in: [event], now: liveTestNow)
+
+        XCTAssertEqual(action?.id, 42)
+        XCTAssertEqual(action?.kind, "tool.invoked")
+        XCTAssertEqual(action?.actor, "claude-code")
+        XCTAssertEqual(action?.ts, event.ts)
+        XCTAssertEqual(action?.line, "Editing AppModel.swift")
+    }
+}
+
+// MARK: - Streaming console
+
+final class LiveConsoleTests: XCTestCase {
+
+    func testConsoleCategoryFiltering() throws {
+        let events = [
+            try makeActivityEvent(id: 1, kind: "tool.invoked", age: 1, taskId: "task-A"),
+            try makeActivityEvent(id: 2, kind: "run.started", age: 2),
+            try makeActivityEvent(id: 3, kind: "task.completed", age: 3, taskId: "task-B"),
+            try makeActivityEvent(id: 4, kind: "memory.recalled", age: 4),
+            try makeActivityEvent(id: 5, kind: "usage.reported", age: 5),
+            try makeActivityEvent(id: 6, kind: "agent.activity", age: 6),
+        ]
+
+        XCTAssertEqual(LiveConsole.lines(from: events, category: .all).count, 6)
+        XCTAssertEqual(LiveConsole.lines(from: events, category: .tool).map(\.id), [1])
+        XCTAssertEqual(LiveConsole.lines(from: events, category: .run).map(\.id), [2])
+        XCTAssertEqual(LiveConsole.lines(from: events, category: .task).map(\.id), [3])
+        XCTAssertEqual(LiveConsole.lines(from: events, category: .memory).map(\.id), [4])
+    }
+
+    func testConsoleLinesAreOldestFirstAndFormatted() throws {
+        // Feed is newest-first; the console puts the newest at the bottom.
+        let newest = try makeActivityEvent(
+            id: 3,
+            kind: "tool.invoked",
+            age: 1,
+            taskId: "abcdef12-3456-7890",
+            payload: #"{"tool":"Edit","file":"AppModel.swift"}"#
+        )
+        let middle = try makeActivityEvent(
+            id: 2,
+            kind: "run.started",
+            age: 5,
+            actor: "dsh",
+            payload: #"{"message":"run started"}"#
+        )
+        let oldest = try makeActivityEvent(
+            id: 1,
+            kind: "task.completed",
+            age: 9,
+            taskId: "12345678-3456-7890",
+            payload: #"{"title":"Done"}"#
+        )
+
+        let lines = LiveConsole.lines(from: [newest, middle, oldest])
+        XCTAssertEqual(lines.map(\.id), [1, 2, 3])
+
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        XCTAssertEqual(LiveConsole.timeString(oldest.ts, timeZone: utc), "20:14:51")
+
+        let newestLine = try XCTUnwrap(lines.last)
+        XCTAssertEqual(newestLine.context, "task abcdef12")
+        XCTAssertEqual(newestLine.message, "Edit · AppModel.swift")
+        XCTAssertEqual(newestLine.actor, "claude-code")
+        XCTAssertEqual(newestLine.taskId, "abcdef12-3456-7890")
+
+        let middleLine = try XCTUnwrap(lines.first(where: { $0.id == 2 }))
+        XCTAssertEqual(middleLine.actor, "dsh")
+        XCTAssertEqual(middleLine.context, "run.started")
+        XCTAssertEqual(middleLine.message, "run started")
+        XCTAssertNil(middleLine.taskId)
+
+        XCTAssertEqual(lines.first?.context, "task 12345678")
+        XCTAssertEqual(lines.first?.message, "Done")
+    }
+
+    func testEventsPerMinuteUsesLastSixtySeconds() throws {
+        let events = [
+            try makeActivityEvent(id: 1, kind: "tool.invoked", age: 5),
+            try makeActivityEvent(id: 2, kind: "tool.invoked", age: 30),
+            try makeActivityEvent(id: 3, kind: "tool.invoked", age: 59),
+            try makeActivityEvent(id: 4, kind: "tool.invoked", age: 60),
+            try makeActivityEvent(id: 5, kind: "tool.invoked", age: 61),
+            try makeActivityEvent(id: 6, kind: "tool.invoked", age: 120),
+            try makeActivityEvent(id: 7, kind: "tool.invoked", age: -10), // future / skew
+        ]
+
+        XCTAssertEqual(ActivityInsight.eventsPerMinute(events, now: liveTestNow), 4)
+    }
+
+    func testTaskActivitySelectionNewestFirstAndLimited() throws {
+        let matching = try (1...7).map { id in
+            try makeActivityEvent(
+                id: id,
+                kind: "tool.invoked",
+                age: TimeInterval(id),
+                taskId: "task-A"
+            )
+        }
+        let otherTask = try makeActivityEvent(id: 99, kind: "tool.invoked", age: 1, taskId: "task-B")
+
+        let recent = ActivityInsight.recentEvents(forTask: "task-A", in: matching + [otherTask], limit: 5)
+
+        XCTAssertEqual(recent.map(\.id), [1, 2, 3, 4, 5])
+        XCTAssertTrue(recent.allSatisfy { $0.taskId == "task-A" })
+
+        XCTAssertTrue(ActivityInsight.recentEvents(forTask: "missing", in: matching).isEmpty)
+        XCTAssertEqual(LiveConsole.lineLimit, 500)
+    }
+}
+
+// MARK: - AppModel activity integration
+
+@MainActor
+final class LiveActivityModelTests: XCTestCase {
+    func testSSEActivityUpdatesActionsTaskStripPulseAndRate() throws {
+        let model = AppModel()
+        let agent = LiveAgent(actor: "claude-code", taskId: "task-A", title: "Task A")
+        let now = Date()
+
+        let first = activityEventJSON(
+            id: 1,
+            kind: "tool.invoked",
+            age: 30,
+            taskId: "task-A",
+            payload: #"{"tool":"Read","file":"Models.swift"}"#,
+            now: now
+        )
+        let second = activityEventJSON(
+            id: 2,
+            kind: "tool.invoked",
+            age: 10,
+            taskId: "task-A",
+            payload: #"{"message":"Editing AppModel.swift"}"#,
+            now: now
+        )
+
+        model.handle(SSEEvent(event: "activity", data: Data(first.utf8)))
+        model.handle(SSEEvent(event: "activity", data: Data(second.utf8)))
+
+        XCTAssertEqual(model.activityPulse, 2)
+        XCTAssertEqual(model.taskActivity(forTask: "task-A").map(\.id), [2, 1])
+        XCTAssertEqual(model.latestAction(for: agent)?.id, 2)
+        XCTAssertEqual(model.latestAction(for: agent)?.line, "Editing AppModel.swift")
+        XCTAssertEqual(model.activityRate(), 2)
+    }
+}
+
+// MARK: - Shared fixtures
+
+/// Fixed "now" for deterministic relative timestamps (2026-11-09T20:15:00Z).
+private let liveTestNow = SugarDate.parse("2026-11-09T20:15:00Z")!
+
+private func activityEventJSON(
+    id: Int,
+    kind: String,
+    age: TimeInterval,
+    actor: String? = "claude-code",
+    taskId: String? = nil,
+    payload: String = "{}",
+    now: Date = liveTestNow
+) -> String {
+    let ts = SugarDate.string(from: now.addingTimeInterval(-age))
+    var fields = [
+        "\"id\": \(id)",
+        "\"kind\": \"\(kind)\"",
+        "\"ts\": \"\(ts)\"",
+        "\"payload\": \(payload)",
+    ]
+    if let actor { fields.append("\"actor\": \"\(actor)\"") }
+    if let taskId { fields.append("\"task_id\": \"\(taskId)\"") }
+    return "{\(fields.joined(separator: ","))}"
+}
+
+private func makeActivityEvent(
+    id: Int,
+    kind: String,
+    age: TimeInterval,
+    actor: String? = "claude-code",
+    taskId: String? = nil,
+    payload: String = "{}",
+    now: Date = liveTestNow
+) throws -> ActivityEvent {
+    let json = activityEventJSON(
+        id: id,
+        kind: kind,
+        age: age,
+        actor: actor,
+        taskId: taskId,
+        payload: payload,
+        now: now
+    )
+    return try SugarJSON.makeDecoder().decode(ActivityEvent.self, from: Data(json.utf8))
+}

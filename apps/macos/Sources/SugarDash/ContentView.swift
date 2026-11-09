@@ -608,7 +608,14 @@ enum ActivityPresentation {
             return KindStyle(icon: "wrench.and.screwdriver.fill", color: .orange, title: "Tool invoked")
         case "memory.recalled":
             return KindStyle(icon: "brain", color: .pink, title: "Memory recalled")
+        case "agent.activity":
+            return KindStyle(icon: "ellipsis.bubble.fill", color: .purple, title: "Agent activity")
+        case "usage.reported":
+            return KindStyle(icon: "dollarsign.circle.fill", color: .green, title: "Usage reported")
         default:
+            if kind.hasPrefix("usage.") {
+                return KindStyle(icon: "dollarsign.circle.fill", color: .green, title: humanized(kind))
+            }
             if kind.hasPrefix("signal") {
                 return KindStyle(icon: "antenna.radiowaves.left.and.right", color: .purple, title: humanized(kind))
             }
