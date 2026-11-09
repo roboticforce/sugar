@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live "Agents at work" view in SugarDash** driven by a new ephemeral SSE `presence` stream: the server publishes who is working on what (actor, task, lease expiry, started-at, attempts, status counts) every `$SUGAR_PRESENCE_INTERVAL` seconds (default 2s) to connected clients, derived from the in-memory snapshot with no DB query per tick and **never written to the event spine** (no audit noise). The macOS app gains a **Live** sidebar row (pulsing agent count) and a floor of agent cards with lease-health dots (green >60s, amber <60s, red expired), ticking "working for"/"lease" countdowns via a 1s `TimelineView`, per-actor sections, tap-to-open-task, a live activity ticker, and a toolbar "N agents working" chip. Older servers fall back to deriving agents from active claimed tasks. Presence is documented in `docs/local-dashboard.md` §3 and §11.5; app tests cover decoding, grouping, lease thresholds and the fallback.
+
+### Added
 - **Usage/cost attribution** (`sugar dashboard`, `sugar usage`, Activity panel): harnesses report spend through `POST /api/events` with kind `usage.reported` (or `run.ended`) carrying `{tokens_in, tokens_out, cost_usd, model?}`. `GET /api/usage?group_by=actor|harness|task|project|day|kind` returns grouped totals (tolerant normalization: bad telemetry is skipped, never 500s; negatives/NaN ignored), `sugar usage` prints the same table or `--json`, and the browser Activity view shows totals plus top harnesses/actors by cost. Bounded spine reads with a `truncated` flag; no pricing table or provider billing reconciliation — cost is whatever the harness reports. See `docs/usage.md`.
 
 ### Security
