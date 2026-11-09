@@ -233,6 +233,11 @@ activity ticker (no DB writes, no audit noise), falling back to task leases on o
 
 ![SugarDash Live view: agents at work](images/live-agents.png)
 
+With harness telemetry (`sugar emit`) or the simulator, each card shows the agent's
+current action and the streaming console shows the raw event feed:
+
+![SugarDash Live console: streaming agent activity](images/live-console.png)
+
 About window with version/build, project links, a no-telemetry privacy statement
 and "Copy diagnostics"; Help menu links to docs, issue tracker, privacy, terms and
 support.
