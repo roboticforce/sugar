@@ -5170,6 +5170,7 @@ def mcp_tasks(ctx, transport):
         - sugar_update_task: Update task properties
         - sugar_task_status: Get queue statistics
         - sugar_remove_task: Remove a task
+        - sugar_emit_event: Emit a live activity event (docs/telemetry.md)
 
     To add to OpenCode, add to opencode.json:
         {
@@ -5808,6 +5809,161 @@ def audit_verify(jsonl_path, manifest_path, sign_key_env, json_output):
 
     if not result.ok:
         sys.exit(1)
+
+
+# =============================================================================
+# Agent Activity Commands
+# =============================================================================
+
+
+def _parse_emit_payload(items):
+    """Parse repeatable ``--payload KEY=VALUE`` items with JSON coercion."""
+    import json
+
+    payload = {}
+    for item in items:
+        key, separator, raw = item.partition("=")
+        key = key.strip()
+        if not separator or not key:
+            raise click.BadParameter(
+                f"invalid --payload {item!r}: expected KEY=VALUE",
+                param_hint="--payload",
+            )
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            value = raw
+        payload[key] = value
+    return payload
+
+
+@cli.command("emit")
+@click.option(
+    "--kind",
+    default="tool.invoked",
+    show_default=True,
+    help=(
+        "Event kind (e.g. tool.invoked, run.started, run.ended, "
+        "agent.activity, usage.reported)"
+    ),
+)
+@click.option(
+    "--actor",
+    default=None,
+    help="Actor id (default: $SUGAR_ACTOR / $SUGAR_AGENT_ID / $USER@host)",
+)
+@click.option(
+    "--actor-kind",
+    type=click.Choice(["human", "agent", "system"]),
+    default=None,
+    help="Actor kind (default: inferred from the environment)",
+)
+@click.option("--task-id", default=None, help="Related task id")
+@click.option(
+    "--harness", default="sugar", show_default=True, help="Harness/agent name"
+)
+@click.option("--session-id", default=None, help="Session id (default: $SUGAR_SESSION)")
+@click.option("--project", default=None, help="Project id")
+@click.option("--message", default=None, help="Shorthand for payload.message")
+@click.option(
+    "--payload",
+    "payload_items",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help=(
+        "Extra payload field; VALUE is JSON-decoded when possible "
+        "(numbers, booleans, objects). Repeatable."
+    ),
+)
+@click.option(
+    "--server",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--token",
+    default=None,
+    help="Bearer token (default: $SUGAR_BOARD_TOKEN; never printed)",
+)
+@click.option("--json", "json_output", is_flag=True, help="Print JSON summary")
+@click.pass_context
+def emit(
+    ctx,
+    kind,
+    actor,
+    actor_kind,
+    task_id,
+    harness,
+    session_id,
+    project,
+    message,
+    payload_items,
+    server,
+    token,
+    json_output,
+):
+    """Emit one live activity event to a running Sugar board
+
+    Use this from harness hooks (one call per tool call) so the dashboard and
+    macOS app can show what agents are doing in real time. Events land in the
+    event spine and stream live over SSE. See docs/telemetry.md.
+
+    Examples:
+
+        sugar emit --kind tool.invoked --task-id 9a88e031 --message "running pytest tests/test_api.py"
+
+        sugar emit --kind run.started --harness claude-code --message "starting run"
+
+        sugar emit --kind usage.reported --payload tokens_in=1200 --payload cost_usd=0.03
+    """
+    import json
+
+    from .activity import ActivityConfigError, ActivityError, emit_activity
+    from .identity import resolve_actor
+
+    kind = (kind or "").strip()
+    if not kind:
+        raise click.BadParameter("must not be empty", param_hint="--kind")
+
+    payload = _parse_emit_payload(payload_items)
+    if message is not None:
+        payload["message"] = message
+
+    actor_info = resolve_actor(actor, kind=actor_kind)
+    try:
+        event = emit_activity(
+            kind,
+            actor=actor_info.id,
+            actor_kind=actor_info.kind,
+            harness=harness,
+            session_id=session_id or actor_info.session,
+            task_id=task_id,
+            project=project,
+            payload=payload or None,
+            server=server,
+            token=token,
+        )
+    except ActivityConfigError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        raise click.exceptions.Exit(2)
+    except ActivityError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        raise click.exceptions.Exit(1)
+
+    event_id = event.get("id")
+    if json_output:
+        click.echo(
+            json.dumps(
+                {
+                    "id": event_id,
+                    "kind": event.get("kind", kind),
+                    "task_id": event.get("task_id", task_id),
+                    "actor": event.get("actor", actor_info.id),
+                }
+            )
+        )
+    else:
+        click.echo(f"✅ emitted event {event_id} ({kind})")
 
 
 if __name__ == "__main__":
