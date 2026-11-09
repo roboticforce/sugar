@@ -50,6 +50,18 @@ enum SidebarItem: Hashable {
     case status(StatusFilter)
     case live
     case activity
+    case trends
+}
+
+/// Top-level middle-pane views. Persisted with `@AppStorage` in ContentView so
+/// relaunching the app returns to the last view (default: Tasks).
+enum AppSection: String, CaseIterable, Identifiable {
+    case tasks
+    case live
+    case activity
+    case trends
+
+    var id: String { rawValue }
 }
 
 // MARK: - Store
@@ -117,6 +129,19 @@ final class AppModel {
     // stale (older servers); see `presenceSource(at:)`.
     private(set) var presence: PresenceSnapshot?
 
+    // Trends (`GET /api/trends`): a separate REST surface with its own loading,
+    // error and "older server" states. Only fetched while the pane is visible.
+    var trendsRange: TrendsRange = .day
+    var trendsDimension: TrendsDimension = .actor
+    var trendsMetric: TrendsMetric = .completed
+    private(set) var trends: TrendsResponse?
+    private(set) var trendsLoading = false
+    private(set) var trendsError: String?
+    /// True when the server predates /api/trends (404) — render a clear
+    /// "not available on this server" state instead of a generic error.
+    private(set) var trendsUnavailable = false
+    private var trendsGeneration = 0
+
     // Connection state.
     private(set) var connection: ConnectionState = .idle
     private(set) var hasEverConnected = false
@@ -134,6 +159,9 @@ final class AppModel {
     /// True while the sidebar's Live row is selected; the middle pane shows the
     /// "Agents at work" floor. Mutually exclusive with `showsActivity`.
     var showsLive = false
+    /// True while the sidebar's Trends row is selected; the middle pane shows
+    /// the Charts-based analytics view. Mutually exclusive with the above.
+    var showsTrends = false
 
     // Configuration.
     private(set) var serverURLString: String
@@ -258,16 +286,39 @@ final class AppModel {
         liveAgents.count
     }
 
+    /// The currently selected top-level view (Tasks is the default).
+    var activeSection: AppSection {
+        if showsTrends { return .trends }
+        if showsLive { return .live }
+        if showsActivity { return .activity }
+        return .tasks
+    }
+
+    /// Switch the middle pane; all section flags are mutually exclusive.
+    func selectSection(_ section: AppSection) {
+        showsLive = section == .live
+        showsActivity = section == .activity
+        showsTrends = section == .trends
+    }
+
+    /// Restore the view persisted by `@AppStorage` (unknown values → Tasks).
+    func restoreSection(raw: String) {
+        selectSection(AppSection(rawValue: raw) ?? .tasks)
+    }
+
     /// Sidebar/toolbar entry point: show the Live floor.
     func showLive() {
-        showsActivity = false
-        showsLive = true
+        selectSection(.live)
     }
 
     /// Counterpart for the Activity row / empty-state escape hatch.
     func showActivity() {
-        showsLive = false
-        showsActivity = true
+        selectSection(.activity)
+    }
+
+    /// Sidebar entry point: show the Charts-based Trends view.
+    func showTrends() {
+        selectSection(.trends)
     }
 
     // MARK: - Live action (what each agent is doing right now)
@@ -286,6 +337,85 @@ final class AppModel {
     /// Activity events in the last minute, for the console's "N ev/min".
     func activityRate(at now: Date = Date()) -> Int {
         ActivityInsight.eventsPerMinute(activityEvents, now: now)
+    }
+
+    // MARK: - Trends (REST, only while visible)
+
+    /// Changes whenever the range/dimension changes. TrendsPane binds its
+    /// `.task(id:)` to this, so a change cancels the old loop/load and starts a
+    /// fresh one; leaving the pane cancels it too (no polling when hidden).
+    var trendsQueryKey: String {
+        "\(trendsRange.rawValue)-\(trendsDimension.rawValue)"
+    }
+
+    /// Load immediately, then every ~30 s while the caller is alive. The task
+    /// is cancelled by SwiftUI when the Trends pane disappears or the query changes.
+    func runTrendsRefreshLoop() async {
+        guard showsTrends else { return }
+        while !_Concurrency.Task.isCancelled {
+            await loadTrends()
+            if _Concurrency.Task.isCancelled { return }
+            do {
+                try await _Concurrency.Task.sleep(for: .seconds(30))
+            } catch {
+                return
+            }
+        }
+    }
+
+    /// Manual refresh button / retry.
+    func refreshTrends() {
+        AsyncTask<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.loadTrends()
+        }
+    }
+
+    /// Fetches `/api/trends` for the current range/dimension. Stale responses
+    /// are discarded (generation token) and cancellation is silent.
+    func loadTrends(now: Date = Date()) async {
+        trendsGeneration += 1
+        let generation = trendsGeneration
+        let client = self.client
+        let range = trendsRange
+        let dimension = trendsDimension
+        trendsLoading = true
+
+        defer {
+            if generation == trendsGeneration {
+                trendsLoading = false
+            }
+        }
+
+        do {
+            let response = try await client.trends(
+                range: range,
+                dimension: dimension,
+                now: now
+            )
+            guard generation == trendsGeneration,
+                  !_Concurrency.Task.isCancelled,
+                  self.client.baseURL == client.baseURL else {
+                return
+            }
+            trends = response
+            trendsError = nil
+            trendsUnavailable = false
+        } catch {
+            guard generation == trendsGeneration else { return }
+            if _Concurrency.Task.isCancelled { return }
+
+            if let apiError = error as? APIClient.APIError,
+               case .server(let status, _, _) = apiError,
+               status == 404 {
+                trends = nil
+                trendsUnavailable = true
+                trendsError = nil
+            } else {
+                trendsUnavailable = false
+                trendsError = friendlyMessage(error)
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -672,6 +802,7 @@ final class AppModel {
     func focusTask(id: String) {
         showsLive = false
         showsActivity = false
+        showsTrends = false
         selection = id
         if !filteredTasks.contains(where: { $0.id == id }) {
             statusFilter = .all
@@ -732,6 +863,11 @@ final class AppModel {
         activityUnavailable = false
         activityPulse = 0
         presence = nil
+        trends = nil
+        trendsLoading = false
+        trendsError = nil
+        trendsUnavailable = false
+        trendsGeneration += 1
         selection = nil
         hasEverConnected = false
         serverVersion = nil
