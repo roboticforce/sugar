@@ -135,8 +135,10 @@ The app opens one window:
 
 - **Sidebar** — status filters (All / Pending / Active / Hold / Completed /
   Failed) with live counters, **Live** (agents at work), **Activity** (event
-  feed), the server URL field (persisted in `UserDefaults`), connection state,
-  and the server's DB path/version.
+  feed), **Trends** (Charts analytics), the server URL field (persisted in
+  `UserDefaults`), connection state, and the server's DB path/version. The last
+  selected view (Tasks / Live / Activity / Trends) is persisted with
+  `@AppStorage`, so relaunching the app returns to it (default: Tasks).
 - **Live floor** — "Agents at work": one card per active task grouped by agent,
   with a pulsing lease-health dot (green > 60 s, amber < 60 s, red
   expired/missing), task title, **a live "current action" line** (the latest
@@ -151,6 +153,13 @@ The app opens one window:
   on each new event batch. Tapping a card, ticker row or console line jumps to
   the task. If the server doesn't emit the ephemeral `presence` event, the floor
   derives agents from active task leases and says so ("derived from task leases").
+- **Trends** — Swift Charts analytics over `GET /api/trends`: 24h / 7d / 30d
+  range + Agent / Project / Harness grouping, stat tiles (completed, failure
+  rate, completed-weighted avg cycle time, cost, events), a line/area chart per
+  group for Tasks completed / Tasks failed / Events / Cost with legend, x-axis
+  labels and a hover tooltip, plus a per-group totals bar chart. Refreshes on
+  range/dimension change and every ~30 s only while the pane is visible; shows
+  clear empty, error and "older server (404)" states.
 - **Task list** — priority, status, type, title, assigned agent, attempts and
   relative update time; searchable and filterable.
 - **Detail** — a compact **Live activity** strip (last 5 events for the task,
@@ -169,6 +178,10 @@ Features:
   `agent.activity`, `memory.recalled`, `usage.reported`, …) drive each agent's
   current-action line, the Live console and the detail strip. Newest 500 events
   are kept in memory; the console shows exactly that window.
+- Trends come from the optional `/api/trends` endpoint; servers that predate it
+  (404) show an "isn't available on this server" state instead of an error.
+  Trends are only fetched while the Trends view is visible (30 s cadence), and
+  stale requests are cancelled/discarded when the range or dimension changes.
 - Full CRUD: create, edit (including status transitions), hold/release, delete
   with a confirmation dialog.
 - Type picker populated from `GET /api/task-types`; priority 1 (Urgent) – 5
@@ -189,8 +202,12 @@ with stats, and an ISO-8601 `Z` timestamp. `LiveTests.swift` covers the
 thresholds, actor grouping/order, the task-lease fallback, the live
 formatting helpers, latest-action selection (task match / actor fallback /
 120 s freshness), payload message extraction priority, console filtering /
-ordering / rate math and the task-detail event selection; `ActivityTests.swift`
-covers the event spine.
+ordering / rate math and the task-detail event selection; `TrendsTests.swift`
+covers the `/api/trends` payload (full, tolerant, zero-filled alignment, empty),
+range→since/until/bucket math with an injected clock, dimension/metric mapping,
+failure-rate and weighted cycle-time aggregation, formatting, palette stability
+and the persisted-view/query-key helpers; `ActivityTests.swift` covers the
+event spine.
 
 ```bash
 swift test
@@ -219,13 +236,15 @@ apps/macos/
 │   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar + Activity feed
 │   ├── LiveFloorPane.swift           # "Agents at work" floor + current action + ticker
 │   ├── LiveConsolePane.swift         # streaming console, filters, auto-scroll
+│   ├── TrendsPane.swift              # Swift Charts trends (range/dimension/metric)
 │   ├── TaskDetailView.swift          # read-only detail + actions
 │   └── TaskEditorView.swift          # add/edit sheet
 ├── Tests/SugarDashTests/
 │   ├── DecodingTests.swift
 │   ├── ActivityTests.swift
 │   ├── SSEStreamTests.swift
-│   └── LiveTests.swift
+│   ├── LiveTests.swift
+│   └── TrendsTests.swift
 ├── build-app.sh
 └── README.md
 ```

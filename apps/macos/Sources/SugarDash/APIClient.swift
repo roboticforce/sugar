@@ -298,6 +298,31 @@ struct APIClient {
         return try decode(ActivityResponse.self, from: data)
     }
 
+    /// `GET /api/trends` — zero-filled buckets and per-group series over a
+    /// range. Servers that predate trends return 404; the app renders a clear
+    /// "not available on this server" state for that.
+    func trends(
+        range: TrendsRange,
+        dimension: TrendsDimension,
+        limit: Int = 12,
+        now: Date = Date()
+    ) async throws -> TrendsResponse {
+        let window = range.window(endingAt: now)
+        var queryItems = [
+            URLQueryItem(name: "since", value: SugarDate.string(from: window.since)),
+            URLQueryItem(name: "until", value: SugarDate.string(from: window.until)),
+            URLQueryItem(name: "bucket", value: range.bucket),
+            URLQueryItem(name: "group_by", value: dimension.groupBy),
+        ]
+        if limit > 0 {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        var request = makeRequest(path: "api/trends", method: "GET")
+        request.url = url(path: "api/trends", queryItems: queryItems)
+        let data = try await perform(request)
+        return try decode(TrendsResponse.self, from: data)
+    }
+
     // MARK: Writes
 
     func createTask(_ body: TaskCreate) async throws -> Task {

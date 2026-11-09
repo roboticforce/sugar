@@ -60,6 +60,10 @@ struct ContentView: View {
     @State private var showCreateTask = false
     @State private var editingTask: Task?
 
+    /// Remember the last top-level view (Tasks / Live / Activity / Trends) so a
+    /// relaunch returns to it. Defaults to Tasks.
+    @AppStorage("SugarDash.selectedSection") private var persistedSection = AppSection.tasks.rawValue
+
     var body: some View {
         NavigationSplitView {
             SidebarView()
@@ -70,6 +74,8 @@ struct ContentView: View {
                     LiveFloorPane()
                 } else if model.showsActivity {
                     ActivityFeedPane()
+                } else if model.showsTrends {
+                    TrendsPane()
                 } else {
                     TaskListPane(showCreateTask: $showCreateTask, editingTask: $editingTask)
                 }
@@ -82,6 +88,10 @@ struct ContentView: View {
         .navigationTitle("Sugar Dashboard")
         .frame(minWidth: 940, minHeight: 560)
         .task { model.start() }
+        .onAppear { model.restoreSection(raw: persistedSection) }
+        .onChange(of: model.activeSection) { _, section in
+            persistedSection = section.rawValue
+        }
         .sheet(isPresented: $showCreateTask) {
             TaskEditorView(mode: .create)
                 .environment(model)
@@ -168,9 +178,12 @@ struct SidebarView: View {
     private var sidebarSelection: Binding<SidebarItem?> {
         Binding(
             get: {
-                if model.showsLive { return .live }
-                if model.showsActivity { return .activity }
-                return .status(model.statusFilter)
+                switch model.activeSection {
+                case .live: return .live
+                case .activity: return .activity
+                case .trends: return .trends
+                case .tasks: return .status(model.statusFilter)
+                }
             },
             set: { newValue in
                 switch newValue {
@@ -178,13 +191,13 @@ struct SidebarView: View {
                     model.showLive()
                 case .activity:
                     model.showActivity()
+                case .trends:
+                    model.showTrends()
                 case .status(let filter):
-                    model.showsLive = false
-                    model.showsActivity = false
+                    model.selectSection(.tasks)
                     model.statusFilter = filter
                 case nil:
-                    model.showsLive = false
-                    model.showsActivity = false
+                    model.selectSection(.tasks)
                     model.statusFilter = .all
                 }
             }
@@ -243,6 +256,21 @@ struct SidebarView: View {
                     }
                 }
                 .tag(SidebarItem.activity)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .frame(width: 18)
+                        .foregroundStyle(model.showsTrends ? Color.accentColor : .secondary)
+                    Text("Trends")
+                    Spacer(minLength: 8)
+                    if let trends = model.trends, !trends.isEmpty {
+                        Text(TrendsFormat.count(trends.eventCount))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tag(SidebarItem.trends)
+                .accessibilityLabel("Trends")
             }
 
             if let health = model.health {
