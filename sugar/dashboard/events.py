@@ -9,22 +9,64 @@ diffs them against the in-memory snapshot and publishes per-id deltas.
 import asyncio
 import json
 import logging
+import math
+import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
+from .serializer import iso_utc_z
 from .store import TaskStore
 
 logger = logging.getLogger(__name__)
 
 KEEPALIVE_INTERVAL = 15.0
 DEFAULT_POLL_INTERVAL = 0.4
+DEFAULT_PRESENCE_INTERVAL = 2.0
 DEFAULT_QUEUE_SIZE = 64
 
 
-def format_sse(event: str, data: Any) -> str:
-    """Format one SSE event as a string chunk."""
+def format_sse(event: str, data: Any, event_id: Optional[int] = None) -> str:
+    """Format one SSE event as a string chunk.
+
+    ``event_id`` adds an SSE ``id:`` line (used by the ephemeral presence
+    heartbeat); existing events keep their two-line format unchanged.
+    """
     payload = json.dumps(data, separators=(",", ":"))
-    return f"event: {event}\ndata: {payload}\n\n"
+    prefix = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{prefix}event: {event}\ndata: {payload}\n\n"
+
+
+def validate_presence_interval(value: Any) -> float:
+    """Return *value* as a positive, finite float or raise ``ValueError``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("presence_interval must be a positive number")
+    interval = float(value)
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("presence_interval must be a positive finite number")
+    return interval
+
+
+def presence_interval_from_env(
+    default: float = DEFAULT_PRESENCE_INTERVAL,
+) -> float:
+    """Read ``$SUGAR_PRESENCE_INTERVAL``; invalid values fall back to *default*."""
+    raw = os.environ.get("SUGAR_PRESENCE_INTERVAL")
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "dashboard: invalid SUGAR_PRESENCE_INTERVAL=%r; using %.1fs", raw, default
+        )
+        return default
+    if not math.isfinite(value) or value <= 0:
+        logger.warning(
+            "dashboard: invalid SUGAR_PRESENCE_INTERVAL=%r; using %.1fs", raw, default
+        )
+        return default
+    return value
 
 
 class EventBroadcaster:
@@ -51,8 +93,8 @@ class EventBroadcaster:
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         self._clients.discard(queue)
 
-    def publish(self, event: str, data: Any) -> None:
-        item = (event, data)
+    def publish(self, event: str, data: Any, event_id: Optional[int] = None) -> None:
+        item = (event, data, event_id)
         for queue in list(self._clients):
             try:
                 queue.put_nowait(item)
@@ -75,15 +117,19 @@ class DashboardState:
         store: TaskStore,
         broadcaster: EventBroadcaster,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
+        presence_interval: float = DEFAULT_PRESENCE_INTERVAL,
     ):
         self.store = store
         self.broadcaster = broadcaster
         self.poll_interval = poll_interval
+        self.presence_interval = validate_presence_interval(presence_interval)
         self.started_at: Optional[float] = None
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._stats: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
         self._watcher: Optional[asyncio.Task] = None
+        self._presence_task: Optional[asyncio.Task] = None
+        self._presence_id = 0
         self._data_version = 0
         # Optional event spine (docs §11); the Sugar source diffs snapshots and
         # records transitions here. None for the Kanban source, which tails the
@@ -99,18 +145,29 @@ class DashboardState:
         self._watcher = asyncio.create_task(
             self._watch_loop(), name="sugar-dashboard-watcher"
         )
+        self._presence_task = asyncio.create_task(
+            self._presence_loop(), name="sugar-dashboard-presence"
+        )
 
     async def stop(self) -> None:
-        watcher = self._watcher
+        tasks = [
+            ("watcher", self._watcher),
+            ("presence", self._presence_task),
+        ]
         self._watcher = None
-        if watcher is not None:
-            watcher.cancel()
+        self._presence_task = None
+        for label, task in tasks:
+            if task is None:
+                continue
+            task.cancel()
             try:
-                await watcher
+                await task
             except asyncio.CancelledError:
                 pass
             except Exception:  # pragma: no cover - defensive
-                logger.debug("dashboard watcher exited with error", exc_info=True)
+                logger.debug(
+                    "dashboard %s loop exited with error", label, exc_info=True
+                )
         await self.store.close()
 
     async def snapshot(self) -> Dict[str, Any]:
@@ -123,6 +180,86 @@ class DashboardState:
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         return self._tasks.get(task_id)
+
+    # -- ephemeral presence heartbeat --------------------------------------
+
+    def build_presence(self) -> Dict[str, Any]:
+        """Build the ephemeral presence payload from the in-memory snapshot.
+
+        Cheap by construction: no database access. ``agents`` are the currently
+        active/claimed tasks ordered by lease expiry (nulls last); ``counts``
+        mirror the last stats snapshot plus ``total``; ``uptime_s`` is time since
+        state start. Timestamps are normalized to ISO-8601 UTC ``Z``.
+        """
+        agents = []
+        for task in self._tasks.values():
+            if task.get("status") != "active":
+                continue
+            agents.append(
+                {
+                    "actor": task.get("claimed_by") or task.get("created_by"),
+                    "task_id": task.get("id"),
+                    "title": task.get("title") or "",
+                    "status": task.get("status") or "active",
+                    "lease_expires_at": iso_utc_z(task.get("lease_expires_at")),
+                    "started_at": iso_utc_z(task.get("started_at")),
+                    "attempts": int(task.get("attempts") or 0),
+                }
+            )
+        # Normalized timestamps sort correctly (ISO-8601 strings are ordered);
+        # tasks without a lease go last, with task id as a stable tie-breaker.
+        agents.sort(
+            key=lambda agent: (
+                agent["lease_expires_at"] is None,
+                agent["lease_expires_at"] or "",
+                str(agent["task_id"] or ""),
+            )
+        )
+
+        stats = self._stats if isinstance(self._stats, dict) else {}
+        raw_counts = stats.get("by_status")
+        counts: Dict[str, int] = {}
+        if isinstance(raw_counts, dict):
+            for status, count in raw_counts.items():
+                try:
+                    counts[str(status)] = int(count)
+                except (TypeError, ValueError):
+                    continue
+        try:
+            total = int(stats.get("total"))
+        except (TypeError, ValueError):
+            total = sum(counts.values())
+        counts["total"] = total
+
+        uptime = 0.0
+        if self.started_at is not None:
+            uptime = round(max(0.0, time.monotonic() - self.started_at), 1)
+
+        return {
+            "ts": iso_utc_z(datetime.now(timezone.utc)),
+            "agents": agents,
+            "counts": counts,
+            "uptime_s": uptime,
+        }
+
+    async def publish_presence(self) -> bool:
+        """Publish one presence heartbeat; no-op (False) with no subscribers."""
+        if self.broadcaster.client_count == 0:
+            return False
+        payload = self.build_presence()
+        self._presence_id += 1
+        self.broadcaster.publish("presence", payload, event_id=self._presence_id)
+        return True
+
+    async def _presence_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.presence_interval)
+            try:
+                await self.publish_presence()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # pragma: no cover - presence must never kill the server
+                logger.exception("dashboard presence tick failed")
 
     async def refresh(
         self,

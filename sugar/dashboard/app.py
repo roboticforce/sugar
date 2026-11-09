@@ -302,13 +302,13 @@ async def events(request: Request) -> StreamingResponse:
             yield format_sse("snapshot", snapshot)
             while True:
                 try:
-                    event, data = await asyncio.wait_for(
+                    event, data, event_id = await asyncio.wait_for(
                         queue.get(), timeout=KEEPALIVE_INTERVAL
                     )
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                yield format_sse(event, data)
+                yield format_sse(event, data, event_id)
         finally:
             service.broadcaster.unsubscribe(queue)
             logger.debug("dashboard: SSE client disconnected")
@@ -325,6 +325,7 @@ def create_app(
     *,
     read_only: bool = False,
     poll_interval: float = 0.4,
+    presence_interval: float | None = None,
     service: Any = None,
     events_db: Any = None,
     tokens: TokenRegistry | None = None,
@@ -342,10 +343,18 @@ def create_app(
     bearer token or the ``sugar_board`` cookie, and same-host origins are
     accepted for writes (remote browser UI). With no tokens (the default) the
     server keeps its loopback-only, unauthenticated behaviour.
+
+    ``presence_interval`` controls the ephemeral SSE ``presence`` heartbeat
+    cadence (default: ``$SUGAR_PRESENCE_INTERVAL`` or 2.0 seconds). It applies
+    when the app builds its own :class:`DashboardService`; a custom ``service``
+    owns its own state.
     """
     resolved_db = str(Path(db_path).expanduser().resolve())
     dashboard = service or DashboardService(
-        resolved_db, read_only=read_only, poll_interval=poll_interval
+        resolved_db,
+        read_only=read_only,
+        poll_interval=poll_interval,
+        presence_interval=presence_interval,
     )
     # The activity spine is opt-in per server: pass a path (the CLI always does)
     # or leave it None for a pure board/queue view (tests, embedding).
