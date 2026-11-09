@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **`/api/health` no longer leaks host details in token mode.** On a remote/team board the endpoint is intentionally unauthenticated, so it now returns only `{ok, version}` instead of the version, absolute database path, read-only flag and uptime. Local (no-token) mode keeps the richer response for tooling.
+
+### Added
+- **Business strategy** (`docs/business-strategy.md`): positioning ("coordination and evidence layer for agent teams"), ICP and willingness-to-pay ladder, open-core tiers and pricing hypotheses, dual-licensing, developer-led growth engine with upgrade triggers, 0–24 month revenue-tied roadmap, metrics and risks.
+
 ### Added
 - **Versioned storage schema.** `sugar/storage/migrations.py` replaces the ad-hoc `_migrate_*` chain with a `PRAGMA user_version` ledger and an ordered, idempotent migration registry: each version commits its DDL and ledger bump in one `BEGIN IMMEDIATE` transaction, legacy `user_version=0` databases upgrade through the same registry, stale ledgers are repaired by per-version probes, and a database newer than the code raises `SchemaVersionError` instead of being written. Exposed as `WorkQueue.schema_version` / `SCHEMA_VERSION`; `WorkQueue.initialize()` delegates. Covered by `tests/test_schema_migrations.py`; see `docs/storage-port.md`.
 - **Team board server (opt-in remote access).** `sugar dashboard --bind ADDR --allow-remote --token-file PATH` serves one board to a LAN/host with scoped bearer tokens: `name:scope:token` lines (`read` or `write`; write implies read), 0600 token-file enforcement, constant-time comparison, tokens never logged or persisted. The browser exchanges `GET /?token=...` for an HttpOnly `SameSite=Strict` `sugar_board` cookie and redirects without the token; API and SSE accept `Authorization: Bearer` or the cookie, `/api/health` stays public, read tokens are GET/HEAD-only. Default mode is unchanged (loopback, no auth); non-loopback binds require `--allow-remote` plus a token source, and `--host` remains a deprecated alias. In token mode same-host origins are accepted for writes behind the token check, while the foreign-Origin guard stays. No TLS termination, SSO, per-user identity or per-task ACLs are provided — see `docs/board-server.md` for the threat model and reverse-proxy guidance.
