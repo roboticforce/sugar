@@ -16,11 +16,16 @@ async def run_dashboard(
     kanban_board: str = None,
     hermes_bin: str = None,
     events_db: str = None,
+    tokens: object = None,
 ) -> None:
     """Serve the dashboard until the process is interrupted.
 
     ``board="kanban"`` serves a Hermes Kanban board (read-only SQLite reads,
     ``hermes kanban`` writes) instead of Sugar's work queue.
+
+    ``tokens`` is an optional :class:`sugar.dashboard.security.TokenRegistry`.
+    When supplied, the API requires scoped bearer tokens/cookies (remote/team
+    mode); when omitted the server stays loopback-only and unauthenticated.
     """
     import uvicorn
 
@@ -36,13 +41,23 @@ async def run_dashboard(
             hermes_bin=hermes_bin,
             kanban_board=kanban_board,
         )
-    app = create_app(db_path, read_only=read_only, service=service, events_db=events_db)
+    app = create_app(
+        db_path,
+        read_only=read_only,
+        service=service,
+        events_db=events_db,
+        tokens=tokens,
+    )
     config = uvicorn.Config(
         app,
         host=host,
         port=port,
         log_level="info",
         access_log=False,
+        # Only trust proxy headers from a same-host reverse proxy; this is what
+        # makes an HTTPS-terminating proxy produce a Secure session cookie.
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
     )
     server = uvicorn.Server(config)
 

@@ -295,7 +295,15 @@ Regression: `pytest tests/test_dashboard.py --no-cov -q` plus
 
 ## 7. Out of scope for v1 (write it down, don't build it)
 
-- Auth, remote access, TLS, multi-user permissions.
+> **Remote/team mode (v5, opt-in).** The default remains loopback-only and
+> unauthenticated. `sugar dashboard --bind ADDR --allow-remote --token-file PATH`
+> exposes the same board to a team with scoped bearer tokens and a browser
+> session cookie; TLS is expected from a reverse proxy. See
+> [`board-server.md`](./board-server.md). The Origin guard, 1 MB body cap and
+> response headers apply in both modes.
+
+- Auth, remote access, TLS, multi-user permissions (for the default server;
+  remote mode is documented separately in `board-server.md`).
 - Leases/heartbeats, agent identity, task claiming UI (the queue has no lease
   columns yet — see `docs/agent-teams.md`).
 - Event persistence / audit log (SSE is in-process; a reconnect gets a fresh
@@ -322,7 +330,10 @@ Small deviations from the contract above, all deliberate:
   not part of v1.
 - **`count`** in `GET /api/tasks` is the total matching rows before
   `limit`/`offset`; `limit` is capped at 1000.
-- **`--host`** must resolve exclusively to loopback; everything else exits 1.
+- **`--bind`** defaults to `127.0.0.1`; non-loopback binds require
+  `--allow-remote` plus a token source (see `board-server.md`). `--host` is kept
+  as a deprecated alias. With no tokens configured the server is still
+  loopback-only and unauthenticated.
 - **Version** in `/api/health` and `hello` comes from `sugar.__version__`, so it
   follows the installed package metadata (`sugar --version` shows the same value).
 - **macOS app**: hold sends the fixed reason `"Held from the SugarDash app"`;

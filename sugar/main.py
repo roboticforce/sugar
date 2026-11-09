@@ -4693,9 +4693,40 @@ def _resolve_dashboard_db_path(db_option, config_file):
 @cli.command("dashboard")
 @click.option(
     "--host",
-    default="127.0.0.1",
-    show_default=True,
-    help="Bind host (loopback only)",
+    default=None,
+    help="Deprecated alias for --bind (kept for backwards compatibility)",
+)
+@click.option(
+    "--bind",
+    "bind_addr",
+    default=None,
+    metavar="ADDR",
+    help=(
+        "Address to bind [default: 127.0.0.1]. Non-loopback binds require "
+        "--allow-remote and a token source"
+    ),
+)
+@click.option(
+    "--allow-remote",
+    is_flag=True,
+    help="Explicitly allow a non-loopback bind (requires --token-file or --token)",
+)
+@click.option(
+    "--token-file",
+    "token_file",
+    default=None,
+    metavar="PATH",
+    help=(
+        "File with 'name:scope:token' lines (scope read|write; write implies "
+        "read; mode 0600)"
+    ),
+)
+@click.option(
+    "--token",
+    "adhoc_token",
+    default=None,
+    metavar="TOKEN",
+    help="Single ad-hoc write-scope token (prefer --token-file)",
 )
 @click.option(
     "--port", default=7331, show_default=True, type=int, help="Port to listen on"
@@ -4743,6 +4774,10 @@ def _resolve_dashboard_db_path(db_option, config_file):
 def dashboard(
     ctx,
     host,
+    bind_addr,
+    allow_remote,
+    token_file,
+    adhoc_token,
     port,
     db_path,
     open_browser,
@@ -4752,10 +4787,15 @@ def dashboard(
     hermes_bin,
     events_db,
 ):
-    """Start the local real-time dashboard for a work board
+    """Start the dashboard for a work board
 
-    Serves the browser UI at / plus a REST + SSE API for the native macOS app.
-    The server binds to loopback only. Install the optional dependencies with:
+    The default server is loopback-only with no authentication. To share one
+    board with a team, bind to a LAN address with --allow-remote and supply
+    scoped bearer tokens (see docs/board-server.md):
+
+        sugar dashboard --bind 0.0.0.0 --allow-remote --token-file ~/.sugar/board-tokens
+
+    Install the optional dependencies with:
 
         pip install 'sugarai[dashboard]'
 
@@ -4764,8 +4804,41 @@ def dashboard(
     """
     import asyncio
 
-    if not _is_loopback_host(host):
-        click.echo("❌ dashboard is local-only: bind to 127.0.0.1 or ::1", err=True)
+    # -- bind + auth validation (fail fast, before optional imports) -------
+    if host is not None and bind_addr is not None:
+        click.echo(
+            "❌ --host and --bind are mutually exclusive; use --bind ADDR", err=True
+        )
+        sys.exit(1)
+    if host is not None:
+        click.echo("⚠️ --host is deprecated; use --bind ADDR", err=True)
+        bind_addr = host
+    bind_addr = (bind_addr or "127.0.0.1").strip()
+    if not bind_addr:
+        click.echo("❌ --bind must not be empty", err=True)
+        sys.exit(1)
+
+    token_source = token_file is not None or adhoc_token is not None
+
+    loopback = _is_loopback_host(bind_addr)
+    if not loopback and not allow_remote:
+        click.echo(
+            f"❌ Refusing to bind {bind_addr!r}: the dashboard is loopback-only "
+            "by default.",
+            err=True,
+        )
+        click.echo(
+            "   Pass --allow-remote (and a token source) to share the board "
+            "on a network.",
+            err=True,
+        )
+        sys.exit(1)
+    if not loopback and not token_source:
+        click.echo(
+            "❌ Remote mode requires authentication: pass --token-file PATH "
+            "(preferred) or --token TOKEN",
+            err=True,
+        )
         sys.exit(1)
 
     if not 1 <= port <= 65535:
@@ -4784,6 +4857,24 @@ def dashboard(
             err=True,
         )
         sys.exit(1)
+
+    tokens = None
+    if token_source:
+        from .dashboard.security import TokenConfigError, build_token_registry
+
+        if adhoc_token is not None:
+            click.echo(
+                "⚠️ --token is visible in shell history and the process list; "
+                "prefer --token-file",
+                err=True,
+            )
+        try:
+            tokens = build_token_registry(
+                token_file=token_file, adhoc_token=adhoc_token
+            )
+        except TokenConfigError as exc:
+            click.echo(f"❌ {exc}", err=True)
+            sys.exit(1)
 
     board = (board or "sugar").lower()
     if board == "kanban":
@@ -4807,7 +4898,7 @@ def dashboard(
             click.echo(f"❌ Could not create database directory: {exc}", err=True)
             sys.exit(1)
 
-    url_host = f"[{host}]" if ":" in host else host
+    url_host = f"[{bind_addr}]" if ":" in bind_addr else bind_addr
     url = f"http://{url_host}:{port}"
     if events_db is None:
         from .dashboard.spine import default_events_db_path
@@ -4822,6 +4913,21 @@ def dashboard(
     click.echo(f"   Database: {database_path}")
     click.echo(f"   Activity: {events_db or 'disabled'}")
     click.echo(f"   Mode:     {'read-only' if read_only else 'read/write'}")
+    if tokens is not None:
+        click.echo(f"   Auth:     {tokens.describe()}")
+        if loopback:
+            click.echo(
+                "   Remote:   auth enabled on a loopback bind (reverse-proxy ready)"
+            )
+        else:
+            click.echo(
+                "   Remote:   enabled (LAN) — terminate TLS in a reverse proxy "
+                "for untrusted networks"
+            )
+    else:
+        click.echo("   Auth:     disabled (loopback only)")
+    if allow_remote and loopback:
+        click.echo("   Remote:   --allow-remote has no effect on a loopback bind")
     if board == "kanban" and not hermes_bin:
         from .dashboard.kanban.client import resolve_hermes_bin
 
@@ -4835,7 +4941,7 @@ def dashboard(
         asyncio.run(
             run_dashboard(
                 str(database_path),
-                host=host,
+                host=bind_addr,
                 port=port,
                 read_only=read_only,
                 open_browser=open_browser,
@@ -4843,6 +4949,7 @@ def dashboard(
                 kanban_board=kanban_board,
                 hermes_bin=hermes_bin,
                 events_db=events_db,
+                tokens=tokens,
             )
         )
     except KeyboardInterrupt:
