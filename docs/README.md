@@ -35,6 +35,7 @@ against one board:
 - **[Agent Teams: Architecture & Domain Boundaries](agent-teams-architecture.md)** - Wardley map (build vs. adopt vs. commodity), C4-style architecture, DDD bounded contexts, trust boundaries, and the investment split
 - **[Adapters](adapters.md)** - The adapter playbook: taxonomy, catalog, non-negotiable rules, canonical mapping, conformance kit and the order to build them in
 - **[Storage Port](storage-port.md)** - `TaskStore` contract, the backend-agnostic conformance suite, SQLite-specific semantics, and what a Postgres backend must implement
+- **[Board Server](board-server.md)** - Share one board: remote binding, scoped `read`/`write` tokens, browser cookie exchange, TLS-proxy deployment and threat model
 
 ### 🛠️ Developer Documentation (`docs/dev/`)
 Documentation for developers who want to **contribute** to Sugar:
