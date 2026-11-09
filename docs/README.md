@@ -37,6 +37,7 @@ against one board:
 - **[Storage Port](storage-port.md)** - `TaskStore` contract, the backend-agnostic conformance suite, SQLite-specific semantics, and what a Postgres backend must implement
 - **[Board Server](board-server.md)** - Share one board: remote binding, scoped `read`/`write` tokens, browser cookie exchange, TLS-proxy deployment and threat model
 - **[Usage & Cost](usage.md)** - Harness-reported usage/cost events, `/api/usage`, `sugar usage`, and the Activity panel: "where is the money going?"
+- **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
 - **[Business Strategy](business-strategy.md)** - Positioning, ICP, open-core monetization (tiers, pricing hypotheses, dual licensing), growth engine, revenue-tied roadmap and 30/60/90 plan
 
 ### 🛠️ Developer Documentation (`docs/dev/`)
