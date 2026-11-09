@@ -192,6 +192,14 @@ event: stats
 data: {…}            // same shape as GET /api/stats
 ```
 
+Then an ephemeral liveness heartbeat (not a state delta):
+
+```
+id: 1
+event: presence
+data: {"ts":"2026-11-09T20:00:00Z","agents":[…],"counts":{…},"uptime_s":12.3}
+```
+
 Rules:
 
 - Emit `stats` after any batch that changes a task's status (or any change at all
@@ -201,6 +209,22 @@ Rules:
   (per-client queue, drop oldest).
 - Client reconnect policy (both clients): reconnect with backoff 1 s → 10 s, and
   treat the new `snapshot` as authoritative (replace local state).
+- `presence` is emitted every `presence_interval` seconds (default 2.0 via
+  `SUGAR_PRESENCE_INTERVAL`, injectable with `create_app(...,
+  presence_interval=...)`) **only while at least one SSE client is connected**.
+  It is derived from the in-memory snapshot (no DB query per tick), is **never
+  written to the event spine** and never appears in `/api/activity`/exports. It
+  is a liveness hint for ticking elapsed/lease timers, not a state delta: the
+  `snapshot`/`upsert`/`delete` messages remain the source of truth.
+- Each presence frame carries an SSE `id:` sequence number (1, 2, 3, … while the
+  server runs). It is not a task id and has no replay semantics; a reconnect
+  always starts with `hello`/`snapshot`.
+- Presence payload: `ts` (ISO-8601 UTC `Z`), `agents` (tasks whose status is
+  `active`, sorted by `lease_expires_at` ascending with null leases last, fields
+  `actor` = `claimed_by` else `created_by`, `task_id`, `title`, `status`,
+  `lease_expires_at`, `started_at`, `attempts`), `counts` (the last stats
+  `by_status` map plus `total`), and `uptime_s` (seconds since the state
+  started, `0.0` before start).
 
 Change detection: one long-lived `aiosqlite` connection polls
 `PRAGMA data_version` every 400 ms. When it changes (another process committed)
@@ -602,3 +626,18 @@ reaper); plus free-form ingest kinds
   generic diff (see `docs/storage-port.md`).
 
 Observers are best-effort: a spine failure must never break the dashboard or a task.
+
+### 11.5 Presence heartbeat (ephemeral — not an event)
+
+`presence` is deliberately **not** an event-spine kind. It is derived from the
+in-memory board snapshot and sent on `/api/events` (see §3) every
+`SUGAR_PRESENCE_INTERVAL` seconds (default 2.0) while clients are connected:
+
+- no spine append, no `/api/activity` entry, no audit-export content — presence
+  must never add audit noise or grow the ledger;
+- only emitted when `EventBroadcaster.client_count > 0`, so idle servers do no
+  work;
+- payload is the frozen presence shape from §3 (`ts`, `agents`, `counts`,
+  `uptime_s`), cheap to build and safe to drop (the next tick supersedes it);
+- timestamps are normalized to ISO-8601 UTC `Z` from the task snapshot
+  (`lease_expires_at`/`started_at` may be `null`).

@@ -21,7 +21,11 @@ from ..identity import (
     resolve_actor,
 )
 from ..storage.work_queue import WorkQueue
-from .events import DashboardState, EventBroadcaster
+from .events import (
+    DashboardState,
+    EventBroadcaster,
+    presence_interval_from_env,
+)
 from .serializer import utc_now_sqlite
 from .store import STATUS_DEFAULTS, TaskStore
 
@@ -201,13 +205,22 @@ class DashboardService:
         db_path: str,
         read_only: bool = False,
         poll_interval: float = 0.4,
+        presence_interval: Optional[float] = None,
     ):
         self.db_path = db_path
         self.read_only = read_only
         self.queue = WorkQueue(db_path)
         self.store = TaskStore(db_path)
         self.broadcaster = EventBroadcaster()
-        self.state = DashboardState(self.store, self.broadcaster, poll_interval)
+        if presence_interval is None:
+            presence_interval = presence_interval_from_env()
+        self.presence_interval = presence_interval
+        self.state = DashboardState(
+            self.store,
+            self.broadcaster,
+            poll_interval,
+            presence_interval=presence_interval,
+        )
         self.spine = None  # optional EventSpine, wired by create_app
         self.started_at: Optional[float] = None
         # Reap expired leases (crashed workers) periodically. Reads are cheap;
