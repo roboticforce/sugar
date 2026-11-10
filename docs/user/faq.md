@@ -4,16 +4,16 @@
 
 ### What is Sugar?
 
-Sugar is an AI-powered autonomous development system that works with Claude to provide 24/7 development capabilities. It manages a queue of tasks and autonomously implements features, fixes bugs, writes tests, and more.
+Sugar is the coordination and evidence layer for AI agent fleets. It gives Claude Code, Codex, Cursor, Goose, OpenCode and any MCP-capable harness one durable task board with atomic claims and leases, a live Mission Control view (web dashboard + native macOS app), an append-only event spine for provenance, usage/cost attribution and audit exports, plus shared project and global memory. It can also run an autonomous loop and resolve GitHub issues when you want it to.
 
 ### How is Sugar different from using Claude directly?
 
 Sugar adds:
-- **Task queue management** - Prioritize and track multiple tasks
-- **Autonomous operation** - Works continuously without human intervention
-- **Quality gates** - Security enforcement and audit trails
-- **Work discovery** - Automatically finds issues from logs, code quality, GitHub
-- **Integration** - Works with your existing workflow (Git, CI/CD, GitHub)
+- **A shared board** - Atomic claims, leases, dependencies and retries across harnesses
+- **Live Mission Control** - See which agent is doing what, and what it just did
+- **Evidence** - Provenance, usage/cost attribution and tamper-evident audit exports
+- **Shared memory** - Project and global context recalled through MCP
+- **Optional autonomy** - Task queue runner, orchestration and GitHub issue discovery
 
 ### Is Sugar free?
 

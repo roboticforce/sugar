@@ -2,7 +2,7 @@
 
 ## Overview
 
-Sugar is an AI-powered autonomous development system packaged as a reusable Python library that can be installed in any project to provide 24/7 autonomous development capabilities. Each project gets its own isolated Sugar instance with project-specific configuration, database, and logs.
+Sugar is the coordination and evidence layer for AI agent fleets, packaged as a reusable Python library and CLI. It gives every harness the same durable task board (atomic claims, leases, dependencies), a live Mission Control dashboard and macOS app, an append-only event spine for provenance/cost/audit, and shared memory. Each project gets its own isolated Sugar instance with project-specific configuration, database and logs.
 
 ## Prerequisites
 

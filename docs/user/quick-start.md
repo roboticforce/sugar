@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Sugar up and running in your project in just a few minutes!
+Get Sugar up and running in your project in just a few minutes. Sugar is the coordination and evidence layer for AI agent fleets: one durable task board for Claude Code, Codex, Cursor, Goose, OpenCode and any MCP harness, with Mission Control, provenance, cost attribution, audit exports and shared memory.
 
 💡 **Need help anytime?** Run `sugar help` for a complete overview and quick reference guide.
 

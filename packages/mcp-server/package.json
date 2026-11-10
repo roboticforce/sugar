@@ -1,7 +1,7 @@
 {
   "name": "sugarai-mcp",
   "version": "1.0.0",
-  "description": "MCP server for Sugar - autonomous AI development system",
+  "description": "MCP server for Sugar - the coordination and evidence layer for AI agent fleets",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -18,10 +18,15 @@
     "model-context-protocol",
     "sugar",
     "ai",
-    "autonomous",
-    "development",
+    "ai-agents",
+    "multi-agent",
+    "agent-orchestration",
+    "task-queue",
+    "local-first",
     "goose",
-    "claude"
+    "claude",
+    "codex",
+    "cursor"
   ],
   "author": {
     "name": "Steven Leggett",
