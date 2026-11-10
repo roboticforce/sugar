@@ -1,6 +1,6 @@
 # Sugar Documentation
 
-Welcome to the Sugar documentation! Sugar is the coordination and evidence layer for a fleet of coding agents:
+Welcome to the Sugar documentation! Sugar is mission control for your agent fleet:
 one local-first task board with atomic claims and leases, an append-only event spine for provenance, cost and
 audit, and shared memory that follows you across projects. Claude Code, Codex, Cursor, Goose, OpenCode and any
 MCP-capable harness can claim the same work and leave the same durable history - without sending your code,
@@ -78,5 +78,5 @@ Documentation for developers who want to **contribute** to Sugar:
 
 ---
 
-**Sugar** - The coordination and evidence layer for AI agent fleets
+**Sugar** - Mission control for your agent fleet
 Created by [Steven Leggett](https://github.com/cdnsteve) | [RoboticForce](https://roboticforce.io)
