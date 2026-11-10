@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Fresh product screenshots.** Replaced the pre-inspector Live captures (which still showed the old three-pane "No Task Selected" layout) with current UI screenshots in the README and Mission Control docs: the SugarDash task board with the inspector open, the web live-activity feed, and the new full-width Trends view. The site demo video and gallery were rebuilt from the same set.
+
+### Changed
 - **Marketing metadata now matches the coordination positioning.** PyPI description, MCP registry `server.json`, Claude Code plugin marketplace listing, npm MCP package description/keywords, and the docs index/quick-start/installation/FAQ/architecture intros now describe Sugar as the coordination and evidence layer for agent fleets (durable board, Mission Control, provenance/cost/audit, shared memory) instead of a memory-only add-on. No runtime behavior changes.
 
 ### Added
