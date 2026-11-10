@@ -19,7 +19,6 @@ Documentation for developers who want to **use** Sugar in their projects:
 - **[Task Hooks Guide](task-hooks.md)** - Pre/post execution hooks for automation
 - **[Thinking Capture Guide](thinking-capture.md)** - View Claude's reasoning during execution
 - **[Model Routing Guide](dev/model-routing-guide.md)** - Intelligent model selection by task
-- **[Configuration Reference](user/configuration.md)** - Complete configuration options
 - **[Troubleshooting](user/troubleshooting.md)** - Common issues and solutions
 - **[FAQ](user/faq.md)** - Frequently asked questions
 
@@ -46,12 +45,9 @@ against one board:
 Documentation for developers who want to **contribute** to Sugar:
 
 - **[Local Development Setup](dev/local-development.md)** - Install and test Sugar locally (before PyPI)
-- **[Technical Implementation Plan](dev/technical-implementation-plan.md)** - Architecture and design decisions
 - **[Contributing Guide](dev/contributing.md)** - How to contribute to Sugar
-- **[Development Setup](dev/development-setup.md)** - Development environment setup
 - **[Testing Guide](dev/testing.md)** - Running and writing tests
 - **[Release Process](dev/release-process.md)** - How releases are created
-- **[API Reference](dev/api-reference.md)** - Internal API documentation
 
 ## 🚀 Quick Links
 

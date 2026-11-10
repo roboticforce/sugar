@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Test coverage for the newest surfaces.** A docs link checker fails on broken relative links across `README.md`, `docs/**` and `apps/macos/README.md`; a telemetry pipeline integration test posts harness events and asserts they immediately appear in `/api/activity`, `/api/usage` and `/api/trends` (and that ingest is rejected when the spine is disabled); and CI gains a **macOS App (Swift)** job that runs the 61 SugarDash tests and builds the `.app` bundle, so the native client is no longer only tested locally.
+
 ### Changed
 - **SugarDash hides the empty inspector.** When no task is selected the detail column collapses (Tasks/Live/Activity/Trends get the full width instead of a "No Task Selected" placeholder); selecting a task expands it, clearing the selection collapses it again, and a toolbar Inspector toggle appears while a task is selected.
 
