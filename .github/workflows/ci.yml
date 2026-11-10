@@ -39,7 +39,12 @@ jobs:
         # The [mcp] extra is required, not optional, for the suite: without it
         # claude-agent-sdk pulls the newest MCP SDK transitively (2.x), whose API
         # the MCP tests do not target. The extra pins the tested 1.x surface.
-        pip install -e ".[mcp]"
+        #
+        # sqlite-vec (0.2 MB, no ML deps) makes the semantic-search tests run:
+        # they cover the vec0 KNN query and vector upserts, which silently
+        # degraded to keyword search while CI had no vec extension at all.
+        # sentence-transformers/torch stay out of CI on purpose.
+        pip install -e ".[mcp]" "sqlite-vec==0.1.9"
         pip install pytest pytest-asyncio pytest-cov 'black>=24.0.0,<26.0.0' flake8 mypy
     
     - name: Lint with flake8

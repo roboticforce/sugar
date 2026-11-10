@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`sugar memory reindex`**: backfill embeddings for memories stored before semantic search was available. Vectors are only written when a memory is added, so installing the vector extra later left existing rows keyword-only forever; this walks every entry with no vector row and embeds it, re-running is harmless, and a failed embed is counted and skipped rather than aborting the run. Reports per-store counts and deduplicates a project store that resolves to the same file as the global store.
 - **Hermes plugin README**: explains why vector search is not installed by default (~69 packages including `torch`), that Hermes has no supported per-provider extra opt-in yet ([NousResearch/hermes-agent#152776](https://github.com/NousResearch/hermes-agent/issues/152776)), that a hand-installed extra is not durable against `hermes pm` reconciliation, and to run `sugar memory reindex` after enabling it. Plugin `0.3.4`.
 
+### Fixed
+- **Semantic search never actually ran when the vector extra was installed.** `_search_semantic()` ordered by `embedding <-> ?`, the sqlite-vss KNN operator; sqlite-vec 0.1.9 rejects it (`near "->": syntax error`), so every semantic search logged a warning and silently fell back to keyword. It now uses sqlite-vec's `embedding MATCH ? AND k = ?` with `ORDER BY distance`.
+- **Updating a memory left its vector stale.** sqlite-vec's `vec0` tables have no REPLACE conflict resolution, so `INSERT OR REPLACE INTO memory_vectors` raised `UNIQUE constraint failed` and the old vector survived. Vector writes (and `reindex_embeddings`) now `DELETE` then `INSERT`.
+- **Deleting a memory with no vector reported failure.** `delete()` returned `cursor.rowcount` after deleting the vector row, so an entry that had no vector (legacy rows, or a store that gained sqlite-vec later) returned `False`. The entry-delete count is captured before the vector delete.
+- CI installs `sqlite-vec` (0.2 MB, no ML dependency) and the suite gains four tests over the real `vec0` path — the semantic bugs above were invisible because CI had no vec extension at all. `sentence-transformers`/`torch` stay out of CI.
+
 ### Changed
 - **Tagline: “Mission control for your agent fleet.”** README hero, docs intro/footer and the GitHub repo description now lead with the tagline; the site (`roboticforce.io/sugar`) was repositioned around it, including the demo video title card.
 
