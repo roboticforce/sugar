@@ -363,18 +363,19 @@ struct LiveFloorPane: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
             } else {
+                // No insertion transition/animation here: a busy fleet appends
+                // events every second, and the move-from-top transition made the
+                // ticker slide downward continuously instead of reading as a log.
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(recentEvents) { event in
                             LiveTickerRow(event: event)
-                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 }
                 .frame(maxHeight: 188)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: recentEvents.map(\.id))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
