@@ -166,7 +166,8 @@ for what* — and later, with hooks, *why*.
   spine failure never breaks the dashboard or a task.
 - **Ingest:** `POST /api/events` for harness telemetry (`run.started`,
   `tool.invoked`, `memory.recalled`, `signal.*`) with actor, harness, machine,
-  session and `trace_id`.
+  session and `trace_id`. The `sugar emit` CLI (and the MCP `sugar_emit_event`
+  tool) is the one-line producer; see [Telemetry](telemetry.md).
 - **Query:** `GET /api/activity?since_id=&limit=&kind=&actor=&task_id=` pages
   forward; the SSE stream emits `activity` for every append.
 
@@ -196,6 +197,26 @@ What the three questions map to today: **where** = `actor` + `actor_kind` +
 `harness` + `machine`; **for what** = `task_id` + `project` + payload title;
 **why** = the task's captured intent plus provenance — and once harness hooks land
 (P2), the memory recalls and run context that led to it.
+
+### 5.1 Live: from ledger to "watching agents work"
+
+Two streams make the board feel alive without turning the spine into a chat log:
+
+- **Ephemeral presence** (`event: presence` on the SSE stream, default every 2s,
+  `$SUGAR_PRESENCE_INTERVAL`): who is active, on which task, lease expiry,
+  started-at and attempt count — derived from the in-memory snapshot, only sent
+  while a client is connected, and **never persisted** (no audit noise).
+- **Agent telemetry** (`tool.invoked`, `run.started`, `run.ended`,
+  `agent.activity`): harnesses call `sugar emit` (or the MCP tool) per tool call;
+  the app renders the latest action on each Live card and a streaming console.
+
+```bash
+sugar emit --kind tool.invoked --task-id "$TASK_ID" \
+  --message "running pytest tests/test_api.py" --payload file=src/api.py
+```
+
+The demo simulator posts the same event stream for claimed tasks without running an
+agent: `python scripts/simulate_agent_activity.py`. Details: [Telemetry](telemetry.md).
 
 ---
 
@@ -242,10 +263,12 @@ About window with version/build, project links, a no-telemetry privacy statement
 and "Copy diagnostics"; Help menu links to docs, issue tracker, privacy, terms and
 support.
 
-Window with sidebar filters, task list, detail inspector, add/edit/delete,
-hold/release, menu-bar pending count, live SSE updates with reconnect, and an
-Activity feed. It talks to the same REST/SSE contract as the browser, so the app
-works against either board source.
+Views: **Tasks** (sidebar filters, search, add/edit/delete, hold/release, menu-bar
+pending count), **Live** (see §5.1), **Activity** (live event feed) and **Trends**
+(see §6.5). The task detail is a native **inspector that only exists while a task is
+selected** — no empty right-hand placeholder — with a toolbar toggle. The last view is
+remembered across launches. It talks to the same REST/SSE contract as the browser, so
+the app works against either board source.
 
 ### 6.3 API (the contract)
 
@@ -266,6 +289,35 @@ works against either board source.
 See [local-dashboard.md](local-dashboard.md) for the frozen wire shapes.
 
 ---
+
+### 6.4 Usage, cost and audit
+
+- **Usage/cost:** harnesses report `{tokens_in, tokens_out, cost_usd, model}` via
+  `POST /api/events` (kind `usage.reported`/`run.ended`); `GET /api/usage` and
+  `sugar usage` aggregate it by actor/harness/task/project/day. No pricing table —
+  cost is whatever the harness reports. See [Usage & cost](usage.md).
+- **Audit exports:** `sugar audit export` streams the spine to canonical JSONL plus a
+  manifest (first/last id, count, SHA-256, optional HMAC); `sugar audit verify` is
+  tamper-evident. Retention is operator policy (`$SUGAR_EVENTS_RETENTION_DAYS`), so
+  export before pruning. See [Audit exports](audit.md).
+
+### 6.5 Trends
+
+`GET /api/trends` (and `sugar trends`) buckets the spine into UTC hour/day/week starts
+and reports tasks created/claimed/completed/failed, events, tokens and cost per
+**actor**, **harness** or **project**, plus claim→completion cycle time per series.
+
+```bash
+sugar trends --group-by project --bucket day            # table
+sugar trends --group-by actor --json                    # exact API payload
+```
+
+SugarDash's **Trends** view renders the same data with Swift Charts: range (24h/7d/30d),
+dimension picker, stat tiles (completed, failure rate, avg cycle, cost, events), a
+line/area chart per group with x-selection tooltips, and per-group totals. Seed a demo
+history with `scripts/seed_demo_trends.py`; contract in [Trends](trends.md).
+
+![SugarDash Trends view: throughput and cost by agent](images/trends-view.png)
 
 ## 7. Security and operations
 
