@@ -103,6 +103,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS app: live updates never appeared.** Two bugs stacked. (1) `URLSession.AsyncBytes.lines` (Foundation's `AsyncLineSequence`) never yields the empty line that terminates an SSE event, so the parser waited for a separator that never came and no event was ever emitted; the client now splits the byte stream itself (`SSELineSplitter`, CRLF-tolerant, chunk-safe) and the parser also flushes a pending event when the next `event:` line starts. (2) In release builds `URLSession.bytes(for:)` buffered the live response indefinitely — all bytes reached the socket (verified with `nettop`) but none reached the loop — so the stream now uses a `URLSessionDataDelegate` (`SSEDataSource`) that forwards each chunk as it lands. Regression tests cover the splitter and the defensive parser flush.
 - **`apps/macos/build-app.sh` can no longer ship a stale binary.** SwiftPM's incremental build was observed to relink an old release product after a source change (with the custom cache/config paths), which silently produced an app without the fix above. The script now compares source mtimes against the release product and forces a clean rebuild when any source is newer.
 
+## [3.10.7] - 2026-11-10
+
+### Fixed
+- **Hermes plugin: a `$HOME` session no longer reuses the global store as its project store.** Scope is encoded by which file an entry lives in, so for a workspace of `$HOME` (or above it) the nearest `.sugar/` *is* the global store: the provider opened one file twice and labelled every result `project`, which is why a `scope: "global"` write came back labelled `project`. The resolver now compares resolved directories and treats that as "no project store", so project-scope writes take the documented promotion path and report it instead of relabelling the entry (#130).
+- **Hermes plugin README: install now leads with activation.** A real Desktop install showed the plugin installed and enabled while `memory.provider` stayed empty - no tools, no recall. The two-step nature (`hermes plugins install sugar`, then `hermes memory setup sugar` plus a gateway restart) was documented ~2,000 characters in, below the feature list, and the marketplace renders the README top-down. The README now opens with the two steps, a verify checklist and a troubleshooting table (#129).
+- Plugin README prerequisite corrected to the manifest floor (`sugarai>=3.10.6`; it said `>=3.10.3`) and it no longer claims semantic search unconditionally - the default install is SQLite FTS5 keyword search.
+
+### Changed
+- Hermes plugin `0.3.3`.
+
 ## [3.10.6] - 2026-11-05
 
 ### Fixed

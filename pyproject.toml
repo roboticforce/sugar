@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sugarai"
-version = "3.10.7.dev0"
+version = "3.10.7"
 description = "The coordination and evidence layer for AI agent fleets: a local-first task board with atomic claims, live Mission Control, cost attribution, audit exports and shared memory for Claude Code, Codex and any MCP harness."
 
 readme = "README.md"
