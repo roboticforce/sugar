@@ -53,7 +53,6 @@ struct LiveConsolePane: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .animation(consoleAnimation, value: animationKey)
                     }
                     .defaultScrollAnchor(.bottom)
                     .coordinateSpace(name: Self.scrollSpace)
@@ -152,15 +151,6 @@ struct LiveConsolePane: View {
             Spacer()
         }
         .padding(.vertical, 8)
-    }
-
-    private var consoleAnimation: Animation? {
-        reduceMotion ? nil : .easeOut(duration: 0.2)
-    }
-
-    /// Changes whenever a line is added/removed, which animates insertions.
-    private var animationKey: String {
-        "\(category.rawValue)-\(lines.count)-\(lines.last?.id ?? 0)"
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
