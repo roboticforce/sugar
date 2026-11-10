@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cdnsteve/sugar",
   "title": "Sugar",
-  "description": "Autonomous AI development system with persistent task queue, background execution, and semantic memory",
+  "description": "Coordination and evidence layer for AI agent fleets: durable task board with atomic claims, live Mission Control, cost attribution, audit exports and shared memory for Claude Code, Codex and any MCP harness",
   "repository": {
     "url": "https://github.com/roboticforce/sugar",
     "source": "github"

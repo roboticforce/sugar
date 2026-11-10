@@ -78,5 +78,5 @@ Documentation for developers who want to **contribute** to Sugar:
 
 ---
 
-**Sugar** - Persistent memory for AI coding agents
+**Sugar** - The coordination and evidence layer for AI agent fleets
 Created by [Steven Leggett](https://github.com/cdnsteve) | [RoboticForce](https://roboticforce.io)

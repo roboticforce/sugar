@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Marketing metadata now matches the coordination positioning.** PyPI description, MCP registry `server.json`, Claude Code plugin marketplace listing, npm MCP package description/keywords, and the docs index/quick-start/installation/FAQ/architecture intros now describe Sugar as the coordination and evidence layer for agent fleets (durable board, Mission Control, provenance/cost/audit, shared memory) instead of a memory-only add-on. No runtime behavior changes.
+
 ### Added
 - **Test coverage for the newest surfaces.** A docs link checker fails on broken relative links across `README.md`, `docs/**` and `apps/macos/README.md`; a telemetry pipeline integration test posts harness events and asserts they immediately appear in `/api/activity`, `/api/usage` and `/api/trends` (and that ingest is rejected when the spine is disabled); and CI gains a **macOS App (Swift)** job that runs the 61 SugarDash tests and builds the `.app` bundle, so the native client is no longer only tested locally.
 
