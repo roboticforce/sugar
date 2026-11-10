@@ -2,7 +2,7 @@
 
 # Sugar
 
-**The coordination and evidence layer for your agent fleet.**
+**Mission control for your agent fleet.**
 
 One durable board for Claude Code, Codex, Cursor, Goose, OpenCode, DSH — and any harness that can claim a task.
 Atomic claims, live agent activity, cost attribution and tamper-evident history. Local-first, no account.
