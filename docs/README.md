@@ -1,6 +1,13 @@
 # Sugar Documentation
 
-Welcome to the Sugar documentation! Sugar is a local-first memory layer for AI coding agents. It stores your decisions, conventions, and patterns so your AI agent (Claude Code, Goose, OpenCode, or any MCP client) recalls them in every session, across every project - without sending your knowledge to a vendor's cloud.
+Welcome to the Sugar documentation! Sugar is the coordination and evidence layer for a fleet of coding agents:
+one local-first task board with atomic claims and leases, an append-only event spine for provenance, cost and
+audit, and shared memory that follows you across projects. Claude Code, Codex, Cursor, Goose, OpenCode and any
+MCP-capable harness can claim the same work and leave the same durable history - without sending your code,
+knowledge or task state to a vendor cloud.
+
+New here? Start with **[Mission Control](mission-control.md)** for the control plane, then the
+[Quick Start](user/quick-start.md) and the [CLI reference](user/cli-reference.md).
 
 ## 📚 Documentation Structure
 
