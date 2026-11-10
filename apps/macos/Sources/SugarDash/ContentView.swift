@@ -98,10 +98,20 @@ struct ContentView: View {
             syncInspectorVisibility(model.selectedTask != nil)
         }
         .onChange(of: model.selectedTask?.id) { _, _ in
+            // Only the Tasks pane owns the inspector. Live/Activity/Trends
+            // re-render every second as snapshots land; syncing the inspector
+            // from a transiently-nil selection there made the layout animate
+            // in a loop.
+            guard model.activeSection == .tasks else { return }
             syncInspectorVisibility(model.selectedTask != nil)
         }
         .onChange(of: model.activeSection) { _, section in
             persistedSection = section.rawValue
+            if section != .tasks {
+                syncInspectorVisibility(false)
+            } else {
+                syncInspectorVisibility(model.selectedTask != nil)
+            }
         }
         .sheet(isPresented: $showCreateTask) {
             TaskEditorView(mode: .create)

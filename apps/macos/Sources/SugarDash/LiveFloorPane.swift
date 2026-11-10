@@ -164,10 +164,12 @@ struct LiveFloorPane: View {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     ticker
                 }
+                .frame(height: 188)
             }
         }
-        .background(.bar)
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) { Divider() }
+        .transaction { $0.animation = nil }
     }
 
     private func footerBar(now: Date) -> some View {
@@ -375,7 +377,7 @@ struct LiveFloorPane: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 188)
+                .frame(height: 188)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

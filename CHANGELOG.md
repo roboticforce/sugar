@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Live view stopped re-laying-out every second.** Two causes: the inspector was synced from task-selection changes even while the Live/Activity/Trends panes were active (a transiently-nil selection animated the split layout in a loop), and the footer's ticker grew/shrunk and used a vibrancy background, so the floor and ticker visibly shifted on each tick. The inspector now only animates in the Tasks pane, the footer has a fixed ticker height and a solid background, bottom-panel switches are non-animated, and the console no longer animates every inserted line.
+
+### Fixed
 - **SugarDash ticker no longer slides on every event.** The Live ticker inserted each new activity row with a `move(edge: .top)` transition, so with agents emitting events every second the bottom panel visibly animated downward in a loop. The ticker now updates as a plain live log (no insertion animation); console behaviour is unchanged.
 
 ### Changed
