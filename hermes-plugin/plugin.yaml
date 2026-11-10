@@ -1,5 +1,5 @@
 name: sugar
-version: "0.3.3"
+version: "0.3.4"
 description: "Sugar - local-first persistent memory for coding agents. SQLite on your disk: decisions, preferences, error patterns, and guidelines with project + global scopes and guideline-aware search. No cloud, no API key."
 author: Steven Leggett
 requires_hermes: ">=0.19"

@@ -269,6 +269,59 @@ class MemoryStore:
             conn.commit()
             return entry.id
 
+    def reindex_embeddings(self, *, batch_size: int = 64) -> Dict[str, Any]:
+        """Backfill vectors for entries written before semantic search was enabled.
+
+        Vectors are only created on write, so a store that gains sqlite-vec +
+        sentence-transformers later keeps its existing rows keyword-only forever.
+        This walks every entry with no row in ``memory_vectors`` and embeds it.
+
+        Safe to re-run: entries that already have a vector are left alone, and a
+        failure to embed one entry does not abort the rest.
+
+        Returns a summary dict: ``semantic`` (whether vectors are active),
+        ``embedded``, ``skipped`` and ``pending`` (rows with no vector at start).
+        """
+        if not self._has_vec or isinstance(self.embedder, FallbackEmbedder):
+            return {"semantic": False, "embedded": 0, "skipped": 0, "pending": 0}
+
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, content FROM memory_entries
+                WHERE id NOT IN (SELECT id FROM memory_vectors)
+                """
+            )
+            rows = cursor.fetchall()
+
+            embedded = skipped = 0
+            for start in range(0, len(rows), batch_size):
+                for entry_id, content in rows[start : start + batch_size]:
+                    try:
+                        embedding = self.embedder.embed(content)
+                    except Exception as e:
+                        logger.warning(f"Reindex: failed to embed {entry_id}: {e}")
+                        embedding = None
+                    if not embedding:
+                        skipped += 1
+                        continue
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO memory_vectors "
+                        "(id, embedding) VALUES (?, ?)",
+                        (entry_id, _serialize_embedding(embedding)),
+                    )
+                    embedded += 1
+                conn.commit()
+
+        return {
+            "semantic": True,
+            "embedded": embedded,
+            "skipped": skipped,
+            "pending": len(rows),
+        }
+
     def get(self, entry_id: str) -> Optional[MemoryEntry]:
         """Get a memory entry by ID."""
         with self._lock:
