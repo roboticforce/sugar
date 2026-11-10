@@ -4560,6 +4560,67 @@ def export_context(ctx, output_format, limit, types):
             click.echo(f"# Error: {e}")
 
 
+@cli.group("memory")
+def memory_group():
+    """Manage Sugar's memory stores."""
+
+
+@memory_group.command("reindex")
+@click.pass_context
+def memory_reindex(ctx):
+    """Backfill embeddings for memories stored before semantic search was enabled.
+
+    Vectors are only written when a memory is added, so installing the
+    `sugarai[memory]` extra later leaves existing memories keyword-only. This
+    builds the missing vectors in place; re-running it is harmless.
+    """
+    from .memory import is_semantic_search_available
+
+    if not is_semantic_search_available():
+        click.echo("❌ Vectors are unavailable, so there is nothing to build.")
+        click.echo(
+            "   Install the vector extra first: pip install 'sugarai[memory]'"
+        )
+        sys.exit(1)
+
+    config_file = ctx.obj["config"]
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
+
+    manager = _get_global_memory_manager(config=config)
+    stores = [("global", manager.global_store)]
+    if manager.project_store is not None:
+        stores.append(("project", manager.project_store))
+
+    click.echo("\n🧠 Sugar memory reindex\n")
+    seen: set = set()
+    total = 0
+    try:
+        for label, store in stores:
+            resolved = store.db_path.resolve()
+            if resolved in seen:
+                # Project store and global store are the same file ($HOME case).
+                continue
+            seen.add(resolved)
+            stats = store.reindex_embeddings()
+            if not stats["semantic"]:
+                click.echo(
+                    f"  {label:8s} vectors unavailable (sqlite-vec missing); skipped"
+                )
+                continue
+            total += stats["embedded"]
+            click.echo(
+                f"  {label:8s} {stats['embedded']} embedded, "
+                f"{stats['skipped']} skipped, {stats['pending']} were pending"
+            )
+    finally:
+        manager.close()
+
+    click.echo(f"\n✅ Reindex complete: {total} memories now searchable by meaning.\n")
+
+
 @cli.command("memory-stats")
 @click.pass_context
 def memory_stats(ctx):
