@@ -7,24 +7,58 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
+from ..identity import (
+    DEFAULT_LEASE_SECONDS,
+    format_lease_timestamp,
+    lease_expiry,
+    worker_actor,
+)
+from .migrations import SCHEMA_VERSION, apply_migrations
+
 logger = logging.getLogger(__name__)
+
+#: How many pending rows a claim scans per batch while skipping blocked tasks.
+CLAIM_SCAN_BATCH = 100
 
 
 class WorkQueue:
-    """Persistent work queue with priority management"""
+    """Persistent work queue with priority management.
+
+    SQLite implementation of :class:`sugar.storage.ports.TaskStore`. The
+    coordination invariants (atomic claim, lease reaper, dependency
+    enforcement) live here for now; a future Postgres backend implements the
+    same protocol against the conformance suite in
+    ``tests/test_task_store_conformance.py``.
+    """
+
+    #: Schema version this implementation writes/expects (see migrations.py).
+    SCHEMA_VERSION = SCHEMA_VERSION
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._initialized = False
+        self._schema_version = 0
         self._init_lock = asyncio.Lock()
 
+    @property
+    def schema_version(self) -> int:
+        """Schema version applied by the last :meth:`initialize` (0 before)."""
+        return self._schema_version
+
     async def initialize(self):
-        """Initialize the database and create tables"""
+        """Create or upgrade the database schema (idempotent).
+
+        All SQLite DDL lives in :mod:`sugar.storage.migrations`; this method
+        only opens the connection and asks the ledger to bring the database to
+        :data:`~sugar.storage.migrations.SCHEMA_VERSION`. Legacy databases
+        (``user_version == 0`` with tables already present) are upgraded by the
+        same idempotent registry.
+        """
         if self._initialized:
             return
 
@@ -33,340 +67,14 @@ class WorkQueue:
                 return
 
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS work_items (
-                        id TEXT PRIMARY KEY,
-                        type TEXT NOT NULL,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        priority INTEGER DEFAULT 3,
-                        status TEXT DEFAULT 'pending',
-                        source TEXT,
-                        source_file TEXT,
-                        context TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        attempts INTEGER DEFAULT 0,
-                        last_attempt_at TIMESTAMP,
-                        completed_at TIMESTAMP,
-                        result TEXT,
-                        error_message TEXT,
-                        total_execution_time REAL DEFAULT 0.0,
-                        started_at TIMESTAMP,
-                        total_elapsed_time REAL DEFAULT 0.0,
-                        commit_sha TEXT
-                    )
-                """
-                )
+                self._schema_version = await apply_migrations(db)
 
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_work_items_priority_status
-                    ON work_items (priority ASC, status, created_at)
-                """
-                )
-
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_work_items_status
-                    ON work_items (status)
-                """
-                )
-
-                # Migrate existing databases to add timing columns and task types table
-                await self._migrate_timing_columns(db)
-                await self._migrate_task_types_table(db)
-                await self._migrate_orchestration_columns(db)
-                await self._migrate_acceptance_criteria_column(db)
-                await self._migrate_verification_columns(db)
-                await self._migrate_thinking_columns(db)
-
-                await db.commit()
-
+            logger.debug(
+                "✅ Work queue initialized: %s (schema v%d)",
+                self.db_path,
+                self._schema_version,
+            )
             self._initialized = True
-
-    async def _migrate_timing_columns(self, db):
-        """Add timing columns to existing databases if they don't exist"""
-        try:
-            # Check if timing columns exist
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add missing timing columns
-            if "total_execution_time" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN total_execution_time REAL DEFAULT 0.0"
-                )
-                logger.info("Added total_execution_time column to existing database")
-
-            if "started_at" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN started_at TIMESTAMP"
-                )
-                logger.info("Added started_at column to existing database")
-
-            if "total_elapsed_time" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN total_elapsed_time REAL DEFAULT 0.0"
-                )
-                logger.info("Added total_elapsed_time column to existing database")
-
-            if "commit_sha" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN commit_sha TEXT")
-                logger.info("Added commit_sha column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Migration warning (non-critical): {e}")
-
-    async def _migrate_task_types_table(self, db):
-        """Create task_types table and populate with defaults if it doesn't exist"""
-        try:
-            # Check if task_types table exists
-            cursor = await db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_types'"
-            )
-            table_exists = await cursor.fetchone()
-
-            if not table_exists:
-                # Create task_types table
-                await db.execute(
-                    """
-                    CREATE TABLE task_types (
-                        id TEXT PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        description TEXT,
-                        agent TEXT,
-                        commit_template TEXT,
-                        emoji TEXT,
-                        file_patterns TEXT,
-                        is_default BOOLEAN DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """
-                )
-
-                # Insert default task types
-                default_types = [
-                    {
-                        "id": "bug_fix",
-                        "name": "Bug Fix",
-                        "description": "Fix existing issues or bugs",
-                        "agent": "tech-lead",
-                        "commit_template": "fix: {title}",
-                        "emoji": "🐛",
-                        "file_patterns": '["src/components/buggy_component.py", "tests/test_fix.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "feature",
-                        "name": "Feature",
-                        "description": "Add new functionality",
-                        "agent": "general-purpose",
-                        "commit_template": "feat: {title}",
-                        "emoji": "✨",
-                        "file_patterns": '["src/features/new_feature.py", "src/api/feature_endpoint.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "test",
-                        "name": "Test",
-                        "description": "Add or update tests",
-                        "agent": "general-purpose",
-                        "commit_template": "test: {title}",
-                        "emoji": "🧪",
-                        "file_patterns": '["tests/test_*.py", "spec/*.spec.js"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "refactor",
-                        "name": "Refactor",
-                        "description": "Code refactoring without changing functionality",
-                        "agent": "code-reviewer",
-                        "commit_template": "refactor: {title}",
-                        "emoji": "♻️",
-                        "file_patterns": '["src/legacy_code.py", "src/improved_code.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "documentation",
-                        "name": "Documentation",
-                        "description": "Documentation updates and improvements",
-                        "agent": "general-purpose",
-                        "commit_template": "docs: {title}",
-                        "emoji": "📝",
-                        "file_patterns": '["README.md", "docs/api_documentation.md"]',
-                        "is_default": 1,
-                    },
-                ]
-
-                for task_type in default_types:
-                    await db.execute(
-                        """
-                        INSERT INTO task_types
-                        (id, name, description, agent, commit_template, emoji, file_patterns, is_default)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            task_type["id"],
-                            task_type["name"],
-                            task_type["description"],
-                            task_type["agent"],
-                            task_type["commit_template"],
-                            task_type["emoji"],
-                            task_type["file_patterns"],
-                            task_type["is_default"],
-                        ),
-                    )
-
-                logger.info("Created task_types table and populated with default types")
-
-        except Exception as e:
-            logger.error(f"Error migrating task_types table: {e}")
-            # Continue without task_types table
-
-        logger.debug(f"✅ Work queue initialized: {self.db_path}")
-
-    async def _migrate_orchestration_columns(self, db):
-        """Add orchestration columns to work_items table"""
-        try:
-            # Check if orchestration columns exist
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add orchestrate column (boolean flag)
-            if "orchestrate" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN orchestrate BOOLEAN DEFAULT 0"
-                )
-                logger.info("Added orchestrate column to existing database")
-
-            # Add parent_task_id column (foreign key to work_items.id)
-            if "parent_task_id" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN parent_task_id TEXT"
-                )
-                logger.info("Added parent_task_id column to existing database")
-
-            # Add stage column (current orchestration stage)
-            if "stage" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN stage TEXT")
-                logger.info("Added stage column to existing database")
-
-            # Add blocked_by column (JSON array of task IDs)
-            if "blocked_by" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN blocked_by TEXT")
-                logger.info("Added blocked_by column to existing database")
-
-            # Add context_path column (path to orchestration context)
-            if "context_path" not in column_names:
-                await db.execute("ALTER TABLE work_items ADD COLUMN context_path TEXT")
-                logger.info("Added context_path column to existing database")
-
-            # Add assigned_agent column (specialist agent)
-            if "assigned_agent" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN assigned_agent TEXT"
-                )
-                logger.info("Added assigned_agent column to existing database")
-
-            # Create index for parent_task_id queries
-            await db.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_work_items_parent_task_id
-                ON work_items (parent_task_id)
-            """
-            )
-
-        except Exception as e:
-            logger.warning(f"Orchestration migration warning (non-critical): {e}")
-
-    async def _migrate_acceptance_criteria_column(self, db):
-        """Add acceptance_criteria column to work_items table"""
-        try:
-            # Check if acceptance_criteria column exists
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add acceptance_criteria column (JSON field)
-            if "acceptance_criteria" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN acceptance_criteria TEXT"
-                )
-                logger.info("Added acceptance_criteria column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Acceptance criteria migration warning (non-critical): {e}")
-
-    async def _migrate_verification_columns(self, db):
-        """Add verification columns to work_items table (AUTO-005)"""
-        try:
-            # Check existing columns
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add verification_required column (boolean flag)
-            if "verification_required" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_required BOOLEAN DEFAULT 0"
-                )
-                logger.info("Added verification_required column to existing database")
-
-            # Add verification_status column (pending, verified, failed)
-            if "verification_status" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_status TEXT DEFAULT 'pending'"
-                )
-                logger.info("Added verification_status column to existing database")
-
-            # Add verification_results column (JSON field storing detailed results)
-            if "verification_results" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN verification_results TEXT"
-                )
-                logger.info("Added verification_results column to existing database")
-
-        except Exception as e:
-            logger.warning(
-                f"Verification columns migration warning (non-critical): {e}"
-            )
-
-    async def _migrate_thinking_columns(self, db):
-        """Add thinking columns to work_items table for capturing Claude's reasoning"""
-        try:
-            # Check existing columns
-            cursor = await db.execute("PRAGMA table_info(work_items)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-
-            # Add thinking_log_path column (path to thinking markdown file)
-            if "thinking_log_path" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_log_path TEXT"
-                )
-                logger.info("Added thinking_log_path column to existing database")
-
-            # Add thinking_summary column (summary of thinking captured)
-            if "thinking_summary" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_summary TEXT"
-                )
-                logger.info("Added thinking_summary column to existing database")
-
-            # Add thinking_stats column (JSON field with thinking statistics)
-            if "thinking_stats" not in column_names:
-                await db.execute(
-                    "ALTER TABLE work_items ADD COLUMN thinking_stats TEXT"
-                )
-                logger.info("Added thinking_stats column to existing database")
-
-        except Exception as e:
-            logger.warning(f"Thinking columns migration warning (non-critical): {e}")
 
     async def close(self):
         """Close the work queue (for testing)"""
@@ -426,8 +134,8 @@ class WorkQueue:
                 INSERT INTO work_items
                 (id, type, title, description, priority, status, source, source_file, context,
                  orchestrate, parent_task_id, stage, blocked_by, context_path, assigned_agent,
-                 acceptance_criteria)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 acceptance_criteria, created_by, created_by_kind, created_by_session)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     work_id,
@@ -446,6 +154,9 @@ class WorkQueue:
                     work_item.get("context_path"),
                     work_item.get("assigned_agent"),
                     acceptance_criteria_json,
+                    work_item.get("created_by"),
+                    work_item.get("created_by_kind"),
+                    work_item.get("created_by_session"),
                 ),
             )
             await db.commit()
@@ -455,70 +166,134 @@ class WorkQueue:
         )
         return work_id
 
-    async def get_next_work(self) -> Optional[Dict[str, Any]]:
-        """Get the highest priority pending work item (atomic claim).
+    async def _first_incomplete_blocker(self, db, work_item: Dict[str, Any]):
+        """Return a blocker id if *work_item* has an unmet dependency, else ``None``.
 
-        Uses BEGIN IMMEDIATE to acquire an exclusive lock before SELECT,
-        preventing two concurrent callers from claiming the same task.
+        ``blocked_by`` is stored as a JSON array. Semantics (matching
+        ``get_ready_subtasks``): a missing/empty list means no dependency; a task
+        is blocked unless **every** blocker exists and is ``completed``.
+        Unreadable JSON fails closed — better a visibly blocked task than work
+        running before prerequisites it cannot evaluate.
+        """
+        raw = work_item.get("blocked_by")
+        if raw in (None, "", "[]"):
+            return None
+        try:
+            blockers = json.loads(raw) if isinstance(raw, str) else list(raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Task %s has unreadable blocked_by=%r; treating as blocked",
+                work_item.get("id"),
+                raw,
+            )
+            return "<unreadable>"
+        if not blockers:
+            return None
+
+        placeholders = ",".join("?" for _ in blockers)
+        cursor = await db.execute(
+            f"SELECT id, status FROM work_items WHERE id IN ({placeholders})",
+            [str(blocker) for blocker in blockers],
+        )
+        statuses = {row[0]: row[1] async for row in cursor}
+        for blocker in blockers:
+            if statuses.get(str(blocker)) != "completed":
+                return str(blocker)
+        return None
+
+    async def get_next_work(
+        self,
+        worker_id: Optional[str] = None,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically claim the highest-priority *claimable* task.
+
+        A task is claimable when it is ``pending`` and every id in
+        ``blocked_by`` exists and is ``completed`` (missing blockers block, as in
+        ``get_ready_subtasks``). ``BEGIN IMMEDIATE`` serializes writers, so the
+        scan-then-update below is one atomic step: nobody else can claim the
+        chosen task or change its blockers mid-transaction.
+
+        The same UPDATE records who claimed the task (``claimed_by``, from
+        ``worker_id`` or the resolved local actor) and a ``lease_expires_at`` so a
+        crashed worker can be reaped instead of stranding the task.
         """
         async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
             db.row_factory = aiosqlite.Row
-
-            # BEGIN IMMEDIATE acquires a reserved lock upfront, serializing
-            # concurrent callers so only one can read+update at a time.
             await db.execute("BEGIN IMMEDIATE")
 
             try:
-                # Get highest priority pending work item (exclude hold status)
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM work_items
-                    WHERE status = 'pending'
-                    ORDER BY priority ASC, created_at ASC
-                    LIMIT 1
-                """
-                )
+                offset = 0
+                while True:
+                    cursor = await db.execute(
+                        """
+                        SELECT * FROM work_items
+                        WHERE status = 'pending'
+                        ORDER BY priority ASC, created_at ASC, id ASC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (CLAIM_SCAN_BATCH, offset),
+                    )
+                    rows = await cursor.fetchall()
+                    if not rows:
+                        await db.execute("ROLLBACK")
+                        return None
 
-                row = await cursor.fetchone()
+                    for row in rows:
+                        work_item = dict(row)
+                        blocker = await self._first_incomplete_blocker(db, work_item)
+                        if blocker is not None:
+                            logger.debug(
+                                "Task %s is blocked by %s; skipping",
+                                work_item.get("id"),
+                                blocker,
+                            )
+                            continue
 
-                if not row:
-                    await db.execute("ROLLBACK")
-                    return None
+                        # A claim is made by a worker, not by the human who queued it.
+                        actor = worker_actor(worker_id)
+                        lease_until = lease_expiry(lease_seconds)
+                        await db.execute(
+                            """
+                            UPDATE work_items
+                            SET status = 'active',
+                                attempts = attempts + 1,
+                                last_attempt_at = CURRENT_TIMESTAMP,
+                                started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+                                claimed_by = ?,
+                                lease_expires_at = ?,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ? AND status = 'pending'
+                            """,
+                            (actor.id, lease_until, work_item["id"]),
+                        )
+                        await db.execute("COMMIT")
 
-                work_item = dict(row)
+                        if work_item.get("context"):
+                            try:
+                                work_item["context"] = json.loads(work_item["context"])
+                            except json.JSONDecodeError:
+                                work_item["context"] = {}
+                        else:
+                            work_item["context"] = {}
 
-                # Parse JSON context
-                if work_item["context"]:
-                    try:
-                        work_item["context"] = json.loads(work_item["context"])
-                    except json.JSONDecodeError:
-                        work_item["context"] = {}
-                else:
-                    work_item["context"] = {}
+                        work_item["attempts"] = (work_item.get("attempts") or 0) + 1
+                        work_item["status"] = "active"
+                        work_item["claimed_by"] = actor.id
+                        work_item["lease_expires_at"] = lease_until
+                        logger.debug(
+                            "📋 Retrieved work item: %s (attempt #%s)",
+                            work_item["title"],
+                            work_item["attempts"],
+                        )
+                        return work_item
 
-                # Mark as active and increment attempts
-                await db.execute(
-                    """
-                    UPDATE work_items
-                    SET status = 'active',
-                        attempts = attempts + 1,
-                        last_attempt_at = CURRENT_TIMESTAMP,
-                        started_at = CASE WHEN started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """,
-                    (work_item["id"],),
-                )
-
-                await db.execute("COMMIT")
-
-                work_item["attempts"] += 1
-                work_item["status"] = "active"
-                logger.debug(
-                    f"📋 Retrieved work item: {work_item['title']} (attempt #{work_item['attempts']})"
-                )
-
-                return work_item
+                    # Nothing claimable in this batch; keep scanning so tasks
+                    # behind a long run of blocked rows are not starved.
+                    offset += len(rows)
+                    if len(rows) < CLAIM_SCAN_BATCH:
+                        await db.execute("ROLLBACK")
+                        return None
 
             except Exception:
                 await db.execute("ROLLBACK")
@@ -563,7 +338,9 @@ class WorkQueue:
                     ),
                     thinking_log_path = ?,
                     thinking_summary = ?,
-                    thinking_stats = ?
+                    thinking_stats = ?,
+                    claimed_by = NULL,
+                    lease_expires_at = NULL
                 WHERE id = ?
             """,
                 (
@@ -613,6 +390,8 @@ class WorkQueue:
                     UPDATE work_items 
                     SET status = 'failed',
                         error_message = ?,
+                        claimed_by = NULL,
+                        lease_expires_at = NULL,
                         updated_at = CURRENT_TIMESTAMP,
                         total_execution_time = total_execution_time + ?,
                         total_elapsed_time = (
@@ -637,6 +416,8 @@ class WorkQueue:
                     UPDATE work_items 
                     SET status = 'pending',
                         error_message = ?,
+                        claimed_by = NULL,
+                        lease_expires_at = NULL,
                         updated_at = CURRENT_TIMESTAMP,
                         total_execution_time = total_execution_time + ?
                     WHERE id = ?
@@ -678,6 +459,21 @@ class WorkQueue:
                         work_item[field] = {}
                 else:
                     work_item[field] = {}
+
+            # ``blocked_by`` is a JSON array or NULL in storage; the port exposes
+            # a list. Unreadable values are returned unchanged for inspection
+            # (the claim path fails closed on them).
+            raw_blocked_by = work_item.get("blocked_by")
+            if raw_blocked_by in (None, ""):
+                work_item["blocked_by"] = []
+            elif isinstance(raw_blocked_by, str):
+                try:
+                    parsed = json.loads(raw_blocked_by)
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(parsed, list):
+                        work_item["blocked_by"] = parsed
 
             return work_item
 
@@ -789,7 +585,9 @@ class WorkQueue:
                        total_elapsed_time, commit_sha,
                        orchestrate, parent_task_id, stage, blocked_by, context_path, assigned_agent,
                        acceptance_criteria,
-                       verification_required, verification_status, verification_results
+                       verification_required, verification_status, verification_results,
+                       created_by, created_by_kind, created_by_session,
+                       claimed_by, lease_expires_at
                 FROM work_items
                 WHERE id = ?
             """,
@@ -831,6 +629,11 @@ class WorkQueue:
                         "verification_results": (
                             json.loads(row[27]) if row[27] else None
                         ),
+                        "created_by": row[28],
+                        "created_by_kind": row[29],
+                        "created_by_session": row[30],
+                        "claimed_by": row[31],
+                        "lease_expires_at": row[32],
                     }
                 return None
 
@@ -853,6 +656,8 @@ class WorkQueue:
             "blocked_by",
             "verification_results",
             "assigned_agent",
+            "claimed_by",
+            "lease_expires_at",
             "stage",
             "context_path",
             "error_count",
@@ -941,7 +746,8 @@ class WorkQueue:
 
             await db.execute(
                 """UPDATE work_items
-                   SET status = 'hold', context = ?, updated_at = CURRENT_TIMESTAMP
+                   SET status = 'hold', context = ?, updated_at = CURRENT_TIMESTAMP,
+                       claimed_by = NULL, lease_expires_at = NULL
                    WHERE id = ?""",
                 (json.dumps(context), work_id),
             )
@@ -980,7 +786,8 @@ class WorkQueue:
 
             await db.execute(
                 """UPDATE work_items
-                   SET status = 'pending', context = ?, updated_at = CURRENT_TIMESTAMP
+                   SET status = 'pending', context = ?, updated_at = CURRENT_TIMESTAMP,
+                       claimed_by = NULL, lease_expires_at = NULL
                    WHERE id = ?""",
                 (json.dumps(context), work_id),
             )
@@ -990,6 +797,84 @@ class WorkQueue:
         if success:
             logger.info(f"▶️ Work item released from hold: {work_id}")
         return success
+
+    async def heartbeat(
+        self,
+        task_id: str,
+        worker_id: Optional[str] = None,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> bool:
+        """Extend the lease on a task owned by *worker_id*.
+
+        Returns ``False`` when the task is not active or owned by someone else,
+        so a worker that lost its claim (reaped, or reclaimed by another worker)
+        can stop instead of racing the new owner.
+        """
+        actor = worker_actor(worker_id)
+        lease_until = lease_expiry(lease_seconds)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE work_items
+                SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'active' AND claimed_by = ?
+                """,
+                (lease_until, task_id, actor.id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def requeue_expired_leases(self, now: Optional[datetime] = None) -> List[str]:
+        """Return active tasks with expired leases to ``pending``.
+
+        This is the reaper half of the lease contract: a task whose worker
+        crashed (no heartbeat) becomes claimable again instead of sitting
+        ``active`` forever. Attempts are intentionally *not* reset here — each
+        claim increments them, so a task that repeatedly dies is visible.
+
+        ``now`` is injectable for tests; storage timestamps are UTC in
+        :data:`sugar.identity.LEASE_TIMESTAMP_FORMAT` so string ordering is
+        chronological.
+        """
+        cutoff = format_lease_timestamp(now or datetime.now(timezone.utc))
+        async with aiosqlite.connect(self.db_path, isolation_level=None) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    SELECT id FROM work_items
+                    WHERE status = 'active'
+                      AND lease_expires_at IS NOT NULL
+                      AND lease_expires_at < ?
+                    """,
+                    (cutoff,),
+                )
+                expired = [row["id"] for row in await cursor.fetchall()]
+                if expired:
+                    placeholders = ",".join("?" for _ in expired)
+                    await db.execute(
+                        f"""
+                        UPDATE work_items
+                        SET status = 'pending',
+                            claimed_by = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id IN ({placeholders}) AND status = 'active'
+                        """,
+                        expired,
+                    )
+                await db.execute("COMMIT")
+                if expired:
+                    logger.warning(
+                        "♻️ Requeued %d task(s) with expired leases: %s",
+                        len(expired),
+                        ", ".join(expired),
+                    )
+                return expired
+            except Exception:
+                await db.execute("ROLLBACK")
+                raise
 
     async def health_check(self) -> dict:
         """Return health status of the work queue"""

@@ -1,360 +1,307 @@
+<div align="center">
+
 # Sugar
 
-Persistent memory for AI coding agents.
+**Mission control for your agent fleet.**
+
+One durable board for Claude Code, Codex, Cursor, Goose, OpenCode, DSH — and any harness that can claim a task.
+Atomic claims, live agent activity, cost attribution and tamper-evident history. Local-first, no account.
 
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
-Your AI agent starts every session with amnesia. The architecture decisions, conventions,
-and gotchas you explained last week are gone. Sugar is the local-first memory layer that
-remembers them for you - per project, across projects, on your machine.
+[![PyPI](https://img.shields.io/pypi/v/sugarai?style=flat-square&label=pypi)](https://pypi.org/project/sugarai/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square)](pyproject.toml)
+[![CI](https://github.com/roboticforce/sugar/actions/workflows/ci.yml/badge.svg?branch=develop&style=flat-square)](https://github.com/roboticforce/sugar/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20commercial-blue?style=flat-square)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)](docs/local-dashboard.md)
 
-Your memory. Your machine. Your data.
+[Quick start](#quick-start) · [See it work](#see-your-fleet-work) · [Why Sugar](#why-sugar) · [Works with](#works-with-your-harnesses) · [Docs](docs/README.md) · [Team edition](#team-edition-self-hosted)
 
-## What Sugar Does
+<img src="docs/images/app-tasks.png" alt="SugarDash: the task board with a task inspector open, live activity and history" width="880">
 
-Sugar is a memory layer your AI coding agent can read and write directly:
+</div>
 
-- **Project memory** - Decisions, preferences, error patterns, and research stored per-project
-- **Global memory** - Standards and guidelines shared across every project you work on
-- **Semantic search** - Retrieve relevant context by meaning, not just keywords
-- **MCP integration** - Your AI agent reads and writes memory directly during sessions
-- **Local-first** - SQLite on your disk, no API keys, fully offline-capable
-- **Task queue** - Optional autonomous execution, powered by the same memory layer
+## Your agents can't see each other
 
-## Quick Start
+You run four agents across three harnesses on one repo. Then:
+
+- Two agents pick up the same task and overwrite each other's work.
+- A crashed run keeps a task "claimed" forever; the queue quietly stalls.
+- "What happened yesterday?" lives in six terminal tabs and a scrollback buffer.
+- You can't answer *who did what, with which harness, for which task — and what did it cost?*
+- Your agent starts every session with amnesia: last week's decisions, conventions and dead ends are gone.
+
+A prettier kanban board doesn't fix this. The missing layer is underneath: a **durable queue**, **atomic claims and leases**, **provenance for every actor**, and a **history you can replay and export**. That's what Sugar is.
+
+## One board. Any harness. Full history.
+
+Sugar is local-first infrastructure for a fleet of coding agents. Every harness gets the same durable work
+queue and the same memory. Every claim, transition and tool call lands in an append-only event spine. You watch
+the fleet in a web dashboard or a native macOS app — on your machine, in your files, with no account.
+
+Your agents keep their own subscriptions and workflows. Sugar doesn't replace Claude Code or Codex; it sits
+between them and your repo.
+
+### Coordinate — a queue agents can't double-claim
+
+- Durable SQLite queue with priorities, dependencies, attempts, hold/release and retries.
+- **Atomic claim + lease + heartbeat.** If a worker dies, the lease expires and a reaper requeues the task.
+- The same verbs from the CLI (`sugar add`, `sugar list`, `sugar run`), MCP tools, REST API and dashboard.
+- Keep your existing board: serve Sugar's queue, or mirror a Hermes Kanban board with `--board kanban`
+  (Sugar reads it; Hermes keeps its write path).
+
+### See — Mission Control for the fleet
+
+- Web dashboard and native macOS app, both on the same REST + SSE contract.
+- **Live floor:** every working agent with its current action, elapsed/lease countdowns and lease health.
+- **Streaming console:** tool calls, run starts/ends and usage events as they happen.
+- **Trends:** throughput, failures, cycle time and reported spend over time, by agent, harness or project.
+- Activity feed, search, filters and direct task links across all of it.
+
+<img src="docs/images/trends-view.png" alt="SugarDash Trends view: tasks completed and cost per agent over a week" width="880">
+
+### Prove — history with receipts
+
+- **Append-only event spine** (`~/.sugar/events.db`, retention configurable) records every task transition and
+  every harness event: actor, harness, machine, session, task, project, run and trace id.
+- **Usage and cost attribution** (`sugar usage`, `/api/usage`): tokens and cost as your harness reports them —
+  no invented pricing table.
+- **Tamper-evident audit exports** (`sugar audit export` / `sugar audit verify`): canonical JSONL plus a
+  SHA-256 manifest and optional HMAC signature. Export before retention prunes, keep the evidence.
+- Claims are recorded in the same transaction as the work item, so "who is holding this task?" is a query,
+  not a guess.
+
+### Connect — one board, many harnesses
+
+- **MCP servers** for tasks and memory: Claude Code, Codex, Cursor, Goose, OpenCode and any MCP client can
+  read context, claim work and complete it.
+- **REST + SSE** for custom scripts, bots and CI.
+- **CLI** for everything a human needs, including `sugar emit` for harnesses that stream their own telemetry.
+- **TaskStore port + conformance suite**: SQLite today; the contract is backend-agnostic.
+
+### Remember — your context, not the vendor's
+
+- Project memory (`.sugar/memory.db`) and global memory (`~/.sugar/memory.db`), with seven memory types:
+  decisions, preferences, file context, error patterns, research, outcomes and guidelines.
+- Semantic search via local embeddings (`sugarai[memory]`), with FTS5 keyword fallback. No external API calls.
+- Agents read and write memory directly through MCP: `search_memory`, `store_learning`, `recall`,
+  `get_project_context`, `list_recent_memories`.
+
+## Quick start
 
 ```bash
 # Install once, use in any project
-pipx install sugarai
+pipx install 'sugarai[all]'
 
-# Initialize in your project
 cd ~/dev/my-app
 sugar init
 
-# Store what you know
-sugar remember "We use async/await everywhere, never callbacks" --type preference
-sugar remember "JWT tokens use RS256, expire in 15 min - see auth/tokens.py" --type decision
-sugar remember "When tests fail with import errors, check __init__.py exports first" --type error_pattern
+# Give the fleet work
+sugar add "Fix the auth timeout" --type bug_fix --urgent
+sugar add "Add profile settings" --type feature
 
-# Retrieve it later
-sugar recall "authentication"
-sugar recall "how do we handle async"
-```
-
-Your AI agent can also read and write memory directly - no copy-pasting required.
-
-## MCP Integration
-
-Connect Sugar's memory to your AI agent so it can access project context automatically.
-
-**Claude Code - Memory server (primary):**
-```bash
-claude mcp add sugar -- sugar mcp memory
-```
-
-**Claude Code - Task server (optional):**
-```bash
-claude mcp add sugar-tasks -- sugar mcp tasks
-```
-
-Once connected, Claude can call `store_learning` to save context mid-session and `search_memories` to pull relevant knowledge before starting work. The memory server works from any directory - global memory is always available even outside a Sugar project.
-
-**Other MCP clients (Goose, Claude Desktop):**
-```bash
-# Goose
-goose configure
-# Select "Add Extension" -> "Command-line Extension"
-# Name: sugar
-# Command: sugar mcp memory
-
-# OpenCode - one command setup
-sugar opencode setup
-```
-
-## Skills
-
-Sugar ships Agent Skills - folders of instructions that teach coding agents to apply Sugar's methodology. Skills live under `skills/` and follow the [Agent Skills](https://agentskills.io) specification (a `SKILL.md` with name/description frontmatter plus instructions).
-
-| Skill | What it does |
-|-------|--------------|
-| `sugar-memory` | Store and surface project context via Sugar's memory MCP server: recall context at task start, search before deciding, store learnings after completing work |
-| `sugar-task-planner` | Turn a high-level task into a detailed execution plan: subtasks, dependencies, time estimates, risks, and measurable success criteria |
-| `sugar-quality-guardian` | Review code across quality, testing, security, and performance, ending with a structured verdict |
-| `sugar-orchestrator` | Coordinate multi-step workflows: analyze complexity, decompose tasks, assign roles, monitor execution |
-
-Each skill includes an evaluation dataset (`evals/evals.json`) and is measured with [NVIDIA SkillEvaluator](https://github.com/NVIDIA/SkillEvaluator) against the OpenCode harness. See [Skill Benchmarks](docs/dev/skill-benchmarks.md) for the Skill Lift results - sugar-memory and sugar-task-planner both show measured positive lift.
-
-## Global Memory
-
-Some knowledge belongs to you, not just one project. Coding standards, preferred patterns, security practices - these should follow you everywhere.
-
-```bash
-# Store a guideline that applies to all your projects
-sugar remember "Always validate and sanitize user input before any DB query" \
-  --type guideline --global
-
-sugar remember "Use conventional commits: feat/fix/chore/docs/test" \
-  --type guideline --global
-
-# View your global guidelines
-sugar recall "security" --global
-sugar memories --global
-
-# Search works project-first, but guidelines always surface
-sugar recall "database queries"
-# Returns: project-specific memories + relevant global guidelines
-```
-
-Global memory lives at `~/.sugar/memory.db`. Project memory lives at `.sugar/memory.db`. When you search, project context wins - but `guideline` type memories from global always appear in results so your standards stay visible.
-
-**Via MCP**, pass `scope: "global"` to `store_learning` to save cross-project knowledge directly from your AI session.
-
-**Memory types:** `decision`, `preference`, `file_context`, `error_pattern`, `research`, `outcome`, `guideline`
-
-Full docs: [Memory System Guide](docs/user/memory.md)
-
-## How Memory Works
-
-Sugar uses two SQLite databases and a tiered search strategy.
-
-**Two stores:**
-- **Project store** (`.sugar/memory.db`) - context specific to one project
-- **Global store** (`~/.sugar/memory.db`) - knowledge that applies everywhere
-
-**Seven memory types**, each with different retrieval behavior:
-
-| Type | Purpose | TTL |
-|------|---------|-----|
-| `decision` | Architecture and implementation choices | Never |
-| `preference` | How you like things done | Never |
-| `file_context` | What files and modules do | Never |
-| `error_pattern` | Bugs and their fixes | 90 days |
-| `research` | API docs, library findings | 60 days |
-| `outcome` | What worked, what didn't | 30 days |
-| `guideline` | Cross-project standards and best practices | Never |
-
-**Search strategy - project-first with reserved guideline slots:**
-
-1. Search the project store first (local context always wins)
-2. Reserve slots for global guidelines (cross-project standards always surface)
-3. Fill remaining slots with other global results
-4. Deduplicate across both stores
-
-This means a mature project's local context dominates results. A new project with no local memory gets global knowledge automatically. And your guidelines are always visible regardless.
-
-**Search engine:** Semantic search via sentence-transformers (all-MiniLM-L6-v2, 384-dim vectors) with sqlite-vec. Falls back to SQLite FTS5 keyword search, then LIKE queries. No external API calls - everything runs locally.
-
-```bash
-# Install with semantic search (recommended)
-pipx install 'sugarai[memory]'
-
-# Works without it too - just uses keyword matching
-pipx install sugarai
-```
-
-**MCP tools available to your AI agent:**
-
-| Tool | What it does |
-|------|-------------|
-| `search_memory` | Search both stores, returns results with scope labels |
-| `store_learning` | Save a memory (pass `scope: "global"` for cross-project) |
-| `recall` | Get formatted markdown context for a topic |
-| `get_project_context` | Full project summary including global guidelines |
-| `list_recent_memories` | Browse recent memories by type |
-
-**MCP resources:**
-- `sugar://project/context` - project summary
-- `sugar://preferences` - coding preferences
-- `sugar://global/guidelines` - cross-project standards
-
-## Task Queue
-
-The task queue lets you hand off work and let it run autonomously. It reads from the same memory store, so Sugar already knows your preferences and patterns before it starts.
-
-```bash
-# Add tasks
-sugar add "Fix authentication timeout" --type bug_fix --urgent
-sugar add "Add user profile settings" --type feature
-
-# Start the autonomous loop
+# Watch it, or let Sugar run it
+sugar dashboard --open
 sugar run
 ```
 
-Sugar picks up tasks, executes them with your configured AI agent, runs tests, commits working code, and moves to the next task. It runs until the queue is empty or you stop it.
+Your agent gets memory and the board over MCP:
 
-**Delegate from Claude Code mid-session:**
-```
-/sugar-task "Fix login timeout" --type bug_fix --urgent
-```
-
-**Advanced task options:**
-New in 3.10: Task Orchestration decomposes large features into a 4-stage workflow (research, plan, implement, review) with specialist agent routing and dependency-ordered sub-tasks.
 ```bash
-# Orchestrated execution - 4-stage workflow (New in 3.10)
-sugar add "Add OAuth authentication" --type feature --orchestrate
-
-# Iterative mode - loops until tests pass
-sugar add "Implement rate limiting" --ralph --max-iterations 10
-
-# Check queue status
-sugar list
-sugar status
+claude mcp add sugar       -- sugar mcp memory
+claude mcp add sugar-tasks -- sugar mcp tasks
 ```
 
-Full docs: [Task Orchestration](docs/task_orchestration.md)
-
-## Autonomous Issue Resolution (optional)
-
-Because Sugar remembers your codebase and conventions, it can also resolve routine issues
-autonomously. Point it at a GitHub repo, configure which labels to act on
-(`security`, `bug`, `dependabot`), and Sugar will read each issue, implement the fix, run your
-tests, and open a PR.
-
-```
-Labeled issue appears on GitHub
-  -> Sugar picks it up (label filter: "security", "dependabot", "bug")
-  -> AI agent reads the issue, analyzes the affected code
-  -> Fix implemented, tests run locally
-  -> PR opened - you review and merge
+```bash
+# Other clients
+sugar opencode setup     # OpenCode, one command
+goose configure          # Goose: Add Extension -> Command-line -> sugar mcp memory
 ```
 
-This is one application of the memory layer, not the headline. Use Sugar purely as memory,
-or enable resolution - your choice. See [workflow examples](docs/workflows/) for security
-auto-fix, bug triage, test coverage, and more.
+## See your fleet work
 
-## Supported AI Tools
+The dashboard and app are only half the story — the Live view is the part that makes a fleet feel real.
+Harnesses stream their tool calls with one line each:
 
-Works with any CLI-based AI coding agent:
+```bash
+sugar emit --kind tool.invoked --task-id "$TASK_ID" \
+  --message "running pytest tests/test_api.py" --payload file=src/api.py
+```
 
-| Agent | Memory MCP | Task MCP | Notes |
-|-------|-----------|---------|-------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Yes | Yes | Full support |
+<img src="docs/images/live-floor.png" alt="SugarDash Live floor: agents at work with real leases, current actions and countdowns" width="880">
+
+No harness wired up yet? The repo ships a simulator for demos:
+
+```bash
+git clone https://github.com/roboticforce/sugar.git && cd sugar
+python scripts/demo_dashboard.py --serve --open      # demo queue + dashboard
+python scripts/simulate_agent_activity.py            # live agents in a second shell
+```
+
+Trends need history; seed a throwaway spine and open the Trends view:
+
+```bash
+python scripts/seed_demo_trends.py --db /tmp/sugar-dashboard-demo/.sugar/events.db --reset
+```
+
+Full walkthrough: [Mission Control](docs/mission-control.md) · [Telemetry](docs/telemetry.md) · [Trends](docs/trends.md)
+
+## Works with your harnesses
+
+Any harness that can run a CLI or speak MCP can use the board and the memory. The built-in runner
+(`sugar run`) drives Claude Code through the Agent SDK today; the other harnesses keep doing their own thing
+while Sugar coordinates them.
+
+| Harness | Board (MCP / CLI / REST) | Shared memory | Notes |
+|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Yes | Yes | Built-in runner; plugin + Skills; full support |
+| Codex | Yes | Yes | Via MCP/CLI; no runner coupling |
+| Cursor | Yes | Yes | Via MCP |
+| [Goose](https://block.github.io/goose) | Yes | Yes | Via MCP extension |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Yes | Yes | `sugar opencode setup` |
-| [Goose](https://block.github.io/goose) | Yes | Yes | Via MCP |
-| [Aider](https://aider.chat) | Via CLI | Via CLI | Manual recall |
+| [Aider](https://aider.chat) | Yes | Yes | Via CLI/MCP |
+| Hermes Kanban | Yes | — | Mirror a board with `--board kanban`; Hermes owns writes |
+| Custom scripts / bots | Yes | Yes | REST + SSE, or MCP |
 
-## Installation
+## Team edition (self-hosted)
 
-**Recommended: pipx** - installs once, available everywhere, no venv conflicts:
+The default dashboard binds loopback and needs no auth. For a team, run one board on a shared machine with
+scoped tokens — reads and writes, nothing in a vendor cloud:
+
 ```bash
-pipx install sugarai
+cat ~/.sugar/board-tokens        # name:scope:secret (scope: read | write; file must be 0600)
+sugar dashboard --bind 0.0.0.0 --allow-remote --token-file ~/.sugar/board-tokens
 ```
 
-**Upgrade / Uninstall:**
-```bash
-pipx upgrade sugarai
-pipx uninstall sugarai
-```
+The browser exchanges a one-time token for a `SameSite=Strict` cookie; API/SSE accept `Authorization: Bearer`.
+Remote binds are refused without both `--allow-remote` and a token source, the foreign-Origin write guard
+stays on, and TLS is expected from a reverse proxy. See [Board Server](docs/board-server.md) for the threat
+model and Caddy/nginx setup.
+
+What teams get today: one live board, provenance, cost attribution, and audit exports. Approval policies,
+RBAC/SSO, quotas and a hosted relay are on the roadmap — [tell us what your team needs](mailto:contact@roboticforce.io?subject=Sugar%20team%20edition).
+
+## Why Sugar
+
+- **Harness-neutral by design.** You don't have to pick a winner. Claude Code, Codex, Cursor, Goose, OpenCode,
+  DSH and your own scripts share one queue and one history.
+- **Local-first, not cloud-first.** Task state, memory and the event spine are SQLite files on your disk. No
+  account, no repo upload, no vendor in the loop. Remote mode is opt-in and self-hosted.
+- **Evidence beats dashboards.** Any tool can show you a board. Sugar records the claim, the lease, the actor,
+  the harness, the transitions and the spend — then lets you export and verify it.
+- **Durable, not demo-grade.** Atomic claims, lease heartbeats, crash reaping, dependency gating and retries are
+  tested against a backend-agnostic conformance suite.
+- **Open and inspectable.** Dual-licensed AGPL-3.0 + commercial; the REST/SSE contract, event schema and
+  adapter playbook are documented and versioned.
+
+**What Sugar is not:** not a model vendor, not an agent runtime or cloud coding agent, not a code host, and not
+another kanban UI. It's the neutral layer underneath the harnesses you already chose.
 
 <details>
-<summary>Other installation methods</summary>
+<summary><strong>FAQ</strong></summary>
 
-**pip** (requires venv activation each session)
-```bash
-pip install sugarai
-```
+**Is this just a kanban board for agents?**
+No. A board shows status; Sugar owns the queue, the claim/lease transaction, dependency gating, provenance and
+an append-only history. It can mirror a Hermes Kanban board, but it doesn't depend on one.
 
-**uv**
-```bash
-uv pip install sugarai
-```
+**How is this different from Claude Code Agent Teams or a single-harness orchestrator?**
+Those make one harness better at running its own agents. Sugar coordinates *across* harnesses and keeps the
+durable record. You can run Claude Code Agent Teams and still put their work on the same board as Codex.
 
-**With semantic search (recommended for memory):**
-```bash
-pipx install 'sugarai[memory]'
-```
+**Does Sugar send my code or data anywhere?**
+No. State is local SQLite by default; the dashboard binds loopback. Telemetry is what your harness explicitly
+emits (`sugar emit` / `POST /api/events`), and audit exports are files you write yourself.
 
-**With GitHub integration:**
-```bash
-pipx install 'sugarai[github]'
-```
+**Do I need to change how my agents work?**
+No. Add the MCP servers (tasks + memory) or use the CLI/REST API. The built-in runner is optional.
 
-**All features:**
-```bash
-pipx install 'sugarai[all]'
-```
+**Is it production-ready?**
+The 3.10 line is an early release: used daily, with a large test suite and CI across Linux/macOS/Windows, but
+expect rough edges. Start with a demo board or a side project, then move your real queue over.
 
 </details>
 
-Sugar is **project-local** by default. Each project gets its own `.sugar/` folder with its own database and config. Global memory lives at `~/.sugar/`. Like `git` - one installation, per-project state.
+## Install
 
-## Project Structure
+**Recommended: pipx** — one install, available everywhere:
 
-```
-~/.sugar/
-└── memory.db          # Global memory (guidelines, cross-project knowledge)
-
-~/dev/my-app/
-├── .sugar/
-│   ├── sugar.db       # Project memory + task queue
-│   ├── config.yaml    # Project settings
-│   └── prompts/       # Custom agent prompts
-└── src/
+```bash
+pipx install 'sugarai[all]'          # dashboard, memory search, MCP, GitHub, OpenCode
+pipx upgrade sugarai
 ```
 
-**Recommended .gitignore:**
-```gitignore
-.sugar/sugar.db
-.sugar/sugar.log
-.sugar/*.db-*
+<details>
+<summary>Other options</summary>
+
+```bash
+pip install 'sugarai[all]'           # inside a venv
+uv pip install 'sugarai[all]'        # uv
+pipx install sugarai                 # core only (keyword memory, no dashboard)
+pipx install 'sugarai[dashboard]'    # web dashboard + macOS app backend
+pipx install 'sugarai[memory]'       # semantic memory (local embeddings)
 ```
 
-Commit `.sugar/config.yaml` and `.sugar/prompts/` to share settings with your team.
+**Native macOS app:** [latest release](https://github.com/roboticforce/sugar/releases/latest) — or build it:
 
-## Configuration
-
-`.sugar/config.yaml` is created on `sugar init`:
-
-```yaml
-sugar:
-  dry_run: false
-  loop_interval: 300
-  max_concurrent_work: 3
-
-claude:
-  enable_agents: true
-
-discovery:
-  github:
-    enabled: true
-    repo: "user/repository"
+```bash
+cd apps/macos && ./build-app.sh && open dist/SugarDash.app
 ```
+
+**Requirements:** Python 3.11+, macOS 14+ for the app, and a CLI/MCP-capable coding agent if you want agents to
+claim work.
+
+</details>
+
+## Also in the box
+
+- **Discovery** — turn GitHub issues, error logs and code analysis into queue items.
+- **Autonomous runner** — `sugar run` claims, executes, tests, commits and moves on; `--ralph` iterates until
+  tests pass.
+- **Orchestration** — decompose a large task into a research → plan → implement → review workflow.
+- **Quality gates and hooks** — pre/post-execution checks, file protection and command guardrails.
+- **Agent Skills** — `sugar-memory`, `sugar-task-planner`, `sugar-quality-guardian`, `sugar-orchestrator`,
+  with evaluation data in `skills/`.
+- **Claude Code plugin** — slash commands and hooks via `.claude-plugin/`.
+- **Task types, learning and memory types** — the boring machinery that makes repeated runs better.
 
 ## Documentation
 
-- [Quick Start](docs/user/quick-start.md)
-- [Memory System](docs/user/memory.md)
-- [Skill Benchmarks](docs/dev/skill-benchmarks.md)
-- [CLI Reference](docs/user/cli-reference.md)
-- [Task Orchestration](docs/task_orchestration.md)
-- [Goose Integration](docs/user/goose.md)
-- [OpenCode Integration](docs/user/opencode.md)
-- [GitHub Integration](docs/user/github-integration.md)
-- [Configuration Guide](docs/user/configuration-best-practices.md)
-- [Troubleshooting](docs/user/troubleshooting.md)
+- [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
+- [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
+- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
+- [Board Server](docs/board-server.md) — team/remote access and TLS
+- [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
+- [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)
+- [Agent Teams: market & validation](docs/agent-teams-market.md) · [Business strategy](docs/business-strategy.md)
 
-## Requirements
+## Status and roadmap
 
-- Python 3.11+
-- A CLI-based AI agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/opencode-ai/opencode), [Aider](https://aider.chat), or similar
+Sugar is an early 3.10 release. The stable parts: the task store contract, the event spine schema, the REST/SSE
+contract and the audit format. The moving parts: live telemetry wiring, remote/mobile access, approval policies
+and additional runners.
+
+Next up, roughly in order: zero-config harness hooks (so Live lights up without manual `sugar emit`), pairing and
+a mobile-friendly Mission Control, permission modes with ledger-recorded approvals, then a Postgres backend.
+Ideas and bug reports are welcome — [open an issue](https://github.com/roboticforce/sugar/issues).
 
 ## Contributing
 
-Contributions welcome. See [CONTRIBUTING.md](docs/dev/contributing.md).
-
 ```bash
 git clone https://github.com/roboticforce/sugar.git
-cd sugar
+cd sugar && git checkout develop
 uv pip install -e ".[dev,test,github,mcp]"
 pytest tests/ -v
 ```
 
+See [CONTRIBUTING](docs/dev/contributing.md). PRs target `develop`; releases go to `main`.
+
 ## License
 
-**Dual License: AGPL-3.0 + Commercial**
+**Dual license: AGPL-3.0 + commercial.**
 
-- **Open Source (AGPL-3.0)**: Free for open source and personal use
-- **Commercial License**: For proprietary use - [sugar.roboticforce.io/licensing](https://sugar.roboticforce.io/licensing)
+- **AGPL-3.0** — free for open source and personal use.
+- **Commercial license** — for proprietary use. [Contact RoboticForce](mailto:contact@roboticforce.io) or see
+  [LICENSE](LICENSE).
 
 ---
 

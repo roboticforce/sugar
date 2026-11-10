@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sugarai"
-version = "3.10.6"
-description = "Persistent memory for AI coding agents. Local-first, cross-session context, global knowledge, and optional autonomous task execution."
+version = "3.10.7"
+description = "The coordination and evidence layer for AI agent fleets: a local-first task board with atomic claims, live Mission Control, cost attribution, audit exports and shared memory for Claude Code, Codex and any MCP harness."
 
 readme = "README.md"
 requires-python = ">=3.11"
@@ -71,8 +71,12 @@ memory = [
 opencode = [
     "aiohttp==3.13.3",
 ]
+dashboard = [
+    "starlette==0.52.1",
+    "uvicorn==0.42.0",
+]
 all = [
-    "sugarai[github,mcp,memory,opencode]",
+    "sugarai[github,mcp,memory,opencode,dashboard]",
 ]
 
 [project.scripts]
@@ -88,6 +92,9 @@ Repository = "https://github.com/roboticforce/sugar"
 where = ["."]
 include = ["sugar*"]
 exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"sugar.dashboard" = ["static/*.html"]
 
 [tool.black]
 line-length = 88

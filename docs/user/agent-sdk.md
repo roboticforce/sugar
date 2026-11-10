@@ -225,6 +225,6 @@ cat .sugar/config.yaml | grep -A5 protected_files
 
 ## Next Steps
 
-- [Configuration Reference](configuration.md) - Full configuration options
+- [Configuration Best Practices](configuration-best-practices.md) - Configuration patterns and exclusions
 - [CLI Reference](cli-reference.md) - Command line usage
 - [Troubleshooting](troubleshooting.md) - Common issues

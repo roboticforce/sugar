@@ -398,6 +398,18 @@ def init(project_dir):
     default=None,
     help="JSON string or @file path with acceptance criteria for task completion",
 )
+@click.option(
+    "--actor",
+    default=None,
+    metavar="ID",
+    help="Who is creating this task (default: $SUGAR_ACTOR, $SUGAR_AGENT_ID, or $USER@host)",
+)
+@click.option(
+    "--actor-kind",
+    type=click.Choice(["human", "agent", "system"]),
+    default=None,
+    help="Kind of actor creating this task (default: inferred)",
+)
 @click.pass_context
 def add(
     ctx,
@@ -417,6 +429,8 @@ def add(
     completion_promise,
     triage,
     acceptance_criteria,
+    actor,
+    actor_kind,
 ):
     """Add a new task to Sugar work queue
 
@@ -503,6 +517,10 @@ def add(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
+        # Provenance: who asked for this work (see sugar/identity.py).
+        from .identity import resolve_actor
+
+        task_data.update(resolve_actor(actor, kind=actor_kind).as_task_fields())
 
         # Add orchestration metadata if enabled
         if orchestrate:
@@ -4617,6 +4635,424 @@ def memory_stats(ctx):
 
 
 # =============================================================================
+# Local Dashboard Command
+# =============================================================================
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return True when *host* resolves exclusively to loopback addresses."""
+    import ipaddress
+    import socket
+
+    candidate = (host or "").strip()
+    if not candidate:
+        return False
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(candidate, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    addresses = [info[4][0] for info in infos]
+    if not addresses:
+        return False
+    try:
+        return all(
+            ipaddress.ip_address(address.split("%")[0]).is_loopback
+            for address in addresses
+        )
+    except ValueError:
+        return False
+
+
+def _resolve_dashboard_db_path(db_option, config_file):
+    """Resolve the dashboard database path (``--db`` wins over config)."""
+    from pathlib import Path
+
+    if db_option:
+        return Path(db_option).expanduser().resolve()
+
+    config = _require_sugar_project(config_file)
+    try:
+        configured = config["sugar"]["storage"]["database"]
+    except (KeyError, TypeError):
+        configured = None
+    if not configured:
+        click.echo("❌ Could not determine the work queue database path.", err=True)
+        click.echo("   Pass --db PATH or check .sugar/config.yaml.", err=True)
+        sys.exit(1)
+
+    db_path = Path(str(configured)).expanduser()
+    if not db_path.is_absolute():
+        db_path = Path.cwd() / db_path
+    return db_path.resolve()
+
+
+@cli.command("dashboard")
+@click.option(
+    "--host",
+    default=None,
+    help="Deprecated alias for --bind (kept for backwards compatibility)",
+)
+@click.option(
+    "--bind",
+    "bind_addr",
+    default=None,
+    metavar="ADDR",
+    help=(
+        "Address to bind [default: 127.0.0.1]. Non-loopback binds require "
+        "--allow-remote and a token source"
+    ),
+)
+@click.option(
+    "--allow-remote",
+    is_flag=True,
+    help="Explicitly allow a non-loopback bind (requires --token-file or --token)",
+)
+@click.option(
+    "--token-file",
+    "token_file",
+    default=None,
+    metavar="PATH",
+    help=(
+        "File with 'name:scope:token' lines (scope read|write; write implies "
+        "read; mode 0600)"
+    ),
+)
+@click.option(
+    "--token",
+    "adhoc_token",
+    default=None,
+    metavar="TOKEN",
+    help="Single ad-hoc write-scope token (prefer --token-file)",
+)
+@click.option(
+    "--port", default=7331, show_default=True, type=int, help="Port to listen on"
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Path to sugar.db (overrides .sugar/config.yaml)",
+)
+@click.option(
+    "--open", "open_browser", is_flag=True, help="Open the dashboard in a browser"
+)
+@click.option("--read-only", is_flag=True, help="Reject all writes with 403")
+@click.option(
+    "--board",
+    type=click.Choice(["sugar", "kanban"], case_sensitive=False),
+    default="sugar",
+    show_default=True,
+    help="Which board to serve: Sugar's work queue or a Hermes Kanban board",
+)
+@click.option(
+    "--kanban-board",
+    default=None,
+    metavar="SLUG",
+    help="Hermes Kanban board slug (--board kanban; default: Hermes' current board)",
+)
+@click.option(
+    "--hermes-bin",
+    default=None,
+    metavar="PATH",
+    help="Path to the hermes CLI (--board kanban; default: $HERMES_BIN or PATH)",
+)
+@click.option(
+    "--events-db",
+    "events_db",
+    default=None,
+    metavar="PATH",
+    help=(
+        "Event-spine database for the live activity feed "
+        "[default: ~/.sugar/events.db; pass '' to disable]"
+    ),
+)
+@click.pass_context
+def dashboard(
+    ctx,
+    host,
+    bind_addr,
+    allow_remote,
+    token_file,
+    adhoc_token,
+    port,
+    db_path,
+    open_browser,
+    read_only,
+    board,
+    kanban_board,
+    hermes_bin,
+    events_db,
+):
+    """Start the dashboard for a work board
+
+    The default server is loopback-only with no authentication. To share one
+    board with a team, bind to a LAN address with --allow-remote and supply
+    scoped bearer tokens (see docs/board-server.md):
+
+        sugar dashboard --bind 0.0.0.0 --allow-remote --token-file ~/.sugar/board-tokens
+
+    Install the optional dependencies with:
+
+        pip install 'sugarai[dashboard]'
+
+    Use --board kanban to point the same UI at a shared Hermes Kanban board
+    (reads from kanban.db, writes through `hermes kanban`).
+    """
+    import asyncio
+
+    # -- bind + auth validation (fail fast, before optional imports) -------
+    if host is not None and bind_addr is not None:
+        click.echo(
+            "❌ --host and --bind are mutually exclusive; use --bind ADDR", err=True
+        )
+        sys.exit(1)
+    if host is not None:
+        click.echo("⚠️ --host is deprecated; use --bind ADDR", err=True)
+        bind_addr = host
+    bind_addr = (bind_addr or "127.0.0.1").strip()
+    if not bind_addr:
+        click.echo("❌ --bind must not be empty", err=True)
+        sys.exit(1)
+
+    token_source = token_file is not None or adhoc_token is not None
+
+    loopback = _is_loopback_host(bind_addr)
+    if not loopback and not allow_remote:
+        click.echo(
+            f"❌ Refusing to bind {bind_addr!r}: the dashboard is loopback-only "
+            "by default.",
+            err=True,
+        )
+        click.echo(
+            "   Pass --allow-remote (and a token source) to share the board "
+            "on a network.",
+            err=True,
+        )
+        sys.exit(1)
+    if not loopback and not token_source:
+        click.echo(
+            "❌ Remote mode requires authentication: pass --token-file PATH "
+            "(preferred) or --token TOKEN",
+            err=True,
+        )
+        sys.exit(1)
+
+    if not 1 <= port <= 65535:
+        click.echo(f"❌ Invalid port: {port}", err=True)
+        sys.exit(1)
+
+    try:
+        import starlette  # noqa: F401
+        import uvicorn  # noqa: F401
+
+        from .dashboard.server import run_dashboard
+    except ImportError:
+        click.echo(
+            "❌ Dashboard dependencies not installed. Install with:\n"
+            "   pip install 'sugarai[dashboard]'",
+            err=True,
+        )
+        sys.exit(1)
+
+    tokens = None
+    if token_source:
+        from .dashboard.security import TokenConfigError, build_token_registry
+
+        if adhoc_token is not None:
+            click.echo(
+                "⚠️ --token is visible in shell history and the process list; "
+                "prefer --token-file",
+                err=True,
+            )
+        try:
+            tokens = build_token_registry(
+                token_file=token_file, adhoc_token=adhoc_token
+            )
+        except TokenConfigError as exc:
+            click.echo(f"❌ {exc}", err=True)
+            sys.exit(1)
+
+    board = (board or "sugar").lower()
+    if board == "kanban":
+        # Hermes resolves boards to their own database files; no Sugar config
+        # is required, so the dashboard can run from any directory.
+        from .dashboard.kanban.paths import kanban_db_path
+
+        database_path = kanban_db_path(kanban_board, explicit=db_path)
+        if not database_path.exists():
+            click.echo(
+                f"❌ Kanban database not found: {database_path}\n"
+                "   Initialize the board with 'hermes kanban init', or pass --db.",
+                err=True,
+            )
+            sys.exit(1)
+    else:
+        database_path = _resolve_dashboard_db_path(db_path, ctx.obj["config"])
+        try:
+            database_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            click.echo(f"❌ Could not create database directory: {exc}", err=True)
+            sys.exit(1)
+
+    url_host = f"[{bind_addr}]" if ":" in bind_addr else bind_addr
+    url = f"http://{url_host}:{port}"
+    if events_db is None:
+        from .dashboard.spine import default_events_db_path
+
+        events_db = str(default_events_db_path())
+    elif events_db == "":
+        events_db = None
+
+    click.echo("🍰 Sugar dashboard")
+    click.echo(f"   URL:      {url}")
+    click.echo(f"   Board:    {board}")
+    click.echo(f"   Database: {database_path}")
+    click.echo(f"   Activity: {events_db or 'disabled'}")
+    click.echo(f"   Mode:     {'read-only' if read_only else 'read/write'}")
+    if tokens is not None:
+        click.echo(f"   Auth:     {tokens.describe()}")
+        if loopback:
+            click.echo(
+                "   Remote:   auth enabled on a loopback bind (reverse-proxy ready)"
+            )
+        else:
+            click.echo(
+                "   Remote:   enabled (LAN) — terminate TLS in a reverse proxy "
+                "for untrusted networks"
+            )
+    else:
+        click.echo("   Auth:     disabled (loopback only)")
+    if allow_remote and loopback:
+        click.echo("   Remote:   --allow-remote has no effect on a loopback bind")
+    if board == "kanban" and not hermes_bin:
+        from .dashboard.kanban.client import resolve_hermes_bin
+
+        resolved_bin = resolve_hermes_bin()
+        click.echo(
+            f"   Hermes:   {resolved_bin or 'not found — writes will fail (set --hermes-bin)'}"
+        )
+    click.echo("\nPress Ctrl+C to stop\n")
+
+    try:
+        asyncio.run(
+            run_dashboard(
+                str(database_path),
+                host=bind_addr,
+                port=port,
+                read_only=read_only,
+                open_browser=open_browser,
+                board=board,
+                kanban_board=kanban_board,
+                hermes_bin=hermes_bin,
+                events_db=events_db,
+                tokens=tokens,
+            )
+        )
+    except KeyboardInterrupt:
+        click.echo("\n👋 Dashboard stopped")
+
+
+# =============================================================================
+# Usage / Cost Attribution Command
+# =============================================================================
+
+
+@cli.command("usage")
+@click.option(
+    "--db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option(
+    "--since", default=None, help="Only events at/after this ISO-8601 timestamp"
+)
+@click.option(
+    "--until", default=None, help="Only events at/before this ISO-8601 timestamp"
+)
+@click.option(
+    "--group-by",
+    type=click.Choice(
+        ["actor", "harness", "task", "project", "day", "kind"],
+        case_sensitive=False,
+    ),
+    default=None,
+    help="Break down by this dimension (default: totals only)",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 50000)",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def usage(events_db, since, until, group_by, limit, as_json):
+    """Show agent token/cost usage reported to the event spine
+
+    Usage is reported by harnesses, not inferred by Sugar. Post a
+    ``usage.reported`` event (or a ``run.ended`` event carrying the same
+    payload fields) to the dashboard's event API:
+
+        POST /api/events
+        {"kind": "usage.reported", "harness": "dsh", "actor": "dsh",
+         "payload": {"tokens_in": 1200, "tokens_out": 800, "cost_usd": 0.42}}
+
+    Examples:
+
+        sugar usage
+
+        sugar usage --since 2026-11-01 --group-by day
+
+        sugar usage --group-by harness --json
+
+    The events DB is read-only here; the aggregation matches
+    ``GET /api/usage`` on the dashboard. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.spine import default_events_db_path
+        from .dashboard.usage import (
+            UsageQueryError,
+            format_usage_table,
+            usage_report,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the usage command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        report = asyncio.run(
+            usage_report(
+                db_path,
+                since=since,
+                until=until,
+                group_by=group_by,
+                limit=limit,
+            )
+        )
+    except UsageQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(format_usage_table(report))
+
+
+# =============================================================================
 # MCP Server Commands
 # =============================================================================
 
@@ -4734,6 +5170,7 @@ def mcp_tasks(ctx, transport):
         - sugar_update_task: Update task properties
         - sugar_task_status: Get queue statistics
         - sugar_remove_task: Remove a task
+        - sugar_emit_event: Emit a live activity event (docs/telemetry.md)
 
     To add to OpenCode, add to opencode.json:
         {
@@ -5157,6 +5594,471 @@ def opencode_setup(ctx, yes, dry_run, config_path, memory, tasks):
     if memory:
         click.echo("  • sugar_remember - Store memories")
         click.echo("  • sugar_recall - Search memories")
+
+
+# =============================================================================
+# Audit Export Commands
+# =============================================================================
+
+
+def _audit_events_db(db_option):
+    """Resolve the event-spine database for the audit CLI."""
+    from pathlib import Path
+
+    from .dashboard.spine import default_events_db_path
+
+    if db_option:
+        return str(Path(db_option).expanduser().resolve())
+    return str(default_events_db_path().expanduser())
+
+
+def _audit_print_export(result, json_output):
+    import json as _json
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        return
+    click.echo("✅ Audit export written")
+    click.echo(f"   JSONL:    {result.jsonl_path}")
+    click.echo(f"   Manifest: {result.manifest_path}")
+    if result.count:
+        click.echo(
+            f"   Events:   {result.count} "
+            f"(first_id={result.first_id}, last_id={result.last_id})"
+        )
+    else:
+        click.echo("   Events:   0 (empty range)")
+    click.echo(f"   SHA-256:  {result.sha256}")
+    if result.signed:
+        click.echo(f"   Signed:   hmac-sha256 key_id={result.key_id}")
+    else:
+        click.echo("   Signed:   no (hash-only export)")
+    filters = result.filters
+    if any(
+        (
+            filters.get("since"),
+            filters.get("until"),
+            filters.get("kinds"),
+            filters.get("limit"),
+        )
+    ):
+        kinds = ",".join(filters.get("kinds") or []) or "all"
+        click.echo(
+            f"   Filters:  since={filters.get('since')} "
+            f"until={filters.get('until')} kinds={kinds} "
+            f"limit={filters.get('limit')}"
+        )
+    if result.truncated:
+        click.echo(
+            "   ⚠️  Truncated at --limit: more events matched than were exported."
+        )
+
+
+@cli.group()
+@click.pass_context
+def audit(ctx):
+    """Export and verify tamper-evident audit logs of the event spine"""
+    pass
+
+
+@audit.command("export")
+@click.option(
+    "--out",
+    "out_path",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=str),
+    help="JSONL output path; the manifest is written next to it",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--since", default=None, help="Only events with ts >= ISO-8601")
+@click.option("--until", default=None, help="Only events with ts <= ISO-8601")
+@click.option(
+    "--kinds", default=None, metavar="a,b", help="Comma-separated event kinds"
+)
+@click.option(
+    "--limit",
+    default=None,
+    type=int,
+    help="Maximum events to export (safety guard; sets truncated)",
+)
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key (never the key)",
+)
+@click.option("--force", is_flag=True, help="Overwrite existing export files")
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+@click.pass_context
+def audit_export(
+    ctx,
+    out_path,
+    db_path,
+    since,
+    until,
+    kinds,
+    limit,
+    sign_key_env,
+    force,
+    json_output,
+):
+    """Export the event spine to canonical JSONL plus a manifest
+
+    Examples:
+
+        sugar audit export --out /secure/audit/2026-11.jsonl
+
+        sugar audit export --out audit.jsonl --since 2026-11-01T00:00:00Z
+
+        SUGAR_AUDIT_HMAC_KEY=... sugar audit export --out audit.jsonl \
+            --sign-key-env SUGAR_AUDIT_HMAC_KEY
+
+    The export is read-only against the spine. Keep the output private: it
+    contains task metadata (see docs/audit.md).
+    """
+    import asyncio
+
+    from .audit.export import AuditError, export_events
+
+    kind_list = None
+    if kinds is not None:
+        kind_list = [part.strip() for part in kinds.split(",") if part.strip()]
+        if not kind_list:
+            click.echo("❌ --kinds must contain at least one event kind", err=True)
+            sys.exit(1)
+
+    try:
+        result = asyncio.run(
+            export_events(
+                _audit_events_db(db_path),
+                out_path,
+                since=since,
+                until=until,
+                kinds=kind_list,
+                limit=limit,
+                sign_key_env=sign_key_env,
+                force=force,
+            )
+        )
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+
+    _audit_print_export(result, json_output)
+
+
+@audit.command("verify")
+@click.argument("jsonl_path", type=click.Path(dir_okay=False, path_type=str))
+@click.argument("manifest_path", type=click.Path(dir_okay=False, path_type=str))
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify(jsonl_path, manifest_path, sign_key_env, json_output):
+    """Verify an audit export offline; exits non-zero on any mismatch
+
+    Recomputes the JSONL SHA-256 and checks count/first/last ids, canonical
+    JSON, id ordering and (when signed) the HMAC-SHA256 signature.
+    """
+    import json as _json
+
+    from .audit.export import AuditError, verify_export
+
+    try:
+        result = verify_export(jsonl_path, manifest_path, key_env=sign_key_env)
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    elif result.ok:
+        manifest = result.manifest or {}
+        click.echo("✅ Audit export verified")
+        click.echo(f"   JSONL:    {result.jsonl_path}")
+        click.echo(f"   Manifest: {result.manifest_path}")
+        click.echo(
+            f"   Events:   {result.count} "
+            f"(first_id={manifest.get('first_id')}, "
+            f"last_id={manifest.get('last_id')})"
+        )
+        click.echo(f"   SHA-256:  {result.sha256}")
+        if result.signed:
+            click.echo(f"   Signed:   hmac-sha256 key_id={result.key_id}")
+        else:
+            click.echo("   Signed:   no (hash-only verification)")
+        if manifest.get("truncated"):
+            click.echo(
+                "   Note:     export was truncated by --limit "
+                "(manifest.truncated=true)"
+            )
+    else:
+        click.echo("❌ Audit export verification FAILED", err=True)
+        for error in result.errors:
+            click.echo(f"   • {error}", err=True)
+
+    if not result.ok:
+        sys.exit(1)
+
+
+# =============================================================================
+# Agent Activity Commands
+# =============================================================================
+
+
+def _parse_emit_payload(items):
+    """Parse repeatable ``--payload KEY=VALUE`` items with JSON coercion."""
+    import json
+
+    payload = {}
+    for item in items:
+        key, separator, raw = item.partition("=")
+        key = key.strip()
+        if not separator or not key:
+            raise click.BadParameter(
+                f"invalid --payload {item!r}: expected KEY=VALUE",
+                param_hint="--payload",
+            )
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            value = raw
+        payload[key] = value
+    return payload
+
+
+@cli.command("emit")
+@click.option(
+    "--kind",
+    default="tool.invoked",
+    show_default=True,
+    help=(
+        "Event kind (e.g. tool.invoked, run.started, run.ended, "
+        "agent.activity, usage.reported)"
+    ),
+)
+@click.option(
+    "--actor",
+    default=None,
+    help="Actor id (default: $SUGAR_ACTOR / $SUGAR_AGENT_ID / $USER@host)",
+)
+@click.option(
+    "--actor-kind",
+    type=click.Choice(["human", "agent", "system"]),
+    default=None,
+    help="Actor kind (default: inferred from the environment)",
+)
+@click.option("--task-id", default=None, help="Related task id")
+@click.option(
+    "--harness", default="sugar", show_default=True, help="Harness/agent name"
+)
+@click.option("--session-id", default=None, help="Session id (default: $SUGAR_SESSION)")
+@click.option("--project", default=None, help="Project id")
+@click.option("--message", default=None, help="Shorthand for payload.message")
+@click.option(
+    "--payload",
+    "payload_items",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help=(
+        "Extra payload field; VALUE is JSON-decoded when possible "
+        "(numbers, booleans, objects). Repeatable."
+    ),
+)
+@click.option(
+    "--server",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--token",
+    default=None,
+    help="Bearer token (default: $SUGAR_BOARD_TOKEN; never printed)",
+)
+@click.option("--json", "json_output", is_flag=True, help="Print JSON summary")
+@click.pass_context
+def emit(
+    ctx,
+    kind,
+    actor,
+    actor_kind,
+    task_id,
+    harness,
+    session_id,
+    project,
+    message,
+    payload_items,
+    server,
+    token,
+    json_output,
+):
+    """Emit one live activity event to a running Sugar board
+
+    Use this from harness hooks (one call per tool call) so the dashboard and
+    macOS app can show what agents are doing in real time. Events land in the
+    event spine and stream live over SSE. See docs/telemetry.md.
+
+    Examples:
+
+        sugar emit --kind tool.invoked --task-id 9a88e031 --message "running pytest tests/test_api.py"
+
+        sugar emit --kind run.started --harness claude-code --message "starting run"
+
+        sugar emit --kind usage.reported --payload tokens_in=1200 --payload cost_usd=0.03
+    """
+    import json
+
+    from .activity import ActivityConfigError, ActivityError, emit_activity
+    from .identity import resolve_actor
+
+    kind = (kind or "").strip()
+    if not kind:
+        raise click.BadParameter("must not be empty", param_hint="--kind")
+
+    payload = _parse_emit_payload(payload_items)
+    if message is not None:
+        payload["message"] = message
+
+    actor_info = resolve_actor(actor, kind=actor_kind)
+    try:
+        event = emit_activity(
+            kind,
+            actor=actor_info.id,
+            actor_kind=actor_info.kind,
+            harness=harness,
+            session_id=session_id or actor_info.session,
+            task_id=task_id,
+            project=project,
+            payload=payload or None,
+            server=server,
+            token=token,
+        )
+    except ActivityConfigError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        raise click.exceptions.Exit(2)
+    except ActivityError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        raise click.exceptions.Exit(1)
+
+    event_id = event.get("id")
+    if json_output:
+        click.echo(
+            json.dumps(
+                {
+                    "id": event_id,
+                    "kind": event.get("kind", kind),
+                    "task_id": event.get("task_id", task_id),
+                    "actor": event.get("actor", actor_info.id),
+                }
+            )
+        )
+    else:
+        click.echo(f"✅ emitted event {event_id} ({kind})")
+
+
+# =============================================================================
+# Trends Command
+# =============================================================================
+
+
+@cli.command("trends")
+@click.option(
+    "--db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option("--since", default=None, help="Range start (ISO-8601; default until-7d)")
+@click.option("--until", default=None, help="Range end (ISO-8601; default now)")
+@click.option(
+    "--bucket",
+    type=click.Choice(["hour", "day", "week"], case_sensitive=False),
+    default="day",
+    show_default=True,
+    help="Bucket size (UTC-aligned; week starts Monday)",
+)
+@click.option(
+    "--group-by",
+    type=click.Choice(["actor", "harness", "project"], case_sensitive=False),
+    default="actor",
+    show_default=True,
+    help="Series dimension",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=50000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 200000)",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def trends(events_db, since, until, bucket, group_by, limit, as_json):
+    """Show time-bucketed work trends from the event spine
+
+    Counts task.created/claimed/completed/failed events, tokens/cost reported
+    by harnesses, and pairs task.completed with the latest prior task.claimed
+    for the same task_id to compute cycle time. Buckets are UTC-aligned and
+    zero-filled, so every bucket in the range appears.
+
+    Examples:
+
+        sugar trends
+
+        sugar trends --since 2026-11-01 --bucket hour --group-by harness
+
+        sugar trends --since 2026-10-01 --until 2026-11-01 --bucket week --json
+
+    The events DB is read-only here; the computation matches
+    ``GET /api/trends`` on the dashboard. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.spine import default_events_db_path
+        from .dashboard.trends import (
+            TrendsQueryError,
+            format_trends_table,
+            trends_report,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the trends command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        report = asyncio.run(
+            trends_report(
+                db_path,
+                since=since,
+                until=until,
+                bucket=bucket,
+                group_by=group_by,
+                limit=limit,
+            )
+        )
+    except TrendsQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(format_trends_table(report))
 
 
 if __name__ == "__main__":

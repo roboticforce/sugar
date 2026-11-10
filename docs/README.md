@@ -1,6 +1,13 @@
 # Sugar Documentation
 
-Welcome to the Sugar documentation! Sugar is a local-first memory layer for AI coding agents. It stores your decisions, conventions, and patterns so your AI agent (Claude Code, Goose, OpenCode, or any MCP client) recalls them in every session, across every project - without sending your knowledge to a vendor's cloud.
+Welcome to the Sugar documentation! Sugar is mission control for your agent fleet:
+one local-first task board with atomic claims and leases, an append-only event spine for provenance, cost and
+audit, and shared memory that follows you across projects. Claude Code, Codex, Cursor, Goose, OpenCode and any
+MCP-capable harness can claim the same work and leave the same durable history - without sending your code,
+knowledge or task state to a vendor cloud.
+
+New here? Start with **[Mission Control](mission-control.md)** for the control plane, then the
+[Quick Start](user/quick-start.md) and the [CLI reference](user/cli-reference.md).
 
 ## 📚 Documentation Structure
 
@@ -19,26 +26,42 @@ Documentation for developers who want to **use** Sugar in their projects:
 - **[Task Hooks Guide](task-hooks.md)** - Pre/post execution hooks for automation
 - **[Thinking Capture Guide](thinking-capture.md)** - View Claude's reasoning during execution
 - **[Model Routing Guide](dev/model-routing-guide.md)** - Intelligent model selection by task
-- **[Configuration Reference](user/configuration.md)** - Complete configuration options
 - **[Troubleshooting](user/troubleshooting.md)** - Common issues and solutions
 - **[FAQ](user/faq.md)** - Frequently asked questions
+
+### 🎛️ Mission Control & Agent Teams
+
+Documentation for watching and steering agents, and for running several harnesses
+against one board:
+
+- **[Mission Control](mission-control.md)** - Dashboard, native macOS app, provenance and the event spine: the whole control plane in one place
+- **[Local Dashboard API](local-dashboard.md)** - Frozen REST/SSE contract, board sources (`--board sugar|kanban`), provenance fields, event-spine schema
+- **[Sugar as a Team Bus](agent-teams.md)** - Code-grounded analysis: what Sugar already does for multi-agent coordination, the gaps, and the phased plan
+- **[Agent Teams: Market & Validation](agent-teams-market.md)** - Landscape (Claude Agent Teams, Vibe Kanban, A2A), Sugar's honest gaps, positioning, and the experiments that tell us whether teams actually want this
+- **[Agent Teams: Architecture & Domain Boundaries](agent-teams-architecture.md)** - Wardley map (build vs. adopt vs. commodity), C4-style architecture, DDD bounded contexts, trust boundaries, and the investment split
+- **[Adapters](adapters.md)** - The adapter playbook: taxonomy, catalog, non-negotiable rules, canonical mapping, conformance kit and the order to build them in
+- **[Storage Port](storage-port.md)** - `TaskStore` contract, the backend-agnostic conformance suite, SQLite-specific semantics, and what a Postgres backend must implement
+- **[Board Server](board-server.md)** - Share one board: remote binding, scoped `read`/`write` tokens, browser cookie exchange, TLS-proxy deployment and threat model
+- **[Usage & Cost](usage.md)** - Harness-reported usage/cost events, `/api/usage`, `sugar usage`, and the Activity panel: "where is the money going?"
+- **[Telemetry](telemetry.md)** - Live agent activity events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`), `sugar emit`, and the MCP `sugar_emit_event` tool
+- **[Trends](trends.md)** - Time-bucketed work analytics (`/api/trends`, `sugar trends`): throughput, failures, cycle time and spend by agent, harness or project
+- **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
+- **[Business Strategy](business-strategy.md)** - Positioning, ICP, open-core monetization (tiers, pricing hypotheses, dual licensing), growth engine, revenue-tied roadmap and 30/60/90 plan
 
 ### 🛠️ Developer Documentation (`docs/dev/`)
 Documentation for developers who want to **contribute** to Sugar:
 
 - **[Local Development Setup](dev/local-development.md)** - Install and test Sugar locally (before PyPI)
-- **[Technical Implementation Plan](dev/technical-implementation-plan.md)** - Architecture and design decisions
 - **[Contributing Guide](dev/contributing.md)** - How to contribute to Sugar
-- **[Development Setup](dev/development-setup.md)** - Development environment setup
 - **[Testing Guide](dev/testing.md)** - Running and writing tests
 - **[Release Process](dev/release-process.md)** - How releases are created
-- **[API Reference](dev/api-reference.md)** - Internal API documentation
 
 ## 🚀 Quick Links
 
 - **New to Sugar?** → Start with the [Quick Start Guide](user/quick-start.md)
 - **Installing Sugar?** → Follow the [Installation Guide](user/installation-guide.md)  
 - **Need help?** → Check [Troubleshooting](user/troubleshooting.md) or [FAQ](user/faq.md)
+- **Want to watch your agents?** → Open [Mission Control](mission-control.md)
 - **Want to contribute?** → Read the [Contributing Guide](dev/contributing.md)
 
 ## 📖 External Resources
@@ -55,5 +78,5 @@ Documentation for developers who want to **contribute** to Sugar:
 
 ---
 
-**Sugar** - Persistent memory for AI coding agents
+**Sugar** - Mission control for your agent fleet
 Created by [Steven Leggett](https://github.com/cdnsteve) | [RoboticForce](https://roboticforce.io)

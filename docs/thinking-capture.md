@@ -392,10 +392,10 @@ Potential improvements to thinking capture:
 
 ## Related Documentation
 
-- [Agent SDK Integration](./agent-sdk.md)
-- [Quality Gates](./quality-gates.md)
-- [Task Execution](./task-execution.md)
-- [Database Schema](./database-schema.md)
+- [Agent SDK Integration](user/agent-sdk.md)
+- [Execution Context](user/execution-context.md)
+- [CLI Reference](user/cli-reference.md)
+- [Local Dashboard API](local-dashboard.md)
 
 ## API Reference
 

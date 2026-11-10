@@ -5,6 +5,114 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Tagline: “Mission control for your agent fleet.”** README hero, docs intro/footer and the GitHub repo description now lead with the tagline; the site (`roboticforce.io/sugar`) was repositioned around it, including the demo video title card.
+
+### Fixed
+- **Live view stopped re-laying-out every second.** Two causes: the inspector was synced from task-selection changes even while the Live/Activity/Trends panes were active (a transiently-nil selection animated the split layout in a loop), and the footer's ticker grew/shrunk and used a vibrancy background, so the floor and ticker visibly shifted on each tick. The inspector now only animates in the Tasks pane, the footer has a fixed ticker height and a solid background, bottom-panel switches are non-animated, and the console no longer animates every inserted line.
+
+### Fixed
+- **SugarDash ticker no longer slides on every event.** The Live ticker inserted each new activity row with a `move(edge: .top)` transition, so with agents emitting events every second the bottom panel visibly animated downward in a loop. The ticker now updates as a plain live log (no insertion animation); console behaviour is unchanged.
+
+### Changed
+- **Current Live floor screenshot.** Added a fresh capture of the Live view against running Sugar tasks (real leases, current actions, health and countdowns) to the README, Mission Control docs and the site demo.
+
+### Changed
+- **Fresh product screenshots.** Replaced the pre-inspector Live captures (which still showed the old three-pane "No Task Selected" layout) with current UI screenshots in the README and Mission Control docs: the SugarDash task board with the inspector open, the web live-activity feed, and the new full-width Trends view. The site demo video and gallery were rebuilt from the same set.
+
+### Changed
+- **Marketing metadata now matches the coordination positioning.** PyPI description, MCP registry `server.json`, Claude Code plugin marketplace listing, npm MCP package description/keywords, and the docs index/quick-start/installation/FAQ/architecture intros now describe Sugar as the coordination and evidence layer for agent fleets (durable board, Mission Control, provenance/cost/audit, shared memory) instead of a memory-only add-on. No runtime behavior changes.
+
+### Added
+- **Test coverage for the newest surfaces.** A docs link checker fails on broken relative links across `README.md`, `docs/**` and `apps/macos/README.md`; a telemetry pipeline integration test posts harness events and asserts they immediately appear in `/api/activity`, `/api/usage` and `/api/trends` (and that ingest is rejected when the spine is disabled); and CI gains a **macOS App (Swift)** job that runs the 61 SugarDash tests and builds the `.app` bundle, so the native client is no longer only tested locally.
+
+### Changed
+- **SugarDash hides the empty inspector.** When no task is selected the detail column collapses (Tasks/Live/Activity/Trends get the full width instead of a "No Task Selected" placeholder); selecting a task expands it, clearing the selection collapses it again, and a toolbar Inspector toggle appears while a task is selected.
+
+### Added
+- **Work trends** (`GET /api/trends`, `sugar trends`, SugarDash Trends view): time-bucketed analytics from the event spine — tasks created/claimed/completed/failed, events, tokens and cost by `actor|harness|project`, plus per-series claim→completion cycle time. Zero-filled UTC hour/day/week buckets (week starts Monday), bounded scan with `truncated`, defaults to last 7 days grouped by actor. `sugar trends` prints a table or `--json`; SugarDash gains a **Trends** sidebar view with range (24h/7d/30d) and dimension pickers, stat tiles (completed, failure rate, avg cycle, cost, events), Swift Charts line/area + per-group bar charts with x-selection tooltips, and last-view persistence. See `docs/trends.md`.
+- **Demo trend seeding** (`scripts/seed_demo_trends.py`): writes backdated synthetic task/usage/tool events across four projects and five agents into a throwaway event DB (source `seed-trends`, `--reset` cleans them) so the Trends UI can be demoed with realistic history.
+
+### Added
+- **Live agent telemetry producer** (`sugar emit` + MCP `sugar_emit_event` + `docs/telemetry.md`): harnesses and scripts can stream what they are doing as event-spine events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`) with `--message`/repeatable `--payload` (JSON-coerced), board URL/token via `$SUGAR_BOARD_URL`/`$SUGAR_BOARD_TOKEN`, safe errors that never expose the token. The same stream feeds the Activity feed, audit exports and the macOS app.
+- **SugarDash Live "current action" + streaming Console**: each working agent's card now shows the latest activity line (message/command/tool+file, icon by kind, animated replacement, relative age, "waiting for activity…" fallback); a Ticker↔Console toggle adds a monospaced streaming log (auto-follow with "Jump to latest", All/tool/run/task/memory filters, `N ev/min` rate, click-to-task); the task detail pane gets a Live-activity strip; the header dot pulses on every event batch. Reduce Motion respected.
+- **Agent activity simulator** (`scripts/simulate_agent_activity.py`): dependency-free script that posts realistic activity/usage events for currently-claimed tasks so the live UI can be demoed and load-tested without running real agents.
+
+### Added
+- **Live "Agents at work" view in SugarDash** driven by a new ephemeral SSE `presence` stream: the server publishes who is working on what (actor, task, lease expiry, started-at, attempts, status counts) every `$SUGAR_PRESENCE_INTERVAL` seconds (default 2s) to connected clients, derived from the in-memory snapshot with no DB query per tick and **never written to the event spine** (no audit noise). The macOS app gains a **Live** sidebar row (pulsing agent count) and a floor of agent cards with lease-health dots (green >60s, amber <60s, red expired), ticking "working for"/"lease" countdowns via a 1s `TimelineView`, per-actor sections, tap-to-open-task, a live activity ticker, and a toolbar "N agents working" chip. Older servers fall back to deriving agents from active claimed tasks. Presence is documented in `docs/local-dashboard.md` §3 and §11.5; app tests cover decoding, grouping, lease thresholds and the fallback.
+
+### Added
+- **Usage/cost attribution** (`sugar dashboard`, `sugar usage`, Activity panel): harnesses report spend through `POST /api/events` with kind `usage.reported` (or `run.ended`) carrying `{tokens_in, tokens_out, cost_usd, model?}`. `GET /api/usage?group_by=actor|harness|task|project|day|kind` returns grouped totals (tolerant normalization: bad telemetry is skipped, never 500s; negatives/NaN ignored), `sugar usage` prints the same table or `--json`, and the browser Activity view shows totals plus top harnesses/actors by cost. Bounded spine reads with a `truncated` flag; no pricing table or provider billing reconciliation — cost is whatever the harness reports. See `docs/usage.md`.
+
+### Security
+- **`/api/health` no longer leaks host details in token mode.** On a remote/team board the endpoint is intentionally unauthenticated, so it now returns only `{ok, version}` instead of the version, absolute database path, read-only flag and uptime. Local (no-token) mode keeps the richer response for tooling.
+
+### Added
+- **Tamper-evident audit exports** (`sugar audit export|verify`): streams the append-only event spine to canonical JSONL plus a manifest (format, generated_at, version, source, first/last event id, count, SHA-256 of the JSONL bytes, filters, optional HMAC-SHA256 signature keyed by `--sign-key-env VAR`). `sugar audit verify` recomputes the hash and, when signed, the HMAC — exits non-zero on tampering or a wrong key. Export files contain task metadata and must be handled like logs; retention is still operator policy (`$SUGAR_EVENTS_RETENTION_DAYS`), so export before pruning. No trusted timestamping/notarization is provided. See `docs/audit.md`.
+
+### Added
+- **Business strategy** (`docs/business-strategy.md`): positioning ("coordination and evidence layer for agent teams"), ICP and willingness-to-pay ladder, open-core tiers and pricing hypotheses, dual-licensing, developer-led growth engine with upgrade triggers, 0–24 month revenue-tied roadmap, metrics and risks.
+
+### Added
+- **Versioned storage schema.** `sugar/storage/migrations.py` replaces the ad-hoc `_migrate_*` chain with a `PRAGMA user_version` ledger and an ordered, idempotent migration registry: each version commits its DDL and ledger bump in one `BEGIN IMMEDIATE` transaction, legacy `user_version=0` databases upgrade through the same registry, stale ledgers are repaired by per-version probes, and a database newer than the code raises `SchemaVersionError` instead of being written. Exposed as `WorkQueue.schema_version` / `SCHEMA_VERSION`; `WorkQueue.initialize()` delegates. Covered by `tests/test_schema_migrations.py`; see `docs/storage-port.md`.
+- **Team board server (opt-in remote access).** `sugar dashboard --bind ADDR --allow-remote --token-file PATH` serves one board to a LAN/host with scoped bearer tokens: `name:scope:token` lines (`read` or `write`; write implies read), 0600 token-file enforcement, constant-time comparison, tokens never logged or persisted. The browser exchanges `GET /?token=...` for an HttpOnly `SameSite=Strict` `sugar_board` cookie and redirects without the token; API and SSE accept `Authorization: Bearer` or the cookie, `/api/health` stays public, read tokens are GET/HEAD-only. Default mode is unchanged (loopback, no auth); non-loopback binds require `--allow-remote` plus a token source, and `--host` remains a deprecated alias. In token mode same-host origins are accepted for writes behind the token check, while the foreign-Origin guard stays. No TLS termination, SSO, per-user identity or per-task ACLs are provided — see `docs/board-server.md` for the threat model and reverse-proxy guidance.
+
+### Added
+- **Local real-time dashboard** (`sugar dashboard`, `sugar/dashboard/`): a loopback-only Starlette server (`127.0.0.1:7331` by default) that exposes the work queue as a REST API plus a Server-Sent Events stream, with a dependency-free browser UI at `/`. Reads use plain SQL; every write goes through `WorkQueue` (`add_work`, `update_work`, `complete_work`, `fail_work`, `hold_work`, `release_work`, `remove_work`) so hold/release/complete/fail semantics stay identical to the CLI and MCP server. `GET /api/events` sends `hello` + an authoritative `snapshot`, then `upsert` / `delete` / `stats` deltas; changes are detected by polling `PRAGMA data_version` every 400 ms, so writes made by `sugar add`, the MCP server or another process show up in under a second. Flags: `--host` (loopback only), `--port`, `--db`, `--open`, `--read-only`.
+- **Native macOS app** (`apps/macos/`): SwiftUI `SugarDash`, a SwiftPM executable with no third-party dependencies. Live task list, detail pane, create/edit sheet, hold/release/delete, status and type filters, search, menu bar pending count, configurable server URL persisted in `UserDefaults`, SSE reconnect with backoff. `./build-app.sh` assembles and ad-hoc signs `dist/SugarDash.app`.
+- **Dashboard board sources**: `sugar dashboard --board kanban` points the same UI at a shared Hermes Kanban board (`--kanban-board`, `--hermes-bin`). Reads use a read-only SQLite connection with `PRAGMA query_only=1` and the existing `PRAGMA data_version` SSE pipeline; every write shells out to `hermes kanban` (claim / complete / comment / block / unblock / edit / assign / archive), so Hermes keeps its single write path. New `GET /api/meta` describes the board (columns, facet label, capabilities) and the browser UI renders counts, chips, badge colours and drawer actions from it. New endpoints: `POST /api/tasks/{id}/claim`, `/complete`, `/comment` (Sugar returns 400 `unsupported`). Kanban `archived` rows are hidden from listings; delete archives rather than purges.
+- `sugarai[dashboard]` optional extra (`starlette`, `uvicorn`) and package data for the embedded UI; the `all` extra now includes it.
+- `docs/local-dashboard.md` (frozen API/SSE contract), `docs/agent-teams.md` (code-grounded assessment of Sugar as a multi-agent coordination substrate), and `scripts/demo_dashboard.py` (seeds a throwaway demo queue with all five statuses plus an orchestration tree).
+
+### Added
+- **Actor provenance and claim leases on work items.** `work_items` gains `created_by`, `created_by_kind` (`human`/`agent`/`system`), `created_by_session`, `claimed_by` and `lease_expires_at` (all `NULL` for legacy rows — "unknown" is never guessed). `get_next_work(worker_id=..., lease_seconds=900)` records the claimant and lease in the same `BEGIN IMMEDIATE` transaction as the claim; complete/fail/hold/release clear them. Identity resolution lives in `sugar/identity.py` (`$SUGAR_ACTOR` → `$SUGAR_AGENT_ID` → `$USER@$host`); `sugar add` grows `--actor`/`--actor-kind`, `sugar run` claims as `sugar-worker@host` (override with `$SUGAR_WORKER_ID`), the MCP task server derives the actor from the initialize handshake (`clientInfo.name`), and the dashboard accepts `X-Sugar-Actor`/`X-Sugar-Actor-Kind` and filters with `?created_by=`. The Kanban source maps `created_by`/`claim_lock`/`claim_expires` onto the same fields.
+
+### Added
+- **Event spine + live Activity feed.** A separate append-only `events.db` (`~/.sugar/events.db`, override with `--events-db` / `$SUGAR_EVENTS_DB`, `''` disables) records task transitions and harness telemetry: `ts, kind, actor, actor_kind, harness, machine, session_id, task_id, run_id, project, trace_id, source, payload`. Two best-effort observers feed it — the Kanban source tails the board's own `task_events` (no writes to the board), the Sugar source records snapshot diffs — and harnesses can post to `POST /api/events`. `GET /api/activity?since_id=&limit=&kind=&actor=&task_id=` pages forward, and the SSE stream now emits `event: activity` for every append. Raw events prune after 30 days (`$SUGAR_EVENTS_RETENTION_DAYS`, `0` disables). Both the browser dashboard (Tasks/Activity switch) and `SugarDash.app` (sidebar Activity) show the live feed with actor, harness, project and task links.
+
+### Added
+- **macOS DMG packaging** (`apps/macos/build-dmg.sh`): builds a drag-to-Applications disk image containing a universal (arm64 + x86_64) `SugarDash.app` and an `Applications` symlink. Version comes from `pyproject.toml`; ad-hoc signed by default, and `--notarize` + `SUGAR_CODESIGN_IDENTITY`/`SUGAR_NOTARY_PROFILE` produce a Developer ID-signed, notarized, stapled DMG.
+
+### Added
+- **macOS app: About window and legal surface.** App menu → About opens a proper About card (version/build, website/docs/source/issues, a no-telemetry privacy statement, Copyright © 2026 RoboticForce Inc., AGPL-3.0 and commercial-licensing links, and a "Copy diagnostics" button that never sends anything). Help menu links to documentation, the issue tracker, privacy, terms and the support email; the menu-bar menu gains an About item. `build-app.sh` now sets `CFBundleDisplayName`, `NSHumanReadableCopyright` and `NSApplicationCategoryType` in Info.plist.
+
+### Added
+- **macOS app: explicit feedback capture.** Help → Send Feedback opens a form (bug / feature request / other) that sends nothing automatically: the user chooses a prefilled public GitHub issue or a private email to contact@roboticforce.io (or copies the text). An optional diagnostics block (version, macOS, dashboard URL, connection state, task counts — never task content, paths or credentials) can be turned off, and long messages are truncated in the URL with the full text copied to the clipboard. The only local record is a `feedback.submitted` event (category, destination, length) in the activity spine.
+
+### Added
+- **macOS app icon.** `apps/macos/make-icon.py` generates `Resources/AppIcon.icns` (coral→amber squircle with a white rounded "S", legible from 16px to 1024px); `build-app.sh` copies it into the bundle and sets `CFBundleIconFile`, so Finder, Dock, the DMG picker and the About window all use it.
+
+### Changed
+- **macOS app legal links point at the live pages.** About/Help now link Privacy to <https://roboticforce.io/privacy>, Terms to <https://roboticforce.io/terms> and Licensing to the repository LICENSE (the old `sugar.roboticforce.io/{privacy,terms,licensing}` URLs redirect to a 404 path on the main site).
+
+### Added
+- **Storage port (`TaskStore`) and conformance suite.** The coordination core now depends on `sugar.storage.ports.TaskStore` instead of SQLite directly: claim, heartbeat, reaper, state transitions, provenance and stats. `WorkQueue` is the SQLite implementation; `tests/test_task_store_conformance.py` is backend-agnostic (append a factory to `BACKENDS` to run it against another backend), covering single-winner concurrent claims, lease renewal/reaping, dependency gating, hold/release, retry limits, provenance round-trips and stats. See `docs/storage-port.md` for the backend-swap checklist (Postgres claim query, timestamps, migrations, change feed).
+
+### Changed
+- **Claims now enforce dependencies.** `get_next_work` skips pending tasks whose `blocked_by` ids are not all `completed` (missing or unreadable dependencies fail closed, matching `get_ready_subtasks`), scanning pending rows in batches so a run of blocked tasks cannot starve claimable work below them. `get_work_item` normalizes `blocked_by` to a list (NULL/empty → `[]`).
+
+### Added
+- **Runtime lease heartbeats and reaping.** `sugar run` now claims with a lease (`$SUGAR_LEASE_SECONDS`, default 900s), renews it every third of the lease (min 10s) while the executor/orchestrator is working, and stops renewing when the lease is lost — a long task no longer looks dead. The loop reaps expired leases before each execution cycle, and the dashboard reaps in the background (`$SUGAR_REAP_INTERVAL`, default 30s) on writable boards, emitting one explicit `task.lease_expired` activity event per requeued task (actor `sugar-reaper`, `actor_kind=system`) instead of a generic diff. Read-only dashboards never reap. Tests: `tests/test_core_loop_leases.py`, `tests/test_dashboard_reaper.py`; contract updated in `docs/local-dashboard.md` and `docs/storage-port.md`.
+
+### Security
+- **Dashboard hardening.** State-changing requests with a foreign `Origin` are refused (a web page the user has open can otherwise POST to the loopback API without a CORS preflight); loopback origins and clients that send no `Origin` (curl, agents, the native app) keep working. Request bodies are capped at 1 MB (`413 payload_too_large`), responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the event-spine database is created with `0600` permissions.
+
+### Fixed
+- **macOS app: live updates never appeared.** Two bugs stacked. (1) `URLSession.AsyncBytes.lines` (Foundation's `AsyncLineSequence`) never yields the empty line that terminates an SSE event, so the parser waited for a separator that never came and no event was ever emitted; the client now splits the byte stream itself (`SSELineSplitter`, CRLF-tolerant, chunk-safe) and the parser also flushes a pending event when the next `event:` line starts. (2) In release builds `URLSession.bytes(for:)` buffered the live response indefinitely — all bytes reached the socket (verified with `nettop`) but none reached the loop — so the stream now uses a `URLSessionDataDelegate` (`SSEDataSource`) that forwards each chunk as it lands. Regression tests cover the splitter and the defensive parser flush.
+- **`apps/macos/build-app.sh` can no longer ship a stale binary.** SwiftPM's incremental build was observed to relink an old release product after a source change (with the custom cache/config paths), which silently produced an app without the fix above. The script now compares source mtimes against the release product and forces a clean rebuild when any source is newer.
+
+## [3.10.7] - 2026-11-10
+
+### Fixed
+- **Hermes plugin: a `$HOME` session no longer reuses the global store as its project store.** Scope is encoded by which file an entry lives in, so for a workspace of `$HOME` (or above it) the nearest `.sugar/` *is* the global store: the provider opened one file twice and labelled every result `project`, which is why a `scope: "global"` write came back labelled `project`. The resolver now compares resolved directories and treats that as "no project store", so project-scope writes take the documented promotion path and report it instead of relabelling the entry (#130).
+- **Hermes plugin README: install now leads with activation.** A real Desktop install showed the plugin installed and enabled while `memory.provider` stayed empty - no tools, no recall. The two-step nature (`hermes plugins install sugar`, then `hermes memory setup sugar` plus a gateway restart) was documented ~2,000 characters in, below the feature list, and the marketplace renders the README top-down. The README now opens with the two steps, a verify checklist and a troubleshooting table (#129).
+- Plugin README prerequisite corrected to the manifest floor (`sugarai>=3.10.6`; it said `>=3.10.3`) and it no longer claims semantic search unconditionally - the default install is SQLite FTS5 keyword search.
+
+### Changed
+- Hermes plugin `0.3.3`.
+
 ## [3.10.6] - 2026-11-05
 
 ### Fixed

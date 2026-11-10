@@ -398,6 +398,29 @@ class TestSugarMemoryProvider:
         assert (workspace / ".sugar" / "memory.db").exists()
         p.shutdown()
 
+    def test_home_workspace_does_not_open_the_global_store_as_a_project(
+        self, plugin_module, monkeypatch, tmp_path
+    ):
+        """A workspace where the nearest `.sugar` IS the global store has no project store.
+
+        Scope is encoded by which file an entry lives in, so opening the global
+        file again as the "project" store would mean two handles on one file and
+        every entry mislabelled "project" (the $HOME-session collapse).
+        """
+        global_dir = tmp_path / "global" / ".sugar"
+        global_dir.mkdir(parents=True)
+        p = self._provider(plugin_module, monkeypatch, global_dir.parent)
+        assert p._manager.project_store is None, "global store must not be reused"
+        r = json.loads(
+            p.handle_tool_call("sugar_store", {"content": "probe", "scope": "project"})
+        )
+        assert r["status"] == "stored"
+        assert r["scope"] == "global"
+        assert "note" in r
+        # Backup must not report the same file twice.
+        assert len(p.backup_paths()) == len(set(p.backup_paths()))
+        p.shutdown()
+
     def test_malformed_search_limit_env_does_not_break_initialize(
         self, plugin_module, monkeypatch, tmp_path
     ):

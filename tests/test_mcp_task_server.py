@@ -7,12 +7,14 @@ full MCP SDK installation. Uses mocked WorkQueue for isolated unit tests.
 
 import json
 import pytest
-from pathlib import Path
+from pathlib import Path  # noqa: F401 (patched as sugar.mcp.task_server.Path)
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # Try to import FastMCP and task server components, skip tests if not available
 try:
     from sugar.mcp.task_server import (
+        actor_from_mcp_context,
         create_task_mcp_server,
         get_work_queue,
         get_valid_task_types,
@@ -22,6 +24,7 @@ try:
     MCP_AVAILABLE = FASTMCP_AVAILABLE
 except ImportError:
     MCP_AVAILABLE = False
+    actor_from_mcp_context = None
     create_task_mcp_server = None
     get_work_queue = None
     get_valid_task_types = None
@@ -137,6 +140,61 @@ class TestGetValidTaskTypes:
 
 
 # =============================================================================
+# Actor provenance (docs/local-dashboard.md §10.3)
+# =============================================================================
+
+
+def make_context(client_name=None, client_version=None, *, params=True):
+    """Duck-typed stand-in for an MCP ``Context`` from an initialize handshake."""
+    client_info = (
+        SimpleNamespace(name=client_name, version=client_version) if params else None
+    )
+    return SimpleNamespace(
+        request_context=SimpleNamespace(
+            session=SimpleNamespace(
+                client_params=(
+                    SimpleNamespace(clientInfo=client_info) if params else None
+                )
+            )
+        )
+    )
+
+
+@pytest.mark.skipif(not MCP_AVAILABLE, reason="MCP dependencies not installed")
+class TestActorFromMcpContext:
+    """Tests for the actor_from_mcp_context helper"""
+
+    def test_client_info_becomes_agent_actor(self):
+        actor = actor_from_mcp_context(make_context("dsh", "1.4.2"))
+        assert actor.id == "dsh"
+        assert actor.kind == "agent"
+        assert actor.session == "1.4.2"
+
+    def test_missing_context_falls_back_to_mcp_client(self):
+        actor = actor_from_mcp_context(None)
+        assert actor.id == "mcp-client"
+        assert actor.kind == "agent"
+        assert actor.session is None
+
+    def test_missing_handshake_falls_back_to_mcp_client(self):
+        for ctx in (
+            make_context(params=False),
+            SimpleNamespace(request_context=None),
+            SimpleNamespace(),
+            object(),
+        ):
+            actor = actor_from_mcp_context(ctx)
+            assert actor.id == "mcp-client"
+            assert actor.kind == "agent"
+            assert actor.session is None
+
+    def test_blank_client_name_uses_default(self):
+        actor = actor_from_mcp_context(make_context("   ", None))
+        assert actor.id == "mcp-client"
+        assert actor.session is None
+
+
+# =============================================================================
 # sugar_add_task Tool Tests
 # =============================================================================
 
@@ -175,6 +233,61 @@ class TestSugarAddTask:
         assert result["type"] == "bug_fix"
         assert result["priority"] == 1
         mock_queue.add_work.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("sugar.mcp.task_server.get_work_queue")
+    async def test_add_task_records_mcp_client_actor(self, mock_get_queue, mock_queue):
+        """created_by/kind/session come from the initialize handshake."""
+        mock_get_queue.return_value = mock_queue
+
+        mcp = create_task_mcp_server()
+        tool_func = get_tool_function(mcp, "sugar_add_task")
+
+        result = await tool_func(
+            title="Task from DSH",
+            type="bug_fix",
+            ctx=make_context("dsh", "1.4.2"),
+        )
+
+        assert result["success"] is True
+        sent = mock_queue.add_work.call_args[0][0]
+        assert sent["created_by"] == "dsh"
+        assert sent["created_by_kind"] == "agent"
+        assert sent["created_by_session"] == "1.4.2"
+
+    @pytest.mark.asyncio
+    @patch("sugar.mcp.task_server.get_work_queue")
+    async def test_add_task_actor_fallback_without_handshake(
+        self, mock_get_queue, mock_queue
+    ):
+        """Direct calls / missing handshake fall back to 'mcp-client'."""
+        mock_get_queue.return_value = mock_queue
+
+        mcp = create_task_mcp_server()
+        tool_func = get_tool_function(mcp, "sugar_add_task")
+
+        result = await tool_func(
+            title="Task without ctx", type="feature", ctx=make_context(params=False)
+        )
+
+        assert result["success"] is True
+        sent = mock_queue.add_work.call_args[0][0]
+        assert sent["created_by"] == "mcp-client"
+        assert sent["created_by_kind"] == "agent"
+        assert sent["created_by_session"] is None
+
+    @pytest.mark.asyncio
+    async def test_ctx_is_not_exposed_in_tool_schema(self):
+        """FastMCP injects ctx; it must never leak into tools/list."""
+        mcp = create_task_mcp_server()
+        tools = await mcp.list_tools()
+        names = {tool.name for tool in tools}
+        assert "sugar_add_task" in names
+        for tool in tools:
+            properties = tool.inputSchema.get("properties", {})
+            assert "ctx" not in properties, f"{tool.name} leaks ctx"
+        add_task = next(tool for tool in tools if tool.name == "sugar_add_task")
+        assert add_task.inputSchema.get("required") == ["title"]
 
     @pytest.mark.asyncio
     @patch("sugar.mcp.task_server.get_work_queue")
@@ -218,7 +331,7 @@ class TestSugarAddTask:
         assert sent["context"]["skip_stages"] == ["research", "review"]
         # skip_stages without orchestrate is ignored (not an orchestrated task)
         mock_queue.add_work.reset_mock()
-        result2 = await tool_func(title="Plain", type="bug_fix", skip_stages="review")
+        await tool_func(title="Plain", type="bug_fix", skip_stages="review")
         sent2 = mock_queue.add_work.call_args[0][0]
         assert "skip_stages" not in sent2["context"]
 
