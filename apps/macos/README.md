@@ -139,6 +139,11 @@ The app opens one window:
   `UserDefaults`), connection state, and the server's DB path/version. The last
   selected view (Tasks / Live / Activity / Trends) is persisted with
   `@AppStorage`, so relaunching the app returns to it (default: Tasks).
+- **Task inspector** — the detail pane (`TaskDetailView`) is a native inspector
+  that appears **only when a task is selected**; clearing the selection hides it and
+  gives the width back to the task list / Live floor / Activity / Trends. A toolbar
+  Inspector button (`sidebar.right`) toggles it while a task is selected. The task
+  detail includes a **Live activity** strip (last 5 events for the task).
 - **Live floor** — "Agents at work": one card per active task grouped by agent,
   with a pulsing lease-health dot (green > 60 s, amber < 60 s, red
   expired/missing), task title, **a live "current action" line** (the latest
@@ -233,7 +238,7 @@ apps/macos/
 │   ├── Models.swift                  # Task / Stats / Health / LiveAgent + JSON & date decoding
 │   ├── APIClient.swift               # REST + SSE (delegate-backed transport)
 │   ├── AppModel.swift                # @MainActor @Observable store
-│   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar + Activity feed
+│   ├── ContentView.swift             # NavigationSplitView + list/sidebar/toolbar + detail inspector
 │   ├── LiveFloorPane.swift           # "Agents at work" floor + current action + ticker
 │   ├── LiveConsolePane.swift         # streaming console, filters, auto-scroll
 │   ├── TrendsPane.swift              # Swift Charts trends (range/dimension/metric)
@@ -252,7 +257,10 @@ apps/macos/
 ## Notes / v1 limitations
 
 - One connection per app instance; no multi-server support.
-- No auth/TLS/remote access — matches the backend's loopback-only v1 scope.
+- The board server now supports opt-in remote access with scoped bearer tokens
+  (`--bind --allow-remote --token-file`), but the app has no token field yet, so it
+  still expects a loopback/unauthenticated board. Remote TLS is terminated by a
+  reverse proxy (see `docs/board-server.md`).
 - "Hold" sends a fixed reason (`Held from the SugarDash app`); the v1 UI has no
   reason prompt.
 - The editor's assigned-agent field sends `""` to clear an assignment (the

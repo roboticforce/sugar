@@ -218,10 +218,19 @@ steer it. No cloud, no account; everything stays in two SQLite files on your dis
   task. Claims are atomic, so two harnesses cannot double-work the same task.
 - **Steer it.** Create, edit, claim, complete, hold/block, release and reassign from the
   UI or the menu bar — the same verbs the agents use.
+- **Watch agents work.** SugarDash's **Live** floor shows who is working on what right
+  now (presence, leases, ticking clocks); harnesses stream each tool call with
+  `sugar emit` (or the MCP `sugar_emit_event` tool) into a live console.
 - **Audit it.** An append-only event spine records every transition, so "what did the
-  fleet do yesterday, and who is holding this now?" is a query, not a guess.
+  fleet do yesterday, and who is holding this now?" is a query, not a guess. Export
+  tamper-evident JSONL with `sugar audit export`, verified by `sugar audit verify`.
+- **Measure it.** Harness-reported usage/cost (`sugar usage`, `/api/usage`) and
+  time-bucketed **Trends** (`sugar trends`, SugarDash Trends view): throughput,
+  failures, cycle time and spend by agent, harness or project.
 - **Bring your own board.** Serve Sugar's queue, or point the same UI at a shared Hermes
   Kanban board; writes still go through that board's own command surface.
+- **Share it with a team.** Optional remote mode: one board over the LAN/host with
+  scoped `read`/`write` bearer tokens (see [Board Server](docs/board-server.md)).
 
 ```bash
 pip install 'sugarai[dashboard]'   # starlette + uvicorn
@@ -263,14 +272,49 @@ pending count, live SSE):
 cd apps/macos && ./build-app.sh && open dist/SugarDash.app
 ```
 
+**Watch the fleet work.** SugarDash's Live floor renders every working agent with its
+current action, ticking elapsed/lease times and a streaming console of tool calls:
+
+```bash
+# from a harness hook (one line per tool call) — or the MCP tool of the same name
+sugar emit --kind tool.invoked --task-id "$SUGAR_TASK_ID" \
+  --message "running pytest tests/test_api.py" --payload file=src/api.py
+```
+
+![SugarDash Live console streaming agent activity](docs/images/live-console.png)
+
+**See trends.** Throughput, failures, cycle time and reported cost over time, grouped by
+agent, harness or project — in the app or at the terminal:
+
+```bash
+sugar usage  --group-by harness          # tokens/cost totals
+sugar trends --group-by project --bucket day
+```
+
+![SugarDash Trends view](docs/images/trends-view.png)
+
+**Share one board (team mode).** Loopback is the default; for a team, bind explicitly with
+scoped tokens (a token is `name:scope:secret`, scope `read` or `write`):
+
+```bash
+sugar dashboard --bind 0.0.0.0 --allow-remote --token-file ~/.sugar/board-tokens
+```
+
 Try it with a seeded demo queue (never touches your real `.sugar/`):
 
 ```bash
-python scripts/demo_dashboard.py --serve --open
+python scripts/demo_dashboard.py --serve --open        # tasks/board
+python scripts/simulate_agent_activity.py              # live agent activity (demo)
+python scripts/seed_demo_trends.py --db /tmp/sugar-dashboard-demo/.sugar/events.db --reset
 ```
 
 Full docs: **[Mission Control](docs/mission-control.md)** ·
 [Local Dashboard API](docs/local-dashboard.md) ·
+[Trends](docs/trends.md) ·
+[Telemetry (`sugar emit`)](docs/telemetry.md) ·
+[Usage & cost](docs/usage.md) ·
+[Audit exports](docs/audit.md) ·
+[Board server](docs/board-server.md) ·
 [Agent teams analysis](docs/agent-teams.md)
 
 ## Autonomous Issue Resolution (optional)
