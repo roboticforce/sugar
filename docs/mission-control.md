@@ -252,7 +252,7 @@ optional diagnostics, nothing sent automatically), recorded locally as a
 heartbeat — actor, task, ticking elapsed/lease countdowns, lease-health dots and a live
 activity ticker (no DB writes, no audit noise), falling back to task leases on older servers.
 
-![SugarDash task board with the inspector open](images/app-tasks.png)
+![SugarDash Live floor: agents at work](images/live-floor.png)
 
 With harness telemetry (`sugar emit`) or the simulator, each card shows the agent's
 current action and the streaming console shows the raw event feed:

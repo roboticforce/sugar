@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Current Live floor screenshot.** Added a fresh capture of the Live view against running Sugar tasks (real leases, current actions, health and countdowns) to the README, Mission Control docs and the site demo.
+
+### Changed
 - **Fresh product screenshots.** Replaced the pre-inspector Live captures (which still showed the old three-pane "No Task Selected" layout) with current UI screenshots in the README and Mission Control docs: the SugarDash task board with the inspector open, the web live-activity feed, and the new full-width Trends view. The site demo video and gallery were rebuilt from the same set.
 
 ### Changed

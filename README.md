@@ -128,6 +128,8 @@ sugar emit --kind tool.invoked --task-id "$TASK_ID" \
   --message "running pytest tests/test_api.py" --payload file=src/api.py
 ```
 
+<img src="docs/images/live-floor.png" alt="SugarDash Live floor: agents at work with real leases, current actions and countdowns" width="880">
+
 No harness wired up yet? The repo ships a simulator for demos:
 
 ```bash
