@@ -5,6 +5,74 @@ provider: durable, local-first agent memory in SQLite on your machine, with
 project and global scopes and guideline-aware search. No cloud, no API key,
 nothing leaves the machine.
 
+## Install (two steps, in order)
+
+**Installing the plugin is not the same as activating it.** Hermes memory
+providers are inert until `memory.provider` names one, so if you stop after
+step 1 the agent gets no tools and no automatic recall.
+
+### 1. Install the plugin
+
+```bash
+hermes plugins install sugar
+```
+
+### 2. Activate it as the memory provider
+
+```bash
+hermes memory setup sugar      # or: hermes memory setup, then pick "sugar"
+hermes memory status           # should name sugar as the active provider
+hermes gateway restart         # or restart the Hermes desktop app
+```
+
+> **Why the second step?** `plugins.enabled` and `memory.provider` are separate
+> settings. A memory plugin can be installed and enabled and still do nothing
+> until it is selected. If `memory.provider:` is empty in `$HERMES_HOME/config.yaml`,
+> you have not activated it yet.
+
+### Prerequisite: the `sugarai` package
+
+The plugin shells into the `sugar` CLI, so `sugarai` must be installed in the
+Python environment Hermes uses, and `sugar` must be on `PATH`:
+
+```bash
+pip install "sugarai>=3.10.6,<3.11"
+```
+
+Vector search is optional. Without it, search is SQLite FTS5 keyword search -
+functional, just not semantic:
+
+```bash
+pip install "sugarai[memory]>=3.10.6,<3.11"   # adds sentence-transformers + sqlite-vec
+```
+
+### Verify before you trust it
+
+1. `hermes memory status` names **sugar**.
+2. Ask the agent: *"what memory tools do you have?"* - it should list
+   `sugar_store`, `sugar_search`, `sugar_list_recent`.
+3. Store and recall something:
+   ```bash
+   sugar recall "deploy"
+   ```
+4. On a turn with relevant memories, a recall indicator appears:
+   **🧠 Sugar — recalled N memories**.
+
+If any of those fail, see Troubleshooting below before assuming the plugin is broken.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Agent has no `sugar_*` tools | Plugin installed but never selected as the memory provider | `hermes memory setup sugar` then `hermes gateway restart` |
+| `memory.provider:` is `''` in `config.yaml` | Same - activation missing | Same |
+| `hermes memory status` shows the built-in provider | Same | Same |
+| Tools work, but no automatic recall between turns | Gateway still running the old config | `hermes gateway restart` (or restart the desktop app) |
+| `sugar: command not found` from the plugin | CLI not on the Python env Hermes spawns | Install `sugarai` into that env; check with `hermes memory status` |
+| Recall finds nothing from this repository | The session workspace has no `.sugar/` above it, so only the global store is searched | Run `sugar init` in the project, or set `project_dir` |
+| Obvious keyword matches are missed | Keyword-only search (no vector extra) | `pip install "sugarai[memory]>=3.10.6,<3.11"` |
+| Memories exist but recall is empty on the first turn | Recall is cached; the first turn searches, later turns return the cache | Normal - ask something relevant, or run `sugar recall "<text>"` directly |
+
 ## What it gives Hermes
 
 - **Automatic recall** - each turn, Sugar searches memory and injects relevant
@@ -13,7 +81,8 @@ nothing leaves the machine.
 - **Tools** the agent can call:
   - `sugar_store` - save a decision, preference, error pattern, research
     finding, or outcome (scope `project` or `global`)
-  - `sugar_search` - semantic + keyword search across both scopes
+  - `sugar_search` - keyword search by default, semantic when the vector extra
+    is installed, across both scopes
   - `sugar_list_recent` - browse recent memories by type
 - **7 memory types** - decision, preference, error_pattern, research, outcome,
   guideline, file_context - the same vocabulary Sugar uses in Claude Code,
@@ -37,35 +106,6 @@ nothing leaves the machine.
 - **Bundled skill** - `sugar:memory` teaches the agent when to recall and what
   is worth storing, shipped with the plugin.
 
-## Install
-
-```bash
-hermes plugins install sugar
-```
-
-Requires the `sugarai` package in the same Python environment as Hermes:
-
-```bash
-pip install "sugarai>=3.10.3,<3.11"
-```
-
-Search is keyword-only (SQLite FTS5) unless you also install the vector extra:
-
-```bash
-pip install "sugarai[memory]>=3.10.3,<3.11"   # adds sentence-transformers + sqlite-vec
-```
-
-Then activate it as the memory provider:
-
-```bash
-hermes memory setup   # choose "sugar"
-# or set in config.yaml:
-#   memory:
-#     provider: sugar
-```
-
-Restart the gateway afterwards (`hermes gateway restart`).
-
 ## Configuration
 
 Settings live in `$HERMES_HOME/sugar.json` (created via `hermes memory setup`
@@ -83,3 +123,13 @@ or `save_config`), with env-var fallbacks:
 - Project store: nearest `.sugar/memory.db` at or above the session workspace
   (or `project_dir` if configured)
 - Memory is yours and local. Sugar is AGPL-3.0-or-later.
+
+## What this does not do
+
+- **No semantic search by default.** Plain `sugarai` installs keyword (FTS5)
+  search; install the `[memory]` extra for vectors.
+- **No cloud sync and no cross-machine sharing** - by design.
+- **Removals from built-in memory are not mirrored into Sugar.**
+- **Not a DSH-style tool provider** - automatic per-turn recall is specific to
+  Hermes's `MemoryProvider` seam. On harnesses without that seam, Sugar is a set
+  of tools the model calls.
