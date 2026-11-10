@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **SugarDash ticker no longer slides on every event.** The Live ticker inserted each new activity row with a `move(edge: .top)` transition, so with agents emitting events every second the bottom panel visibly animated downward in a loop. The ticker now updates as a plain live log (no insertion animation); console behaviour is unchanged.
+
 ### Changed
 - **Current Live floor screenshot.** Added a fresh capture of the Live view against running Sugar tasks (real leases, current actions, health and countdowns) to the README, Mission Control docs and the site demo.
 
