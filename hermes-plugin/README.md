@@ -70,6 +70,7 @@ If any of those fail, see Troubleshooting below before assuming the plugin is br
 | Tools work, but no automatic recall between turns | Gateway still running the old config | `hermes gateway restart` (or restart the desktop app) |
 | `sugar: command not found` from the plugin | CLI not on the Python env Hermes spawns | Install `sugarai` into that env; check with `hermes memory status` |
 | Recall finds nothing from this repository | The session workspace has no `.sugar/` above it, so only the global store is searched | Run `sugar init` in the project, or set `project_dir` |
+| A `scope: "project"` write comes back as `global`, or scope labels look wrong | The session workspace is `$HOME` (or above it), so the nearest `.sugar/` **is** the global store - there is no separate project store for that session | Expected. Work from a repo with its own `.sugar/`, or run `sugar init` there. This provider reports the promotion instead of mislabelling the entry |
 | Obvious keyword matches are missed | Keyword-only search (no vector extra) | `pip install "sugarai[memory]>=3.10.6,<3.11"` |
 | Memories exist but recall is empty on the first turn | Recall is cached; the first turn searches, later turns return the cache | Normal - ask something relevant, or run `sugar recall "<text>"` directly |
 

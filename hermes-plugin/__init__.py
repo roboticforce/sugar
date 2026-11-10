@@ -297,6 +297,26 @@ def _load_provider_config(hermes_home: str = "") -> Dict[str, Any]:
     return config
 
 
+def _global_store_dir() -> Optional[Path]:
+    """Directory holding Sugar's global ``memory.db`` (``~/.sugar`` by default)."""
+    try:
+        from sugar.memory.global_store import GLOBAL_DB_PATH
+
+        return Path(GLOBAL_DB_PATH).parent
+    except Exception:  # sugar not importable yet, or a test monkeypatched it
+        return None
+
+
+def _same_store_dir(candidate: Path, other: Optional[Path]) -> bool:
+    """True when both paths name the same directory (resolves e.g. /tmp -> /private/tmp)."""
+    if other is None:
+        return False
+    try:
+        return candidate.resolve() == other.resolve()
+    except OSError:
+        return False
+
+
 class SugarMemoryProvider(MemoryProvider):
     """Hermes MemoryProvider backed by Sugar's local-first memory stores.
 
@@ -395,10 +415,22 @@ class SugarMemoryProvider(MemoryProvider):
         gateway backend can serve several sessions with different workspaces.
         Looks next to the workspace first, then walks up for the nearest
         ``.sugar/`` (the same rule as Sugar's own tooling and MCP server).
+
+        Scope is encoded by *which file* an entry lives in, so a "project" store
+        that resolves to the global store is not a project store at all. That is
+        exactly what happens for a session whose workspace is ``$HOME`` or above
+        it, since ``~/.sugar/`` is then the nearest ``.sugar/``. Returning it
+        would open one file twice and label every entry "project", so return
+        None and let project-scope writes be promoted to global.
         """
+        global_dir = _global_store_dir()
+
         project_dir = str((self._config or {}).get("project_dir") or "").strip()
         if project_dir:
-            return Path(project_dir).expanduser() / ".sugar" / "memory.db"
+            sugar_dir = Path(project_dir).expanduser() / ".sugar"
+            if _same_store_dir(sugar_dir, global_dir):
+                return None
+            return sugar_dir / "memory.db"
 
         base = Path(self._cwd).expanduser() if self._cwd else Path.cwd()
         if not base.is_dir():
@@ -412,6 +444,8 @@ class SugarMemoryProvider(MemoryProvider):
                     break
             else:
                 return None
+        if _same_store_dir(sugar_dir, global_dir):
+            return None
         return sugar_dir / "memory.db"
 
     def _get_manager(self) -> Any:
