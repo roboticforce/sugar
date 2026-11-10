@@ -75,6 +75,24 @@ jobs:
         file: ./coverage.xml
         fail_ci_if_error: false
 
+  macos-app:
+    name: macOS App (Swift)
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Swift version
+      run: swift --version
+
+    - name: Swift tests (SugarDash)
+      working-directory: apps/macos
+      run: swift test --disable-sandbox
+
+    - name: Build SugarDash.app
+      working-directory: apps/macos
+      run: ./build-app.sh
+
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
