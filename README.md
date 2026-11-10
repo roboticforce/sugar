@@ -17,7 +17,7 @@ Atomic claims, live agent activity, cost attribution and tamper-evident history.
 
 [Quick start](#quick-start) · [See it work](#see-your-fleet-work) · [Why Sugar](#why-sugar) · [Works with](#works-with-your-harnesses) · [Docs](docs/README.md) · [Team edition](#team-edition-self-hosted)
 
-<img src="docs/images/live-console.png" alt="SugarDash Live console: three agents working, each streaming tool calls" width="880">
+<img src="docs/images/app-tasks.png" alt="SugarDash: the task board with a task inspector open, live activity and history" width="880">
 
 </div>
 
