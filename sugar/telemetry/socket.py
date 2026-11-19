@@ -59,11 +59,14 @@ class IngestSocketServer:
         if self.path is None or self._server is not None:
             return False
         path = self.path
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
+        # Never create the parent directory: this runs during dashboard startup
+        # and a stray ~/.sugar would be observable by other Sugar code (and by
+        # tests whose temp dirs live under $HOME, e.g. Windows pytest). The
+        # default event spine already creates ~/.sugar; a custom socket path
+        # with a missing parent simply disables the fast path (HTTP still works).
+        if not path.parent.is_dir():
             logger.debug(
-                "telemetry socket: cannot create directory %s: %s", path.parent, exc
+                "telemetry socket: parent directory does not exist: %s", path.parent
             )
             return False
         if path.exists():
