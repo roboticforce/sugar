@@ -15,7 +15,22 @@ from typing import Optional
 import click
 
 from .__version__ import __version__, get_version_info
-from .core.loop import SugarLoop
+
+# ``sugar.core.loop`` pulls in the agent SDK + MCP client (~2s of imports). The
+# per-tool-call `sugar hook` command imports this module on every hook, so the
+# class is resolved lazily. It stays a module attribute because tests patch
+# ``sugar.main.SugarLoop``.
+SugarLoop = None
+
+
+def _sugar_loop_class():
+    """Import ``SugarLoop`` on first use (keeps ``sugar hook`` fast)."""
+    global SugarLoop
+    if SugarLoop is None:
+        from .core.loop import SugarLoop as _SugarLoop
+
+        SugarLoop = _SugarLoop
+    return SugarLoop
 
 
 def validate_task_type(ctx, param, value):
@@ -2043,8 +2058,8 @@ def run(ctx, dry_run, once, validate):
     _require_sugar_project(config_file)
 
     try:
-        # Initialize Sugar
-        sugar_loop = SugarLoop(config_file)
+        # Initialize Sugar (imported lazily so `sugar hook` stays fast)
+        sugar_loop = _sugar_loop_class()(config_file)
 
         # Override dry_run if specified
         if dry_run:
@@ -6118,6 +6133,148 @@ def trends(events_db, since, until, bucket, group_by, limit, as_json):
         click.echo(json.dumps(report, indent=2, sort_keys=True))
         return
     click.echo(format_trends_table(report))
+
+
+# =============================================================================
+# Harness Connect / Hook / Doctor Commands
+# =============================================================================
+
+
+@cli.command("hook")
+@click.option(
+    "--harness",
+    required=True,
+    type=click.Choice(["claude-code", "cursor", "codex"], case_sensitive=False),
+    help="Harness that produced this hook payload",
+)
+@click.option(
+    "--socket",
+    "socket_path",
+    default=None,
+    type=click.Path(),
+    help="Unix ingest socket (default: $SUGAR_INGEST_SOCKET or ~/.sugar/ingest.sock)",
+)
+@click.option(
+    "--url",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Suppress output (hooks are silent by default; accepted for config safety)",
+)
+def hook(harness, socket_path, url, quiet):
+    """Forward one harness hook payload from stdin to Sugar (fail-open, silent)
+
+    This is the command Cursor and Codex hooks invoke (Claude Code uses a native
+    HTTP hook). It reads the raw hook JSON from stdin and forwards it to the
+    Unix ingest socket (preferred) or ``POST /api/hooks/<harness>``.
+
+    It is deliberately boring: bounded timeouts, no output, and it always exits
+    0, because a stopped board must never block an agent's tool call. Set
+    ``$SUGAR_HOOK_DEBUG=1`` to see what happened on stderr.
+    """
+    import os
+
+    from .connect.hook import forward_hook, read_stdin_bytes
+
+    result = None
+    try:
+        raw = read_stdin_bytes(getattr(sys.stdin, "buffer", sys.stdin))
+        result = forward_hook(raw, harness.lower(), socket_path=socket_path, url=url)
+    except Exception:  # fail-open is the contract: never break the harness
+        result = None
+    if os.environ.get("SUGAR_HOOK_DEBUG") and result is not None:
+        transport = result.transport or "none"
+        click.echo(
+            f"sugar hook: harness={harness} delivered={result.delivered} "
+            f"transport={transport} {result.detail}",
+            err=True,
+        )
+
+
+@cli.command("connect")
+@click.option(
+    "--check", is_flag=True, help="Detect harnesses and print the matrix only"
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Show planned config changes without writing"
+)
+@click.option(
+    "--harness",
+    "harnesses",
+    multiple=True,
+    type=click.Choice(
+        ["claude-code", "cursor", "codex", "goose", "dsh"], case_sensitive=False
+    ),
+    help="Target harness (repeatable; default: every detected installable one)",
+)
+@click.option("--yes", "-y", is_flag=True, help="Apply without a confirmation prompt")
+def connect(check, dry_run, harnesses, yes):
+    """Detect coding agents and install Sugar telemetry adapters
+
+    Claude Code gets native HTTP hooks (no subprocess); Cursor and Codex get
+    command hooks that call ``sugar hook``. Existing harness config is preserved,
+    a ``.bak`` backup is written, and re-running is a no-op.
+
+    Examples:
+
+        sugar connect --check
+
+        sugar connect --dry-run
+
+        sugar connect --yes
+
+        sugar connect --harness cursor --yes
+
+    Goose and DSH are detected only in Phase 0 (their adapters land in Phase 1).
+    Codex hooks are trust-gated: after installing, open ``codex``, run
+    ``/hooks`` and approve them — Sugar never bypasses that approval.
+    """
+    from .connect.cli import run_connect
+
+    outcome = run_connect(
+        check=check,
+        dry_run=dry_run,
+        harnesses=[item.lower() for item in harnesses],
+        yes=yes,
+    )
+    if outcome.exit_code:
+        sys.exit(outcome.exit_code)
+
+
+@cli.command("doctor")
+@click.option(
+    "--server",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--socket",
+    "socket_path",
+    default=None,
+    type=click.Path(),
+    help="Unix ingest socket (default: $SUGAR_INGEST_SOCKET or ~/.sugar/ingest.sock)",
+)
+@click.option("--json", "json_output", is_flag=True, help="Print JSON diagnostics")
+def doctor(server, socket_path, json_output):
+    """Verify the board and installed adapters deliver telemetry end to end
+
+    Checks ``/api/health``, sends a uniquely-tagged synthetic hook through each
+    installed adapter path (HTTP hook endpoint and/or Unix ingest socket), looks
+    for it in ``/api/activity``, and prints ``/api/coverage``.
+
+    Exits 1 when the board is unreachable or no installed adapter can deliver.
+    Run ``sugar connect`` first.
+    """
+    from .connect.cli import run_doctor_command
+
+    code = run_doctor_command(
+        server=server, socket_path=socket_path, json_output=json_output
+    )
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":
