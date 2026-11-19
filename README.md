@@ -144,7 +144,7 @@ Trends need history; seed a throwaway spine and open the Trends view:
 python scripts/seed_demo_trends.py --db /tmp/sugar-dashboard-demo/.sugar/events.db --reset
 ```
 
-Full walkthrough: [Mission Control](docs/mission-control.md) · [Telemetry](docs/telemetry.md) · [Trends](docs/trends.md)
+Full walkthrough: [Mission Control](docs/mission-control.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Trends](docs/trends.md)
 
 ## Works with your harnesses
 
@@ -268,7 +268,7 @@ claim work.
 
 - [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
 - [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
-- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
+- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
 - [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)

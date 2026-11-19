@@ -44,6 +44,7 @@ against one board:
 - **[Board Server](board-server.md)** - Share one board: remote binding, scoped `read`/`write` tokens, browser cookie exchange, TLS-proxy deployment and threat model
 - **[Usage & Cost](usage.md)** - Harness-reported usage/cost events, `/api/usage`, `sugar usage`, and the Activity panel: "where is the money going?"
 - **[Telemetry](telemetry.md)** - Live agent activity events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`), `sugar emit`, and the MCP `sugar_emit_event` tool
+- **[Telemetry Adapters](telemetry-adapters.md)** - Phase 0 plug-and-play capture: canonical `sugar.telemetry.v1` envelope, L0-L3 fidelity, `sugar connect`/`sugar hook`/`sugar doctor`, Claude Code/Cursor/Codex adapters, hook/evidence/coverage endpoints, redaction
 - **[Trends](trends.md)** - Time-bucketed work analytics (`/api/trends`, `sugar trends`): throughput, failures, cycle time and spend by agent, harness or project
 - **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
 - **[Business Strategy](business-strategy.md)** - Positioning, ICP, open-core monetization (tiers, pricing hypotheses, dual licensing), growth engine, revenue-tied roadmap and 30/60/90 plan

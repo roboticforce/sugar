@@ -609,6 +609,16 @@ reaper); plus free-form ingest kinds
 - `GET /api/trends?since=&until=&bucket=hour|day|week&group_by=actor|harness|project&limit=` —
   zero-filled UTC time buckets of task counts, event volume, tokens/cost and
   cycle time from the spine (see `docs/trends.md`).
+- `POST /api/hooks/{harness}` — raw harness hook payload (`claude-code`,
+  `cursor`, `codex`), normalized to `sugar.telemetry.v1`. Known harness always
+  returns `200 {"ok": true}` (hooks are fail-open); unknown → 404, malformed →
+  400. See `docs/telemetry-adapters.md`.
+- `POST /api/evidence` — canonical evidence event (`verification.*`,
+  `policy.decision`, `approval.*`, `artifact.created`, `commit.linked`) →
+  `201 {"event": Event}`; invalid kind/payload → 400, no spine → 503.
+- `GET /api/coverage` — adapter coverage (`detected`/`installed`, per-harness
+  L0-L3 fidelity, transport, last event, 24h count) from
+  `~/.sugar/adapters.json` plus the spine. See `docs/telemetry-adapters.md`.
 - `POST /api/events` — harness telemetry. Body: `{kind*, actor?, actor_kind?,
   harness?, session_id?, task_id?, run_id?, project?, trace_id?, payload?}`;
   server fills `ts`, `machine`, `source="ingest"`, `id`, `ingested_at`. Unknown
