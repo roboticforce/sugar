@@ -35,10 +35,16 @@ class RegistryError(ValueError):
 
 
 def default_registry_path(home: Optional[Path] = None) -> Path:
-    """Resolve the registry path (``$SUGAR_ADAPTERS_PATH`` wins over home)."""
-    override = os.environ.get("SUGAR_ADAPTERS_PATH", "").strip()
-    if override:
-        return Path(override).expanduser()
+    """Resolve the registry path (env overrides win over home).
+
+    ``$SUGAR_ADAPTERS_PATH`` is Sugar's name; ``$SUGAR_ADAPTERS_FILE`` is
+    honoured too because the Phase-0 coverage reader in ``sugar.telemetry``
+    uses it. Both point at the same JSON file.
+    """
+    for variable in ("SUGAR_ADAPTERS_PATH", "SUGAR_ADAPTERS_FILE"):
+        override = os.environ.get(variable, "").strip()
+        if override:
+            return Path(override).expanduser()
     base = Path(home).expanduser() if home is not None else Path.home()
     return base.joinpath(*DEFAULT_REGISTRY_PATH[1:])
 

@@ -36,6 +36,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(home_dir))
     monkeypatch.setenv("PATH", "")
     monkeypatch.delenv("SUGAR_ADAPTERS_PATH", raising=False)
+    monkeypatch.delenv("SUGAR_ADAPTERS_FILE", raising=False)
     monkeypatch.delenv("SUGAR_BOARD_URL", raising=False)
     monkeypatch.delenv("SUGAR_INGEST_SOCKET", raising=False)
     monkeypatch.delenv("SUGAR_BOARD_TOKEN", raising=False)
@@ -414,6 +415,11 @@ class TestRegistry:
     def test_default_registry_path_env_override(self, home, monkeypatch):
         target = home / "custom" / "adapters.json"
         monkeypatch.setenv("SUGAR_ADAPTERS_PATH", str(target))
+        assert registry.default_registry_path(home=home) == target
+
+    def test_telemetry_adapters_file_alias(self, home, monkeypatch):
+        target = home / "alias" / "adapters.json"
+        monkeypatch.setenv("SUGAR_ADAPTERS_FILE", str(target))
         assert registry.default_registry_path(home=home) == target
 
 
