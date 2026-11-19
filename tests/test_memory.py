@@ -686,9 +686,7 @@ class _StubEmbedder:
             raise RuntimeError("embed failed")
         vector = [0.0] * self.dimension
         for token in text.lower().split():
-            index = (
-                int(hashlib.sha256(token.encode()).hexdigest(), 16) % self.dimension
-            )
+            index = int(hashlib.sha256(token.encode()).hexdigest(), 16) % self.dimension
             vector[index] += 1.0
         if not any(vector):
             vector[0] = 1.0
@@ -848,7 +846,8 @@ class TestSemanticSearchWithSqliteVec:
         instance = MemoryStore(
             str(temp_dir / "semantic.db"), embedder=_StubEmbedder(EMBEDDING_DIM)
         )
-        assert instance._has_vec, "fixture expects sqlite-vec to be loadable"
+        if not instance._has_vec:
+            pytest.skip("sqlite-vec is importable but the extension failed to load")
         yield instance
         instance.close()
 
@@ -918,4 +917,3 @@ class TestSemanticSearchWithSqliteVec:
 
         hits = legacy.search(MemoryQuery(query="legacy memory 1", limit=2))
         assert hits and all(hit.match_type == "semantic" for hit in hits)
-

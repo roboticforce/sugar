@@ -4578,9 +4578,7 @@ def memory_reindex(ctx):
 
     if not is_semantic_search_available():
         click.echo("❌ Vectors are unavailable, so there is nothing to build.")
-        click.echo(
-            "   Install the vector extra first: pip install 'sugarai[memory]'"
-        )
+        click.echo("   Install the vector extra first: pip install 'sugarai[memory]'")
         sys.exit(1)
 
     config_file = ctx.obj["config"]
