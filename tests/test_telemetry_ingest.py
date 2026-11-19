@@ -7,6 +7,7 @@ coverage report. No network: only temp SQLite files and Unix sockets.
 
 import asyncio
 import json
+import os
 import shutil
 import socket
 import sqlite3
@@ -86,7 +87,7 @@ CURSOR_SESSION = {"event": "sessionStart", "conversation_id": "conv-1"}
 @pytest.fixture
 def short_socket():
     """Unix-socket path short enough for macOS AF_UNIX limits (~104 bytes)."""
-    directory = Path(tempfile.mkdtemp(prefix="sg-", dir="/tmp"))
+    directory = Path(tempfile.mkdtemp(prefix="sg-", dir=tempfile.gettempdir()))
     path = directory / "i.sock"
     try:
         yield path
@@ -522,6 +523,10 @@ class TestPipeline:
         assert bad.dropped is True
         assert count == 1
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="asyncio Unix-domain sockets are not supported on Windows",
+    )
     def test_unix_socket_roundtrip_and_permissions(self, tmp_path, short_socket):
         socket_path = short_socket
 
@@ -568,8 +573,9 @@ class TestPipeline:
         assert resolve_socket_path("") is None
         monkeypatch.setenv("SUGAR_INGEST_SOCKET", "")
         assert resolve_socket_path() is None
-        monkeypatch.setenv("SUGAR_INGEST_SOCKET", "/tmp/custom.sock")
-        assert resolve_socket_path() == Path("/tmp/custom.sock")
+        custom = Path(tempfile.gettempdir()) / "custom.sock"
+        monkeypatch.setenv("SUGAR_INGEST_SOCKET", str(custom))
+        assert resolve_socket_path() == custom
         monkeypatch.delenv("SUGAR_INGEST_SOCKET", raising=False)
         assert resolve_socket_path() == Path.home() / ".sugar" / "ingest.sock"
 
@@ -706,6 +712,10 @@ class TestHTTPEndpoints:
             assert response.status_code == 503
             assert response.json()["error"] == "spine_unavailable"
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="asyncio Unix-domain sockets are not supported on Windows",
+    )
     def test_socket_wired_into_lifespan(self, tmp_path, short_socket):
         socket_path = short_socket
         app = create_app(
@@ -715,7 +725,8 @@ class TestHTTPEndpoints:
         )
         with TestClient(app) as client:
             assert socket_path.exists()
-            assert (socket_path.stat().st_mode & 0o777) == 0o600
+            if os.name == "posix":
+                assert (socket_path.stat().st_mode & 0o777) == 0o600
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client_sock:
                 client_sock.settimeout(2)
                 client_sock.connect(str(socket_path))

@@ -79,7 +79,7 @@ class IngestSocketServer:
             self._server = await asyncio.start_unix_server(
                 self._handle_client, path=str(path), limit=MAX_LINE_BYTES
             )
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, NotImplementedError) as exc:
             # Never break the dashboard because the socket path is unavailable.
             logger.debug("telemetry socket: cannot listen on %s: %s", path, exc)
             self._server = None
