@@ -266,9 +266,11 @@ class TestDiscover:
         assert len(sessions) == 1
 
     def test_deepseek_fallback(self, tmp_path, monkeypatch):
-        fallback = tmp_path / "home" / ".deepseek" / "sessions"
+        fake_home = tmp_path / "home"
+        fallback = fake_home / ".deepseek" / "sessions"
         write_session(fallback, default_events())
-        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("USERPROFILE", str(fake_home))
         monkeypatch.delenv("SUGAR_DSH_SESSIONS", raising=False)
         sessions = discover_sessions()
         assert len(sessions) == 1
@@ -777,7 +779,7 @@ class TestConnect:
         result = invoke_cli(tmp_path, "connect", "--harness", "dsh", "--yes")
         assert result.exit_code == 0, result.output
         assert "session-tail" in result.output
-        assert "sugar tail dsh" in result.output
+        assert "tail dsh --watch" in result.output
         reg = json.loads((home / ".sugar" / "adapters.json").read_text())
         entry = reg["adapters"]["dsh"]
         assert entry["installed"] is True
