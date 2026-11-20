@@ -1,11 +1,14 @@
-"""Tests for the OTLP/HTTP JSON receiver (Phase 1a).
+"""Tests for the OTLP/HTTP receiver (Phase 1a JSON; Phase 1b protobuf + gzip).
 
 Covers tolerant OTLP decoding, span/log -> canonical telemetry mapping for ADK,
 Goose, Codex and DSH, and the ``POST /v1/traces`` / ``POST /v1/logs`` endpoints
-(content types, auth, body cap, redaction, dedupe, disabled spine).
+(JSON/protobuf content types, gzip, auth, body caps, redaction, dedupe, disabled
+spine). Protobuf tests skip when the optional ``[telemetry]`` extra is absent.
 """
 
 import asyncio
+import base64
+import gzip
 import json
 
 import pytest
@@ -27,6 +30,59 @@ from sugar.telemetry.schema import SCHEMA
 
 START_NS = 1_700_000_000_000_000_000
 END_NS = START_NS + 1_500_000_000
+
+
+@pytest.fixture
+def proto_required():
+    if not otlp.PROTOBUF_AVAILABLE:
+        pytest.skip("opentelemetry-proto ([telemetry] extra) is not installed")
+
+
+def _b64_id(hex_id):
+    return base64.b64encode(bytes.fromhex(hex_id)).decode("ascii")
+
+
+def _proto_json_payload(payload, signal):
+    """Deep-copy a JSON fixture with OTLP hex IDs converted to protobuf JSON base64."""
+    if not otlp.PROTOBUF_AVAILABLE:
+        pytest.skip("opentelemetry-proto ([telemetry] extra) is not installed")
+    data = json.loads(json.dumps(payload))
+    if signal == "traces":
+        for resource_spans in data.get("resourceSpans", []):
+            for scope_spans in resource_spans.get("scopeSpans", []):
+                for span in scope_spans.get("spans", []):
+                    for key in ("traceId", "spanId", "parentSpanId"):
+                        if isinstance(span.get(key), str) and span[key]:
+                            span[key] = _b64_id(span[key])
+    else:
+        for resource_logs in data.get("resourceLogs", []):
+            for scope_logs in resource_logs.get("scopeLogs", []):
+                for record in scope_logs.get("logRecords", []):
+                    for key in ("traceId", "spanId"):
+                        if isinstance(record.get(key), str) and record[key]:
+                            record[key] = _b64_id(record[key])
+    return data
+
+
+def _proto_bytes(payload, signal):
+    """Serialize a JSON fixture to an OTLP protobuf request body."""
+    data = _proto_json_payload(payload, signal)
+    from google.protobuf.json_format import ParseDict
+
+    if signal == "traces":
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+            ExportTraceServiceRequest,
+        )
+
+        message = ExportTraceServiceRequest()
+    else:
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import (
+            ExportLogsServiceRequest,
+        )
+
+        message = ExportLogsServiceRequest()
+    ParseDict(data, message)
+    return message.SerializeToString()
 
 
 def any_value(value):
@@ -569,17 +625,17 @@ class TestOTLPEndpoints:
         assert events[0]["kind"] == "tool.started"
         assert events[0]["source"] == "otlp:logs"
 
-    def test_protobuf_content_type_is_415_with_hint(self, tmp_path):
+    def test_unsupported_content_type_is_415_with_hint(self, tmp_path):
         app = make_app(tmp_path)
         with TestClient(app) as client:
             response = client.post(
                 "/v1/traces",
-                content=b"\x0a\x00",
-                headers={"Content-Type": "application/x-protobuf"},
+                content=b"plain text",
+                headers={"Content-Type": "text/plain"},
             )
             assert response.status_code == 415
-            assert "http/json" in response.text
-            assert "OTEL_EXPORTER_OTLP_PROTOCOL" in response.text
+            assert "application/x-protobuf" in response.text
+            assert "gzip" in response.text
 
     def test_missing_content_type_is_415(self, tmp_path):
         app = make_app(tmp_path)
@@ -749,8 +805,318 @@ class TestOTLPEndpoints:
         assert activity["events"][0]["kind"] == "tool.completed"
 
 
+class TestOTLPWireFormats:
+    @pytest.fixture
+    def adk_trace_payload(self):
+        return trace_payload(
+            [adk_execute_tool_span()], resource={"service.name": "adk"}
+        )
+
+    @pytest.fixture
+    def dsh_log_payload(self):
+        return log_payload(
+            [
+                dsh_log(
+                    {
+                        "type": "session-log",
+                        "session_id": "sess-dsh",
+                        "event": "tool/call",
+                        "data": {"name": "Bash", "call_id": "call-dsh-proto"},
+                    }
+                )
+            ],
+            resource={"service.name": "dsh"},
+        )
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            "application/x-protobuf",
+            "application/protobuf",
+            "application/octet-stream",
+        ],
+    )
+    def test_protobuf_traces_all_content_types(
+        self, tmp_path, proto_required, adk_trace_payload, content_type
+    ):
+        body = _proto_bytes(adk_trace_payload, "traces")
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=body,
+                headers={"Content-Type": content_type},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json() == {}
+        events = stored_events(tmp_path / "events.db")
+        assert len(events) == 1
+        event = events[0]
+        assert event["kind"] == "tool.completed"
+        assert event["harness"] == "adk"
+        assert event["trace_id"] == "a" * 32
+        assert event["payload"]["span_id"] == "b" * 16
+        assert event["payload"]["parent_span_id"] == "c" * 16
+        assert event["payload"]["tool_name"] == "Bash"
+        assert event["payload"]["tool_use_id"] == "call-adk-1"
+        assert event["source"] == "otlp:traces"
+
+    def test_protobuf_logs_dsh(self, tmp_path, proto_required, dsh_log_payload):
+        body = _proto_bytes(dsh_log_payload, "logs")
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/logs",
+                content=body,
+                headers={"Content-Type": "application/x-protobuf"},
+            )
+            assert response.status_code == 200, response.text
+        events = stored_events(tmp_path / "events.db")
+        assert len(events) == 1
+        event = events[0]
+        assert event["kind"] == "tool.started"
+        assert event["harness"] == "dsh"
+        assert event["source"] == "otlp:logs"
+        assert event["payload"]["tool_name"] == "Bash"
+        assert event["payload"]["tool_use_id"] == "call-dsh-proto"
+
+    def test_decode_protobuf_helpers_use_hex_ids(
+        self, proto_required, adk_trace_payload, dsh_log_payload
+    ):
+        trace_data = otlp.decode_trace_protobuf(
+            _proto_bytes(adk_trace_payload, "traces")
+        )
+        span = trace_data["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["traceId"] == "a" * 32
+        assert span["spanId"] == "b" * 16
+        assert span["parentSpanId"] == "c" * 16
+        log_data = otlp.decode_log_protobuf(_proto_bytes(dsh_log_payload, "logs"))
+        record = log_data["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+        assert record["traceId"] == "d" * 32
+        assert record["spanId"] == "e" * 16
+
+    def test_protobuf_empty_request_is_200(self, tmp_path, proto_required):
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=b"",
+                headers={"Content-Type": "application/x-protobuf"},
+            )
+            assert response.status_code == 200
+        assert stored_events(tmp_path / "events.db") == []
+
+    def test_malformed_protobuf_is_400(self, tmp_path, proto_required):
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=b"\x0a\xff",
+                headers={"Content-Type": "application/x-protobuf"},
+            )
+            assert response.status_code == 400
+            assert response.json()["error"] == "validation_error"
+
+    def test_protobuf_missing_extra_is_415_with_install_hint(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(otlp, "PROTOBUF_AVAILABLE", False)
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=b"anything",
+                headers={"Content-Type": "application/x-protobuf"},
+            )
+            assert response.status_code == 415
+            assert "telemetry" in response.text
+            assert "pip install" in response.text
+
+    def test_gzip_json_traces(self, tmp_path, adk_trace_payload):
+        body = gzip.compress(json.dumps(adk_trace_payload).encode())
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                },
+            )
+            assert response.status_code == 200, response.text
+        events = stored_events(tmp_path / "events.db")
+        assert len(events) == 1
+        assert events[0]["kind"] == "tool.completed"
+
+    def test_gzip_json_logs(self, tmp_path, dsh_log_payload):
+        body = gzip.compress(json.dumps(dsh_log_payload).encode())
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/logs",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                },
+            )
+            assert response.status_code == 200, response.text
+        assert len(stored_events(tmp_path / "events.db")) == 1
+
+    def test_gzip_protobuf_traces(self, tmp_path, proto_required, adk_trace_payload):
+        body = gzip.compress(_proto_bytes(adk_trace_payload, "traces"))
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=body,
+                headers={
+                    "Content-Type": "application/x-protobuf",
+                    "Content-Encoding": "gzip",
+                },
+            )
+            assert response.status_code == 200, response.text
+        events = stored_events(tmp_path / "events.db")
+        assert len(events) == 1
+        assert events[0]["trace_id"] == "a" * 32
+
+    def test_gzip_identity_encoding(self, tmp_path, adk_trace_payload):
+        body = json.dumps(adk_trace_payload).encode()
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "identity",
+                },
+            )
+            assert response.status_code == 200
+        assert len(stored_events(tmp_path / "events.db")) == 1
+
+    def test_unsupported_content_encoding_is_415(self, tmp_path):
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "deflate",
+                },
+            )
+            assert response.status_code == 415
+            assert "gzip" in response.text
+
+    def test_malformed_gzip_is_400(self, tmp_path):
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=b"not actually gzip",
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                },
+            )
+            assert response.status_code == 400
+
+    def test_decompressed_body_cap_is_413(self, tmp_path):
+        expanded = b"{" + b" " * (MAX_BODY_BYTES + 100) + b"}"
+        body = gzip.compress(expanded)
+        assert len(body) < MAX_BODY_BYTES
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/traces",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                },
+            )
+            assert response.status_code == 413
+            assert response.json()["error"] == "payload_too_large"
+
+    def test_protobuf_retry_dedupes(self, tmp_path, proto_required, adk_trace_payload):
+        body = _proto_bytes(adk_trace_payload, "traces")
+        app = make_app(tmp_path)
+        with TestClient(app) as client:
+            headers = {"Content-Type": "application/x-protobuf"}
+            assert (
+                client.post("/v1/traces", content=body, headers=headers).status_code
+                == 200
+            )
+            assert (
+                client.post("/v1/traces", content=body, headers=headers).status_code
+                == 200
+            )
+        assert len(stored_events(tmp_path / "events.db")) == 1
+
+    def test_protobuf_token_auth_still_enforced(
+        self, tmp_path, proto_required, adk_trace_payload
+    ):
+        tokens = TokenRegistry(
+            [
+                BoardToken("reader", "read", "read-token"),
+                BoardToken("writer", "write", "write-token"),
+            ]
+        )
+        body = _proto_bytes(adk_trace_payload, "traces")
+        headers = {"Content-Type": "application/x-protobuf"}
+        app = make_app(tmp_path, tokens=tokens)
+        with TestClient(app) as client:
+            assert (
+                client.post("/v1/traces", content=body, headers=headers).status_code
+                == 401
+            )
+            read = client.post(
+                "/v1/traces",
+                content=body,
+                headers={**headers, "Authorization": "Bearer read-token"},
+            )
+            assert read.status_code == 403
+            write = client.post(
+                "/v1/traces",
+                content=body,
+                headers={**headers, "Authorization": "Bearer write-token"},
+            )
+            assert write.status_code == 200
+        assert len(stored_events(tmp_path / "events.db")) == 1
+
+    def test_protobuf_helpers_raise_when_extra_missing(self, monkeypatch):
+        monkeypatch.setattr(otlp, "PROTOBUF_AVAILABLE", False)
+        with pytest.raises(otlp.OTLPProtobufUnavailable):
+            otlp.decode_trace_protobuf(b"")
+        with pytest.raises(otlp.OTLPProtobufUnavailable):
+            otlp.decode_log_protobuf(b"")
+
+    def test_decompress_gzip_bounded_and_malformed(self):
+        data = b"x" * 2000
+        compressed = gzip.compress(data)
+        assert otlp.decompress_gzip(compressed, max_bytes=2000) == data
+        with pytest.raises(otlp.OTLPBodyTooLarge):
+            otlp.decompress_gzip(compressed, max_bytes=100)
+        with pytest.raises(otlp.OTLPFormatError):
+            otlp.decompress_gzip(b"not gzip", max_bytes=1000)
+
+    def test_classify_content_type_and_encoding(self):
+        assert otlp.classify_content_type("application/json; charset=utf-8") == "json"
+        assert otlp.classify_content_type("application/x-protobuf") == "protobuf"
+        assert otlp.classify_content_type("application/protobuf") == "protobuf"
+        assert otlp.classify_content_type("application/octet-stream") == "protobuf"
+        assert otlp.classify_content_type("text/plain") is None
+        assert otlp.normalize_content_encoding("") == "identity"
+        assert otlp.normalize_content_encoding("GZIP") == "gzip"
+        with pytest.raises(otlp.OTLPUnsupportedEncoding):
+            otlp.normalize_content_encoding("br")
+
+
 def test_otlp_module_public_helpers():
     assert otlp.json_content_type("application/json; charset=utf-8") is True
     assert otlp.json_content_type("application/x-protobuf") is False
     assert otlp.json_content_type(None) is False
     assert otlp.PROTOBUF_HINT
+    assert otlp.protobuf_available() == otlp.PROTOBUF_AVAILABLE

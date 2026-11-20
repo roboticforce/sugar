@@ -75,8 +75,12 @@ dashboard = [
     "starlette==0.52.1",
     "uvicorn==0.42.0",
 ]
+telemetry = [
+    "opentelemetry-proto>=1.27,<2",
+    "protobuf>=4.25",
+]
 all = [
-    "sugarai[github,mcp,memory,opencode,dashboard]",
+    "sugarai[github,mcp,memory,opencode,dashboard,telemetry]",
 ]
 
 [project.scripts]

@@ -44,7 +44,9 @@ jobs:
         # they cover the vec0 KNN query and vector upserts, which silently
         # degraded to keyword search while CI had no vec extension at all.
         # sentence-transformers/torch stay out of CI on purpose.
-        pip install -e ".[mcp]" "sqlite-vec==0.1.9"
+        # [telemetry] installs opentelemetry-proto so the OTLP protobuf/gzip
+        # receiver tests run instead of skipping.
+        pip install -e ".[mcp,telemetry]" "sqlite-vec==0.1.9"
         pip install pytest pytest-asyncio pytest-cov 'black>=24.0.0,<26.0.0' flake8 mypy
     
     - name: Lint with flake8
