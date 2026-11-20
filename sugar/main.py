@@ -6280,5 +6280,108 @@ def doctor(server, socket_path, json_output):
         sys.exit(code)
 
 
+# =============================================================================
+# Session Tail Commands (DeepSeek Harness)
+# =============================================================================
+
+
+@cli.group()
+@click.pass_context
+def tail(ctx):
+    """Tail local agent session logs and stream them to a Sugar board"""
+    pass
+
+
+@tail.command("dsh")
+@click.option(
+    "--once",
+    is_flag=True,
+    help="Scan the logs once and exit (the default)",
+)
+@click.option(
+    "--watch",
+    is_flag=True,
+    help="Keep polling for new sessions/events (use under a process manager)",
+)
+@click.option(
+    "--sessions-dir",
+    "sessions_dir",
+    default=None,
+    type=click.Path(file_okay=False),
+    help="DSH sessions dir (default: $SUGAR_DSH_SESSIONS or ~/.dsh/sessions)",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Checkpoint file (default: $SUGAR_DSH_STATE or ~/.sugar/dsh-tail-state.json)",
+)
+@click.option(
+    "--interval",
+    type=float,
+    default=None,
+    help="Poll interval in seconds for --watch (default: 2)",
+)
+@click.option(
+    "--url",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--since",
+    default=None,
+    help="Skip events older than this ISO-8601 timestamp (or epoch seconds)",
+)
+@click.option("--quiet", is_flag=True, help="No output; only emit events")
+def dsh(
+    once,
+    watch,
+    sessions_dir,
+    state_file,
+    interval,
+    url,
+    since,
+    quiet,
+):
+    """Tail DeepSeek Harness session logs and stream them to the board
+
+    DSH writes compressed JSONL session logs under ``~/.dsh/sessions/``. This
+    replays session/turn/tool-call/approval events as canonical telemetry to
+    the board (``POST /api/events``), keeping a per-session checkpoint so
+    events are delivered once and a restart resumes where it stopped.
+
+    Examples:
+
+        sugar tail dsh
+
+        sugar tail dsh --watch --interval 2
+
+        sugar tail dsh --since 2026-11-01 --quiet
+
+    On macOS, ``sugar connect --harness dsh`` installs a LaunchAgent that runs
+    the ``--watch`` form at login and restarts it if it exits.
+    """
+    if once and watch:
+        raise click.UsageError("--once and --watch are mutually exclusive")
+    if interval is not None and interval <= 0:
+        raise click.BadParameter(
+            "must be a positive number of seconds", param_hint="--interval"
+        )
+    from .dsh.cli import run_tail_dsh
+
+    code = run_tail_dsh(
+        watch_mode=watch,
+        sessions_dir=sessions_dir,
+        state_file=state_file,
+        interval=interval,
+        url=url,
+        since=since,
+        quiet=quiet,
+    )
+    if code:
+        sys.exit(code)
+
+
 if __name__ == "__main__":
     cli()

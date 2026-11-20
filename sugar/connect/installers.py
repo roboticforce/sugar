@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import shlex
 import shutil
 import sys
@@ -65,6 +66,19 @@ GOOSE_PLUGIN_DESCRIPTION = (
 )
 GOOSE_PLUGIN_RELATIVE = (".agents", "plugins", GOOSE_PLUGIN_NAME)
 GOOSE_HOOK_TIMEOUT = 5
+
+#: DSH has no plugin API: we tail its session logs, launched by launchd on macOS.
+DSH_LAUNCH_AGENT_LABEL = "io.roboticforce.sugar.dsh-tail"
+DSH_PLIST_RELATIVE = (
+    "Library",
+    "LaunchAgents",
+    f"{DSH_LAUNCH_AGENT_LABEL}.plist",
+)
+DSH_LOG_RELATIVE = ("Library", "Logs", "Sugar", "dsh-tail.log")
+DSH_STATE_RELATIVE = (".sugar", "dsh-tail-state.json")
+#: launchd starts agents with a minimal PATH; keep the install-time PATH so a
+#: Homebrew `zstd` is still found by the tail.
+DSH_DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 #: Goose hook events Sugar subscribes to (matcher is a regex; ``.*`` = all).
 GOOSE_EVENTS: Tuple[str, ...] = (
@@ -147,6 +161,66 @@ def goose_hooks_path(home: Optional[Path] = None) -> Path:
     return goose_plugin_dir(home) / "hooks" / "hooks.json"
 
 
+def current_platform() -> str:
+    """Injectable platform check (tests simulate macOS/other without launchd)."""
+    return sys.platform
+
+
+def dsh_plist_path(home: Optional[Path] = None) -> Path:
+    return _home(home).joinpath(*DSH_PLIST_RELATIVE)
+
+
+def dsh_log_path(home: Optional[Path] = None) -> Path:
+    return _home(home).joinpath(*DSH_LOG_RELATIVE)
+
+
+def dsh_state_path(home: Optional[Path] = None) -> Path:
+    return _home(home).joinpath(*DSH_STATE_RELATIVE)
+
+
+def sugar_program_arguments() -> List[str]:
+    """Program arguments for a background launcher (installed CLI or -m fallback)."""
+    binary = shutil.which("sugar")
+    if binary:
+        return [binary]
+    return [sys.executable, "-m", "sugar.main"]
+
+
+def dsh_tail_command(home: Optional[Path] = None) -> str:
+    """Human-readable/shell command for the session tailer."""
+    arguments = sugar_program_arguments() + [
+        "tail",
+        "dsh",
+        "--watch",
+        "--state-file",
+        str(dsh_state_path(home)),
+    ]
+    return " ".join(shlex.quote(argument) for argument in arguments)
+
+
+def dsh_plist_data(home: Optional[Path] = None) -> Dict[str, Any]:
+    """launchd LaunchAgent payload for the DSH session tailer."""
+    log_path = str(dsh_log_path(home))
+    return {
+        "Label": DSH_LAUNCH_AGENT_LABEL,
+        "ProgramArguments": sugar_program_arguments()
+        + [
+            "tail",
+            "dsh",
+            "--watch",
+            "--state-file",
+            str(dsh_state_path(home)),
+        ],
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "StandardOutPath": log_path,
+        "StandardErrorPath": log_path,
+        "EnvironmentVariables": {
+            "PATH": os.environ.get("PATH") or DSH_DEFAULT_PATH,
+        },
+    }
+
+
 def sugar_launcher() -> str:
     """Shell-quoted launcher for hook commands (installed CLI or ``-m`` fallback)."""
     binary = shutil.which("sugar")
@@ -169,6 +243,8 @@ def config_path_for(harness: str, home: Optional[Path] = None) -> Optional[Path]
         return codex_hooks_path(home)
     if harness == detect.GOOSE:
         return goose_hooks_path(home)
+    if harness == detect.DSH:
+        return dsh_plist_path(home)
     return None
 
 
@@ -428,6 +504,95 @@ def _install_goose(*, home: Optional[Path], dry_run: bool) -> InstallResult:
     )
 
 
+def _write_plist(
+    path: Path, data: Dict[str, Any], *, dry_run: bool
+) -> Tuple[str, Optional[Path]]:
+    """Write a launchd plist atomically with a ``.bak`` backup."""
+    encoded = plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=True)
+    existed = path.exists()
+    previous: Optional[bytes] = None
+    previous_mode: Optional[int] = None
+    if existed:
+        try:
+            previous = path.read_bytes()
+            previous_mode = path.stat().st_mode & 0o777
+        except OSError as exc:
+            raise InstallError(f"cannot read {path}: {exc}") from exc
+        if previous == encoded:
+            return "unchanged", None
+
+    status = (
+        ("would-update" if existed else "would-install")
+        if dry_run
+        else ("updated" if existed else "installed")
+    )
+    if dry_run:
+        return status, (path.with_name(path.name + ".bak") if existed else None)
+
+    backup_path = path.with_name(path.name + ".bak")
+    if existed and previous is not None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            backup_path.write_bytes(previous)
+            if previous_mode is not None:
+                os.chmod(backup_path, previous_mode)
+        except OSError as exc:
+            raise InstallError(
+                f"cannot back up {path} to {backup_path}: {exc}"
+            ) from exc
+
+    temp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp.write_bytes(encoded)
+        if previous_mode is not None:
+            os.chmod(temp, previous_mode)
+        os.replace(temp, path)
+    except OSError as exc:
+        raise InstallError(f"cannot write {path}: {exc}") from exc
+    finally:
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError:  # pragma: no cover
+            pass
+    return status, (backup_path if existed else None)
+
+
+def _install_dsh(*, home: Optional[Path], dry_run: bool) -> InstallResult:
+    command = dsh_tail_command(home)
+    notes = [
+        "requires a zstd decompressor: `zstd` on PATH (brew/apt install zstd) "
+        "or the optional `zstandard` Python package",
+    ]
+    if current_platform() != "darwin":
+        notes.insert(0, f"manual setup (non-macOS): {command}")
+        notes.append("run it under your process manager (systemd user unit, tmux, ...)")
+        return InstallResult(
+            harness=detect.DSH,
+            status="would-install" if dry_run else "installed",
+            config_path=None,
+            backup_path=None,
+            notes=notes,
+        )
+
+    plist_path = dsh_plist_path(home)
+    status, backup_path = _write_plist(
+        plist_path, dsh_plist_data(home), dry_run=dry_run
+    )
+    notes.insert(0, f"macOS LaunchAgent: {plist_path}")
+    notes.append(f"load it with: launchctl load -w {plist_path}")
+    notes.append(f"logs: {dsh_log_path(home)}")
+    notes.append(f"run manually instead: {command}")
+    return InstallResult(
+        harness=detect.DSH,
+        status=status,
+        config_path=plist_path,
+        backup_path=backup_path,
+        notes=notes,
+    )
+
+
 # ---------------------------------------------------------------------------
 # File handling
 # ---------------------------------------------------------------------------
@@ -533,6 +698,8 @@ def install(
 
     if harness == detect.GOOSE:
         return _install_goose(home=home, dry_run=dry_run)
+    if harness == detect.DSH:
+        return _install_dsh(home=home, dry_run=dry_run)
 
     path = config_path_for(harness, home)
     assert path is not None  # installable harnesses always have a config path
