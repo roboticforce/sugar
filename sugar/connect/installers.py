@@ -311,9 +311,11 @@ def merge_goose_hooks(
 ) -> Tuple[Dict[str, Any], bool]:
     """Merge Sugar's plugin hooks into a Goose ``hooks.json`` object.
 
-    Goose maps event names to an object with a regex ``matcher`` and a ``hooks``
-    list. Existing users' hooks/keys are preserved; our command is added once
-    and refreshed if the absolute ``sugar`` path changed (idempotent).
+    Goose maps each event name to an **array of rules**, where a rule carries a
+    regex ``matcher`` and a ``hooks`` list. Existing users' rules/hooks are
+    preserved; our command is added once and refreshed if the absolute
+    ``sugar`` path changed (idempotent). Legacy files written as an object per
+    event (an earlier Sugar bug) are migrated to the documented array shape.
     """
     if not isinstance(existing, dict):
         raise InstallError("Goose hooks.json must be a JSON object")
@@ -327,23 +329,48 @@ def merge_goose_hooks(
 
     changed = False
     for event in events:
-        entry = hooks.get(event)
-        if entry is None:
-            entry = {"matcher": ".*"}
+        rules = hooks.get(event)
+        if rules is None:
+            rules = []
+            hooks[event] = rules
             changed = True
-        if not isinstance(entry, dict):
-            raise InstallError(f"Goose hooks.json 'hooks.{event}' must be an object")
-        if "matcher" not in entry:
-            entry["matcher"] = ".*"
+        elif isinstance(rules, dict):
+            # Earlier Sugar wrote one object per event; Goose expects an array.
+            rules = [rules]
+            hooks[event] = rules
             changed = True
-        hook_list = entry.get("hooks")
+        if not isinstance(rules, list):
+            raise InstallError(
+                f"Goose hooks.json 'hooks.{event}' must be an array of rules"
+            )
+
+        sugar_rule: Optional[Dict[str, Any]] = None
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            hook_list = rule.get("hooks")
+            if isinstance(hook_list, list) and any(
+                _is_sugar_goose_hook(hook) for hook in hook_list
+            ):
+                sugar_rule = rule
+                break
+
+        if sugar_rule is None:
+            sugar_rule = {"matcher": ".*", "hooks": []}
+            rules.append(sugar_rule)
+            changed = True
+
+        if "matcher" not in sugar_rule:
+            sugar_rule["matcher"] = ".*"
+            changed = True
+        hook_list = sugar_rule.get("hooks")
         if hook_list is None:
             hook_list = []
-            entry["hooks"] = hook_list
+            sugar_rule["hooks"] = hook_list
             changed = True
         if not isinstance(hook_list, list):
             raise InstallError(
-                f"Goose hooks.json 'hooks.{event}.hooks' must be an array"
+                f"Goose hooks.json 'hooks.{event}[].hooks' must be an array"
             )
         matches = [hook for hook in hook_list if _is_sugar_goose_hook(hook)]
         if not matches:
@@ -357,7 +384,6 @@ def merge_goose_hooks(
                     hook["command"] = command
                     hook["timeout"] = timeout
                     changed = True
-        hooks[event] = entry
     return data, changed
 
 
