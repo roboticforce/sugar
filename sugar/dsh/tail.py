@@ -177,10 +177,6 @@ def _entry_reset_needed(
     previous_size = entry.get("size")
     if isinstance(previous_size, int) and size < previous_size:
         return True  # truncated / rewound file
-    session_id = entry.get("session_id")
-    if isinstance(session_id, str) and session_id and session_id != session.session_id:
-        # Same path, different session (log replaced): replay from the header.
-        return True
     return False
 
 
@@ -256,8 +252,35 @@ def tail_once(
             logger.debug("dsh tail: skipping %s: %s", session.path, exc)
             continue
 
-        result.sessions += 1
         session_id = parsed.session_id or session.session_id
+        # A discovered folder name is only a fallback id; the header inside the
+        # log is authoritative. Compare against the header id, not the path
+        # fallback, or every cycle looks like a replaced log and replays it.
+        previous_session = (entry or {}).get("session_id")
+        if (
+            entry is not None
+            and isinstance(previous_session, str)
+            and previous_session
+            and session_id
+            and session_id != previous_session
+        ):
+            reset = True
+            since_seq = -1
+            try:
+                parsed = parse_session_file(
+                    session.path,
+                    since_seq=since_seq,
+                    since=since_text,
+                    workspace=session.workspace,
+                    session_id_fallback=session.session_id,
+                )
+            except DshParseError as exc:
+                result.errors.append(f"{session.path}: {exc}")
+                logger.debug("dsh tail: skipping %s: %s", session.path, exc)
+                continue
+            session_id = parsed.session_id or session.session_id
+
+        result.sessions += 1
         if session_id and session_id not in result.session_ids:
             result.session_ids.append(session_id)
 

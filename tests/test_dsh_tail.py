@@ -543,6 +543,23 @@ class TestTail:
         assert result.events == 0
         assert emitted == []
 
+    def test_folder_fallback_id_does_not_replay(self, tmp_path):
+        # The folder name is only a fallback; the header id is authoritative.
+        # A mismatch must not look like a replaced log on every cycle.
+        sessions = tmp_path / "sessions"
+        write_session(sessions, default_events(), session_id="not-the-header-id")
+        state_path = tmp_path / "state.json"
+        first = tail_once(
+            sessions_dir=sessions, state_path=state_path, emit=lambda e: None
+        )
+        assert first.events == 8
+        emitted = []
+        second = tail_once(
+            sessions_dir=sessions, state_path=state_path, emit=emitted.append
+        )
+        assert second.events == 0
+        assert emitted == []
+
     def test_new_file_discovered_later(self, tmp_path):
         sessions = tmp_path / "sessions"
         write_session(sessions, default_events())
