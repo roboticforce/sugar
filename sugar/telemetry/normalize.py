@@ -1,10 +1,10 @@
 """Tolerant normalization of raw harness hook payloads to canonical telemetry.
 
-Supports Claude Code, Codex and Cursor hook shapes (see ``docs/telemetry.md`` /
-``docs/local-dashboard.md`` §11). The normalizer never imports ``sugar.connect``
-and never raises on unexpected optional fields — unknown events are ignored
-(``None``) and malformed top-level bodies raise a validation error the HTTP
-endpoint turns into a 400.
+Supports Claude Code, Codex, Cursor and Goose hook shapes (see
+``docs/telemetry.md`` / ``docs/local-dashboard.md`` §11). The normalizer never
+imports ``sugar.connect`` and never raises on unexpected optional fields —
+unknown events are ignored (``None``) and malformed top-level bodies raise a
+validation error the HTTP endpoint turns into a 400.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .schema import (
     status_for_kind,
 )
 
-KNOWN_HARNESSES = ("claude-code", "codex", "cursor")
+KNOWN_HARNESSES = ("claude-code", "codex", "cursor", "goose", "dsh")
 HARNESS_ALIASES = {
     "claude": "claude-code",
     "claude-code": "claude-code",
@@ -31,6 +31,12 @@ HARNESS_ALIASES = {
     "cursor": "cursor",
     "cursor-agent": "cursor",
     "cursor_agent": "cursor",
+    "goose": "goose",
+    "goose-ai": "goose",
+    "block-goose": "goose",
+    "dsh": "dsh",
+    "deepseek-harness": "dsh",
+    "deepseek_harness": "dsh",
 }
 
 _TOOL_INPUT_KEYS = ("tool_input", "toolInput", "input", "arguments", "tool_args")
@@ -38,6 +44,8 @@ _TOOL_RESPONSE_KEYS = (
     "tool_response",
     "toolResponse",
     "tool_result",
+    "tool_output",
+    "toolOutput",
     "result",
     "output",
 )
@@ -55,7 +63,14 @@ _SESSION_ID_KEYS = (
     "conversation_id",
     "conversationId",
 )
-_CWD_KEYS = ("cwd", "working_directory", "workingDirectory", "workspace_root")
+_CWD_KEYS = (
+    "cwd",
+    "working_directory",
+    "workingDirectory",
+    "working_dir",
+    "workingDir",
+    "workspace_root",
+)
 _MESSAGE_KEYS = ("message", "prompt", "text", "note", "summary")
 _MODEL_KEYS = ("model", "model_name", "modelName")
 _DURATION_KEYS = ("duration_ms", "durationMs", "elapsed_ms", "elapsedMs")
@@ -78,6 +93,12 @@ _TOOL_NAME_ALIASES = {
     "write_file": "Write",
     "grep": "Grep",
     "glob": "Glob",
+    # Goose built-in developer tools
+    "developer__shell": "Bash",
+    "developer__text_editor": "Edit",
+    "developer__read_file": "Read",
+    "developer__write_file": "Write",
+    "developer__list_files": "Glob",
 }
 
 _EVENT_ALIASES = {
@@ -88,6 +109,8 @@ _EVENT_ALIASES = {
     "post_tool_use": "tool.completed",
     "posttoolusefailure": "tool.failed",
     "post_tool_use_failure": "tool.failed",
+    "pretooluseresult": "tool.completed",
+    "pre_tool_use_result": "tool.completed",
     "sessionstart": "session.started",
     "session_start": "session.started",
     "sessionend": "session.ended",
@@ -207,6 +230,79 @@ def _event_name(body: Mapping[str, Any]) -> str:
     return ""
 
 
+_GOOSE_EVENT_OVERRIDES = {
+    # Goose's Stop ends the whole run (Claude Code's Stop ends a turn).
+    "stop": "run.ended",
+}
+
+_GOOSE_TOOL_NAMES = {
+    # File/shell lifecycle events do not always carry tool_name; the event
+    # itself identifies the tool.
+    "beforereadfile": "Read",
+    "afterfileedit": "Write",
+    "beforeshellexecution": "Bash",
+    "aftershellexecution": "Bash",
+}
+
+_GOOSE_FAILURE_DECISIONS = frozenset(
+    {"deny", "denied", "block", "blocked", "reject", "rejected", "error", "failed"}
+)
+
+
+def _truthy_error(value: Any) -> bool:
+    if value is None or value is False:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if isinstance(value, str):
+        return bool(value.strip()) and value.strip().lower() not in (
+            "false",
+            "none",
+            "null",
+            "ok",
+            "success",
+        )
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+def _goose_failed(body: Mapping[str, Any]) -> bool:
+    """True when a Goose completion-ish payload reports failure/denial."""
+    decision = body.get("decision")
+    if (
+        isinstance(decision, str)
+        and decision.strip().lower() in _GOOSE_FAILURE_DECISIONS
+    ):
+        return True
+    if body.get("success") is False:
+        return True
+    for key in ("error", "error_message", "exception"):
+        if _truthy_error(body.get(key)):
+            return True
+    exit_code = body.get("exit_code")
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        return exit_code != 0
+    status = body.get("status")
+    if isinstance(status, str) and status.strip().lower() in (
+        "failed",
+        "failure",
+        "error",
+    ):
+        return True
+    return False
+
+
+def _kind_for(harness: str, name: str, body: Mapping[str, Any]) -> Optional[str]:
+    """Resolve an event name to a canonical kind (harness-aware where needed)."""
+    if harness == "goose" and name in _GOOSE_EVENT_OVERRIDES:
+        return _GOOSE_EVENT_OVERRIDES[name]
+    kind = _EVENT_ALIASES.get(name)
+    if harness == "goose" and kind == "tool.completed" and _goose_failed(body):
+        return "tool.failed"
+    return kind
+
+
 def _timestamp(body: Mapping[str, Any]) -> Optional[str]:
     for key in _TIMESTAMP_KEYS:
         value = body.get(key)
@@ -256,6 +352,14 @@ def _tool_name(body: Mapping[str, Any]) -> Optional[str]:
         return None
     alias = _TOOL_NAME_ALIASES.get(text.strip().lower())
     return alias or text
+
+
+def _tool_name_for(harness: str, name: str, body: Mapping[str, Any]) -> Optional[str]:
+    if harness == "goose":
+        forced = _GOOSE_TOOL_NAMES.get(name)
+        if forced:
+            return forced
+    return _tool_name(body)
 
 
 def _tool_use_id(body: Mapping[str, Any]) -> Optional[str]:
@@ -318,6 +422,9 @@ def _summary_for(
         summary["input"] = tool_input
     if tool_response is not None:
         summary["result"] = tool_response
+    decision = _text(body.get("decision"), 200)
+    if decision:
+        summary["decision"] = decision
     if kind == "usage.reported":
         summary.update(_usage_summary(body))
     if (
@@ -339,9 +446,9 @@ def _fidelity(
     if kind == "usage.reported":
         return "L2"
     if kind in ("tool.started", "tool.completed", "tool.failed"):
-        # Claude Code hooks carry tool args/results (L3); Codex/Cursor hooks
-        # carry tool names/status (L2).
-        return "L3" if harness == "claude-code" else "L2"
+        # Claude Code and Goose plugin hooks carry tool args/results (L3);
+        # Codex/Cursor hooks carry tool names/status only (L2).
+        return "L3" if harness in ("claude-code", "goose") else "L2"
     if kind.startswith("run."):
         return "L1"
     return "L1"
@@ -359,9 +466,13 @@ def normalize_hook(
         raise TelemetryValidationError(f"unknown harness: {harness!r}")
     if not isinstance(body, Mapping):
         raise TelemetryValidationError("hook body must be a JSON object")
+    if harness_name == "dsh":
+        # Reserved for Phase 1b: the ingest edge accepts the harness id, but the
+        # DSH payload contract is not defined yet, so emit nothing.
+        return None
 
     name = _event_name(body)
-    kind = _EVENT_ALIASES.get(name)
+    kind = _kind_for(harness_name, name, body)
     if kind is None and _mapping(body.get("usage")):
         kind = "usage.reported"
     if kind is None:
@@ -388,7 +499,7 @@ def normalize_hook(
         (body.get(key) for key in _TOOL_RESPONSE_KEYS if body.get(key) is not None),
         None,
     )
-    tool_name = _tool_name(body)
+    tool_name = _tool_name_for(harness_name, name, body)
     tool_use_id = _tool_use_id(body)
     session_id = _first_text(body, _SESSION_ID_KEYS, 500)
     cwd = _first_text(body, _CWD_KEYS, 1000)

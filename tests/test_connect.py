@@ -111,8 +111,9 @@ class TestDetect:
         assert detections[detect.CLAUDE_CODE].transport == "http-hook"
         assert detections[detect.CURSOR].fidelity == "L2"
         assert detections[detect.CURSOR].transport == "command-hook"
-        assert detections[detect.GOOSE].installable is False
-        assert detections[detect.GOOSE].fidelity == "L0"
+        assert detections[detect.GOOSE].installable is True
+        assert detections[detect.GOOSE].fidelity == "L3"
+        assert detections[detect.GOOSE].transport == "hook-plugin"
 
     def test_detects_binary_and_version(self, home):
         detection = detect.detect_harness(
@@ -342,7 +343,7 @@ class TestCommandInstallers:
         assert not (home / ".codex").exists()
 
     def test_detect_only_harness_is_skipped(self, home):
-        result = installers.install(detect.GOOSE, home=home)
+        result = installers.install(detect.DSH, home=home)
         assert result.status == "skipped"
         assert result.config_path is None
         assert result.notes
@@ -430,7 +431,7 @@ class TestRegistry:
 
 class TestConnectCLI:
     def test_check_prints_matrix_and_writes_nothing(self, home, tmp_path):
-        make_dirs(home, ".claude", ".cursor", ".config/goose")
+        make_dirs(home, ".claude", ".cursor", "Applications/DeepSeek Harness.app")
         result = invoke_cli(tmp_path, "connect", "--check")
 
         assert result.exit_code == 0, result.output
@@ -440,6 +441,7 @@ class TestConnectCLI:
         assert "--check" in result.output
         assert not (home / ".claude" / "settings.json").exists()
         assert not (home / ".cursor" / "hooks.json").exists()
+        assert not (home / ".agents").exists()
         assert not (home / ".sugar" / "adapters.json").exists()
 
     def test_apply_installs_detected_and_writes_registry(self, home, tmp_path):
@@ -515,8 +517,8 @@ class TestConnectCLI:
         assert "No supported harness detected" in result.output
 
     def test_detect_only_selection_is_skipped(self, home, tmp_path):
-        make_dirs(home, ".config/goose")
-        result = invoke_cli(tmp_path, "connect", "--harness", "goose", "--yes")
+        make_dirs(home, "Applications/DeepSeek Harness.app")
+        result = invoke_cli(tmp_path, "connect", "--harness", "dsh", "--yes")
         assert result.exit_code == 0, result.output
         assert "No supported harness detected" in result.output
 
@@ -546,10 +548,17 @@ class TestMatrix:
             path="",
             which=lambda name, path: "/fake/cursor",
         )
+        detections[detect.DSH] = detect.detect_harness(
+            detect.DSH,
+            home=home,
+            path="",
+            which=lambda name, path: "/fake/dsh",
+        )
         rows = {row.harness: row for row in build_rows(detections, reg)}
         assert rows[detect.CLAUDE_CODE].action == "install"
         assert rows[detect.CURSOR].action == "keep (installed)"
-        assert rows[detect.GOOSE].action == "detect-only (phase 1)"
+        assert rows[detect.GOOSE].action == "install"
+        assert rows[detect.DSH].action == "detect-only (phase 1)"
         assert rows[detect.CODEX].action == "skip (not detected)"
 
     def test_format_matrix_alignment(self, home):

@@ -32,7 +32,7 @@ DEFAULT_SOCKET_PATH = "~/.sugar/ingest.sock"
 DEFAULT_SOCKET_TIMEOUT = 0.4
 DEFAULT_HTTP_TIMEOUT = 1.0
 MAX_STDIN_BYTES = 1_000_000
-HOOK_HARNESSES = ("claude-code", "cursor", "codex")
+HOOK_HARNESSES = ("claude-code", "cursor", "codex", "goose", "dsh")
 
 
 @dataclass

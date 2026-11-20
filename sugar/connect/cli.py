@@ -130,7 +130,9 @@ def _codex_trust_lines() -> List[str]:
 
 def _windows_lines(harnesses: Iterable[str]) -> List[str]:
     command_harnesses = [
-        harness for harness in harnesses if harness in (detect.CURSOR, detect.CODEX)
+        harness
+        for harness in harnesses
+        if harness in (detect.CURSOR, detect.CODEX, detect.GOOSE)
     ]
     if os.name != "nt" or not command_harnesses:
         return []

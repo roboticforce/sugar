@@ -208,7 +208,10 @@ class TestNormalize:
         assert normalize_harness_name("claude") == "claude-code"
         assert normalize_harness_name("Cursor") == "cursor"
         assert normalize_harness_name("codex") == "codex"
-        assert normalize_harness_name("goose") is None
+        assert normalize_harness_name("goose") == "goose"
+        assert normalize_harness_name("Goose") == "goose"
+        assert normalize_harness_name("dsh") == "dsh"
+        assert normalize_harness_name("deepseek-harness") == "dsh"
         assert normalize_harness_name(None) is None
 
     def test_claude_pre_tool_use(self):
@@ -319,8 +322,10 @@ class TestNormalize:
 
     def test_bad_bodies(self):
         assert normalize_hook("claude-code", {"hook_event_name": "Unknown"}) is None
+        # Goose is a known harness now; an empty body is just an ignored event.
+        assert normalize_hook("goose", {}) is None
         with pytest.raises(schema.TelemetryValidationError):
-            normalize_hook("goose", {})
+            normalize_hook("not-a-harness", {})
         with pytest.raises(schema.TelemetryValidationError):
             normalize_hook("claude-code", ["not", "a", "dict"])  # type: ignore[arg-type]
 
@@ -637,9 +642,12 @@ class TestHTTPEndpoints:
     def test_hook_unknown_harness_404(self, tmp_path):
         app = make_app(tmp_path)
         with TestClient(app) as client:
-            response = client.post("/api/hooks/goose", json={})
+            response = client.post("/api/hooks/not-a-harness", json={})
             assert response.status_code == 404
             assert response.json() == {"error": "not_found"}
+            # Goose is known (Phase 1a adapter): an ignored event still returns
+            # 200 so hook callers stay fail-open.
+            assert client.post("/api/hooks/goose", json={}).status_code == 200
 
     def test_hook_malformed_is_400(self, tmp_path):
         app = make_app(tmp_path)

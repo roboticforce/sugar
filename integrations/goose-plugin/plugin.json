@@ -1,0 +1,5 @@
+{
+  "name": "sugar-telemetry",
+  "version": "0.1.0",
+  "description": "Stream Goose hook telemetry (tool calls, sessions, turns) to the local Sugar board"
+}

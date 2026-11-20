@@ -6144,7 +6144,9 @@ def trends(events_db, since, until, bucket, group_by, limit, as_json):
 @click.option(
     "--harness",
     required=True,
-    type=click.Choice(["claude-code", "cursor", "codex"], case_sensitive=False),
+    type=click.Choice(
+        ["claude-code", "cursor", "codex", "goose", "dsh"], case_sensitive=False
+    ),
     help="Harness that produced this hook payload",
 )
 @click.option(
@@ -6167,9 +6169,10 @@ def trends(events_db, since, until, bucket, group_by, limit, as_json):
 def hook(harness, socket_path, url, quiet):
     """Forward one harness hook payload from stdin to Sugar (fail-open, silent)
 
-    This is the command Cursor and Codex hooks invoke (Claude Code uses a native
-    HTTP hook). It reads the raw hook JSON from stdin and forwards it to the
-    Unix ingest socket (preferred) or ``POST /api/hooks/<harness>``.
+    This is the command Cursor, Codex and the Goose plugin hooks invoke (Claude
+    Code uses a native HTTP hook). It reads the raw hook JSON from stdin and
+    forwards it to the Unix ingest socket (preferred) or
+    ``POST /api/hooks/<harness>``. ``dsh`` is reserved for the Phase-1b adapter.
 
     It is deliberately boring: bounded timeouts, no output, and it always exits
     0, because a stopped board must never block an agent's tool call. Set
