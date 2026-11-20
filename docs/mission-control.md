@@ -381,10 +381,10 @@ python scripts/demo_dashboard.py --serve --open
 ## 10. Roadmap
 
 1. **Lease heartbeat + reaper** — reclaim a task from a dead worker automatically.
-2. **Harness adapters** — **shipped Phase 0/1a**: Claude Code (HTTP hooks),
-   Cursor/Codex (command hooks), Goose (hook plugin), OTLP JSON for
-   ADK/Codex/Claude/Goose, ADK/OpenAI/Claude SDK helpers. **Phase 1b**:
-   DeepSeek Harness session-tail/ACP, protobuf/gzip OTLP, MCP proxy.
+2. **Harness adapters** — **shipped Phase 0/1a/1b**: Claude Code (HTTP hooks),
+   Cursor/Codex (command hooks), Goose (hook plugin), DeepSeek Harness
+   (session-tail LaunchAgent), OTLP protobuf/JSON for ADK/Codex/Claude/Goose,
+   ADK/OpenAI/Claude SDK helpers. **Next**: DSH ACP live events, MCP proxy.
 3. **Analytics** — flow graph (harness → project → status), per-actor
    throughput/latency, dependency DAG, expired-lease and double-claim anomalies,
    with rollups over the raw spine.

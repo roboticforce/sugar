@@ -619,12 +619,15 @@ reaper); plus free-form ingest kinds
 - `GET /api/coverage` — adapter coverage (`detected`/`installed`, per-harness
   L0-L3 fidelity, transport, last event, 24h count) from
   `~/.sugar/adapters.json` plus the spine. See `docs/telemetry-adapters.md`.
-- `POST /v1/traces`, `POST /v1/logs` — OTLP/HTTP **JSON** export (standard
-  `ExportTraceServiceRequest`/`ExportLogsServiceRequest`), mapped to canonical
-  events via the telemetry pipeline. `200 {}`; malformed → 400; >1 MB → 413;
-  protobuf/other content type → 415 (set
-  `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`); no spine → 503. In token mode a
-  write-scoped bearer token is required. See `docs/telemetry-adapters.md`.
+- `POST /v1/traces`, `POST /v1/logs` — OTLP/HTTP **protobuf or JSON** export
+  (standard `ExportTraceServiceRequest`/`ExportLogsServiceRequest`), optionally
+  gzipped, mapped to canonical events via the telemetry pipeline. Content types
+  `application/x-protobuf`, `application/protobuf`,
+  `application/octet-stream`, `application/json`; encodings `identity`, `gzip`;
+  protobuf requires `sugarai[telemetry]`. `200 {}`; malformed → 400; raw or
+  decompressed >1 MB → 413; unsupported type/encoding → 415; no spine → 503.
+  In token mode a write-scoped bearer token is required. See
+  `docs/telemetry-adapters.md`.
 - `POST /api/events` — harness telemetry. Body: `{kind*, actor?, actor_kind?,
   harness?, session_id?, task_id?, run_id?, project?, trace_id?, payload?}`;
   server fills `ts`, `machine`, `source="ingest"`, `id`, `ingested_at`. Unknown

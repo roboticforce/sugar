@@ -7,19 +7,18 @@ spine next to task state. That is what makes Mission Control show live tool
 calls, the Activity feed queryable, and usage/audit/trends possible across
 different harnesses.
 
-This document covers the **Phase 1a** adapter surface: the canonical envelope,
+This document covers the **Phase 1b** adapter surface: the canonical envelope,
 fidelity levels, hook/evidence/OTLP/socket ingestion, `sugar connect`,
 `sugar hook`, `sugar doctor`, the coverage API/UI, SDK helpers, redaction and
 current limitations.
 
-> **Scope.** Phase 1a ships adapters for **Claude Code**, **Cursor**, **Codex**
-> and **Goose** (L3 hooks), an **OTLP/HTTP JSON receiver** (`/v1/traces`,
-> `/v1/logs`) for Goose/ADK/Codex/Claude OTel exporters, and helpers for
-> **Google ADK**, **OpenAI Agents SDK** and the **Claude Agent SDK**.
-> DeepSeek Harness is detected only until the session-tail/ACP adapter lands in
-> Phase 1b. Protobuf OTLP and gzip request bodies are Phase 1b. Until an
-> adapter lands, Sugar still shows the harness at L0/L1 through the task board
-> and leases.
+> **Scope.** Phase 1b ships adapters for **Claude Code**, **Cursor**, **Codex**,
+> **Goose** and **DeepSeek Harness** at L3, an **OTLP/HTTP receiver** that
+> accepts protobuf or JSON (plus gzip) on `/v1/traces` and `/v1/logs`, and
+> helpers for **Google ADK**, **OpenAI Agents SDK** and the **Claude Agent SDK**.
+> DSH is tailed from its compressed session logs; hooks/ACP live events and the
+> MCP proxy remain future work. Until an adapter lands, Sugar still shows the
+> harness at L0/L1 through the task board and leases.
 
 ---
 
@@ -147,22 +146,26 @@ spine → `503`. Evidence defaults to `fidelity: L3` and `source:
 "telemetry:evidence"`. Use it from CI, verifiers or custom agents to put
 verification results next to the work they verify.
 
-### 3.3 `POST /v1/traces` and `POST /v1/logs` — OTLP/HTTP JSON
+### 3.3 `POST /v1/traces` and `POST /v1/logs` — OTLP/HTTP
 
 OTel-native harnesses can export directly to the same spine. Both endpoints
-accept standard OTLP/HTTP **JSON** (`ExportTraceServiceRequest` /
-`ExportLogsServiceRequest`):
+accept standard OTLP/HTTP **protobuf** (the OTel default) and **JSON**
+(`ExportTraceServiceRequest` / `ExportLogsServiceRequest`), optionally gzipped:
 
 ```bash
 # OTel exporters append /v1/traces or /v1/logs to the base endpoint
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7331
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+# protobuf is the default; JSON is also supported:
+# export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 ```
 
-- Success `200 {}`; malformed OTLP → `400`; body > 1 MB → `413`; disabled spine
-  → `503`.
-- Protobuf (the OTel default) → `415` with a clear hint to set
-  `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. Protobuf support is Phase 1b.
+- Content types: `application/x-protobuf`, `application/protobuf`,
+  `application/octet-stream`, `application/json`; encodings `identity` or
+  `gzip`. Anything else → `415`.
+- Protobuf requires the optional extra: `pip install 'sugarai[telemetry]'`.
+  Without it, JSON still works and protobuf returns `415` with that hint.
+- Success `200 {}`; malformed body → `400`; raw or decompressed body > 1 MB →
+  `413`; disabled spine → `503`.
 - In token mode `/v1/*` requires a write-scoped bearer token.
 - Mapping: tool spans (`execute_tool*`, `function_span*`, `gen_ai.tool.name` /
   `tool.name` attrs) → `tool.completed`/`tool.failed` at **L3** with
@@ -254,7 +257,7 @@ Installs:
 | Cursor | `~/.cursor/hooks.json` command hooks calling `sugar hook --harness cursor` | command hook | L3 |
 | Codex | `~/.codex/hooks.json` command hooks calling `sugar hook --harness codex` | command hook | L3 |
 | Goose | `~/.agents/plugins/sugar-telemetry/{plugin.json,hooks/hooks.json}` calling `sugar hook --harness goose` | hook plugin | L3 |
-| DeepSeek Harness | detected only (Phase 1b: session-tail/ACP) | — | L0 |
+| DeepSeek Harness | macOS LaunchAgent running `sugar tail dsh --watch` (non-macOS: prints the manual command) | session tail | L3 |
 
 - Existing config is preserved; a `.bak` backup is written next to the file.
 - Installs are idempotent: re-running updates Sugar's entries and keeps
@@ -267,11 +270,33 @@ Installs:
 - **Goose:** installs a user plugin under `~/.agents/plugins/sugar-telemetry/`
   (plugin.json + hooks/hooks.json). Hooks are awaited by Goose, so the command
   uses the short-timeout, fail-open `sugar hook` shim; matchers are regex.
+- **DeepSeek Harness:** DSH has no hook API, so Sugar tails its compressed
+  session logs (`~/.dsh/sessions/…/session.v4.jsonl.zstd`). On macOS `connect`
+  writes a LaunchAgent; on other platforms it prints the manual
+  `sugar tail dsh --watch` command. A decompressor (`zstd` on PATH, or the
+  optional `zstandard` package) is required. The LaunchAgent is inert until you
+  run the printed `launchctl load -w …` command.
 - The registry (`~/.sugar/adapters.json`) is what the Coverage API reads.
 
 A Claude Code plugin is also included at `integrations/claude-plugin/` for teams
 that distribute hooks via the plugin marketplace instead of `sugar connect`.
 Its `hooks/hooks.json` uses the same HTTP endpoint.
+
+### `sugar tail dsh`
+
+```bash
+sugar tail dsh                  # scan once (default)
+sugar tail dsh --watch          # poll every 2s (launchd/systemd/manual)
+sugar tail dsh --since 2026-11-01 --quiet
+```
+
+DSH writes compressed JSONL session logs; the tailer maps `session`, `turn/*`,
+`tool/call`, `tool/result` (call/result pairing, error detection) and
+`approval/policy` to canonical events at L3, and ignores messages/todos/jobs.
+A per-session checkpoint (`$SUGAR_DSH_STATE` or
+`~/.sugar/dsh-tail-state.json`) makes restarts resume where they stopped;
+delete it to replay a session. Delivery is fail-open and at-most-once per DSH
+sequence number (a board outage loses that cycle rather than retrying forever).
 
 ### `sugar hook`
 
@@ -390,19 +415,17 @@ client.emit("tool.completed", tool_name="Bash", status="completed",
 Set `$SUGAR_BOARD_URL` and (token mode) `$SUGAR_BOARD_TOKEN`; the client never
 raises into the agent.
 
-## 8. What Phase 1a does not cover yet
+## 8. What Phase 1b does not cover yet
 
-- **DeepSeek Harness** — session-log tail (`session.v4.jsonl.zstd`) and
-  ACP-managed runs in Phase 1b. Desktop OTel export is feedback-gated; Sugar
-  will not depend on it.
-- **Protobuf OTLP / gzip request bodies** — Phase 1b. JSON works today; set
-  `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`.
+- **DSH live ACP events** — the session-tail adapter ships; ACP-managed runs
+  (`dsh --profile acp`) are not consumed live yet. Desktop OTel export is
+  feedback-gated; Sugar will not depend on it.
 - **MCP proxy** — Phase 2 (captures MCP tool calls where harness hooks don't).
 - **Remote/team** — the existing board token mode; hook and `/v1/*` endpoints
   inherit it.
 - **Windows** — HTTP hooks are portable; Cursor/Codex/Goose command hooks go
   through their own shell handling. `sugar hook` is intentionally small and
-  silent.
+  silent; the DSH LaunchAgent is macOS-only (manual tail elsewhere).
 
 Until an adapter lands, Sugar still shows the harness at L0/L1 through the task
 board and leases — the same fallback that makes Mission Control useful even
@@ -434,6 +457,11 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 
 # SDK
 python -c "from sugar.integrations.openai_agents import install; install()"
+
+# DeepSeek Harness
+sugar tail dsh                  # one scan
+sugar tail dsh --watch          # or install the LaunchAgent:
+sugar connect --harness dsh --yes
 ```
 
 Manual test without a harness:

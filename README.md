@@ -133,7 +133,7 @@ sugar emit --kind tool.invoked --task-id "$TASK_ID" \
 
 ```bash
 sugar connect --check   # detected harnesses, fidelity and transport
-sugar connect --yes     # install adapters for Claude Code, Cursor, Codex, Goose
+sugar connect --yes     # Claude Code, Cursor, Codex, Goose; DSH tail (macOS)
 sugar doctor            # end-to-end check: board + adapter + activity
 ```
 
@@ -143,12 +143,12 @@ sessions, prompts, usage and failures as canonical events, and the Coverage
 panel shows each harness at **L3/L2/L1/L0**, events/24h, transport and last
 seen. Codex hooks stay trust-gated: approve them once via `/hooks`.
 
-For OTel-native agents (Google ADK, Codex OTel, Goose OTel), export OTLP JSON
-to the same board:
+For OTel-native agents (Google ADK, Codex OTel, Goose OTel), export OTLP to
+the same board — protobuf (the OTel default) or JSON, optionally gzipped:
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7331
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+# protobuf is the default; set http/json only if you prefer it
 ```
 
 SDK agents get first-class helpers with no extra dependencies:
@@ -203,7 +203,7 @@ them and records what they do.
 | [OpenCode](https://github.com/opencode-ai/opencode) | Yes | Yes | L0 board/leases | `sugar opencode setup` |
 | [Aider](https://aider.chat) | Yes | Yes | L0 board/leases | Via CLI/MCP |
 | Hermes Kanban | Yes | — | L0 board events | Mirror a board with `--board kanban` |
-| DeepSeek Harness | Yes | Yes | L0 board/leases | Session-tail adapter is Phase 1b |
+| DeepSeek Harness | Yes | Yes | **L3** session tail | `sugar connect --harness dsh`; macOS LaunchAgent, manual tail elsewhere |
 | Custom scripts / bots | Yes | Yes | **L3** via SDK/`sugar emit` | REST + SSE, or MCP |
 
 ## Team edition (self-hosted)
