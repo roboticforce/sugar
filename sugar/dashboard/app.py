@@ -38,6 +38,7 @@ from .security import (
     unauthorized_response,
     forbidden_scope_response,
 )
+from ..evidence.query import EvidenceQueryError, query_evidence
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
 from ..telemetry import otlp as otlp_mod
@@ -323,6 +324,30 @@ async def hooks_ingest(request: Request) -> JSONResponse:
         except Exception:  # hooks must never fail their caller
             logger.warning("telemetry: hook ingest failed", exc_info=True)
     return JSONResponse({"ok": True})
+
+
+async def evidence_list(request: Request) -> JSONResponse:
+    """List evidence events (``GET /api/evidence``), oldest -> newest."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await query_evidence(
+            spine.db_path,
+            since=params.get("since"),
+            until=params.get("until"),
+            task_id=params.get("task_id"),
+            kind=params.get("kind"),
+            status=params.get("status"),
+            limit=params.get("limit"),
+            offset=params.get("offset"),
+        )
+    except EvidenceQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
 
 
 async def evidence_ingest(request: Request) -> JSONResponse:
@@ -616,6 +641,7 @@ def create_app(
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
         Route("/api/hooks/{harness}", hooks_ingest, methods=["POST"]),
+        Route("/api/evidence", evidence_list, methods=["GET"]),
         Route("/api/evidence", evidence_ingest, methods=["POST"]),
         Route("/api/coverage", coverage, methods=["GET"]),
         Route("/v1/traces", otlp_traces, methods=["POST"]),

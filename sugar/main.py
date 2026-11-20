@@ -276,6 +276,29 @@ def cli(ctx, config, debug, version):
     ctx.obj["config"] = config
 
 
+class _LazyEvidenceGroup(click.Group):
+    """Load the evidence CLI only when used (keeps ``sugar hook`` fast)."""
+
+    def __init__(self):
+        super().__init__(
+            name="evidence",
+            help="Record, list and summarize verification evidence.",
+        )
+
+    def get_command(self, ctx, cmd_name):
+        from .evidence.cli import evidence_group
+
+        return evidence_group.get_command(ctx, cmd_name)
+
+    def list_commands(self, ctx):
+        from .evidence.cli import evidence_group
+
+        return evidence_group.list_commands(ctx)
+
+
+cli.add_command(_LazyEvidenceGroup())
+
+
 @cli.command()
 @click.option(
     "--project-dir", default=".", help="Project directory to initialize Sugar in"
