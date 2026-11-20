@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-11-20
+
 ### Added
 - **DeepSeek Harness session-tail adapter (Phase 1b)**: DSH has no hook API, so Sugar tails its compressed JSONL session logs (`~/.dsh/sessions/…/session.v4.jsonl.zstd`) and maps sessions, turns, tool calls/results (with call/result pairing and error detection) and approval policies to canonical L3 events. `sugar tail dsh` supports `--once`/`--watch`, a resumable per-session checkpoint, `--since`, fail-open delivery and at-most-once semantics; `sugar connect --harness dsh` installs a macOS LaunchAgent (manual command elsewhere) and `sugar doctor` verifies the session-tail path.
 - **OTLP protobuf + gzip (Phase 1b)**: `/v1/traces` and `/v1/logs` now accept OTLP **protobuf** (`application/x-protobuf`, `application/protobuf`, `application/octet-stream`) as well as JSON, with optional `Content-Encoding: gzip`. Protobuf uses the optional `sugarai[telemetry]` extra (`opentelemetry-proto`, `protobuf`); without it JSON still works and protobuf returns a clear 415 hint. Raw and decompressed bodies are capped at 1 MB (zip-bomb resistant), token auth/redaction/dedupe/spine/SSE are unchanged.
