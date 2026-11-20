@@ -36,9 +36,18 @@ from .security import (
     TokenRegistry,
     set_board_cookie,
     unauthorized_response,
+    forbidden_scope_response,
 )
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
+from ..telemetry.otlp import (
+    PROTOBUF_HINT,
+    OTLPFormatError,
+    ingest_otlp_events,
+    json_content_type,
+    logs_to_events,
+    spans_to_events,
+)
 from ..telemetry.pipeline import TelemetryPipeline
 from ..telemetry.schema import TelemetryValidationError
 from ..telemetry.socket import IngestSocketServer
@@ -341,6 +350,59 @@ async def evidence_ingest(request: Request) -> JSONResponse:
     return JSONResponse({"ok": False, "dropped": True}, status_code=202)
 
 
+def _otlp_auth_error(request: Request):
+    """Return a 401/403 response for token-protected ``/v1/*``, else None."""
+    tokens = getattr(request.app.state, "tokens", None)
+    if not isinstance(tokens, TokenRegistry) or tokens.is_empty:
+        return None
+    authorization = request.headers.get("authorization", "")
+    parts = authorization.strip().split(None, 1)
+    candidate = (
+        parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
+    )
+    record = tokens.find(candidate)
+    if record is None:
+        return unauthorized_response()
+    if not record.allows("POST"):
+        return forbidden_scope_response(record.scope, "POST")
+    return None
+
+
+async def _otlp_ingest(request: Request, mapper, source: str) -> JSONResponse:
+    denied = _otlp_auth_error(request)
+    if denied is not None:
+        return denied
+    if not json_content_type(request.headers.get("content-type")):
+        raise DashboardError(415, "unsupported_media_type", PROTOBUF_HINT)
+    spine = getattr(request.app.state, "spine", None)
+    pipeline = getattr(request.app.state, "telemetry_pipeline", None)
+    if spine is None or pipeline is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    body = await _read_json_object(request)
+    harness_hint = request.query_params.get("harness")
+    try:
+        events = mapper(body, harness_hint or None)
+    except OTLPFormatError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    try:
+        await ingest_otlp_events(events, pipeline, source=source)
+    except Exception:  # pragma: no cover - exporters get a 200; storage is best effort
+        logger.exception("otlp: ingest failed")
+    return JSONResponse({})
+
+
+async def otlp_traces(request: Request) -> JSONResponse:
+    """OTLP/HTTP JSON trace export -> canonical telemetry events."""
+    return await _otlp_ingest(request, spans_to_events, "otlp:traces")
+
+
+async def otlp_logs(request: Request) -> JSONResponse:
+    """OTLP/HTTP JSON log export -> canonical telemetry events."""
+    return await _otlp_ingest(request, logs_to_events, "otlp:logs")
+
+
 async def coverage(request: Request) -> JSONResponse:
     """Adapter coverage matrix from the registry + recent spine events."""
     spine = getattr(request.app.state, "spine", None)
@@ -506,6 +568,8 @@ def create_app(
         Route("/api/hooks/{harness}", hooks_ingest, methods=["POST"]),
         Route("/api/evidence", evidence_ingest, methods=["POST"]),
         Route("/api/coverage", coverage, methods=["GET"]),
+        Route("/v1/traces", otlp_traces, methods=["POST"]),
+        Route("/v1/logs", otlp_logs, methods=["POST"]),
     ]
 
     registry = tokens if isinstance(tokens, TokenRegistry) else None
