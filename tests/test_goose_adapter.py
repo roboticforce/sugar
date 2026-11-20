@@ -206,11 +206,12 @@ class TestGooseDetection:
         assert spec.installable is True
         assert detect.GOOSE in detect.INSTALLABLE_HARNESSES
 
-    def test_dsh_stays_detect_only(self):
+    def test_dsh_is_l3_session_tail_installable(self):
         spec = detect.HARNESS_SPECS[detect.DSH]
-        assert spec.fidelity == "L0"
-        assert spec.transport is None
-        assert spec.installable is False
+        assert spec.fidelity == "L3"
+        assert spec.transport == "session-tail"
+        assert spec.installable is True
+        assert spec.adapter_version == "phase1b"
 
     def test_detects_goose_config_dir(self, home):
         goose_detected(home)
@@ -220,9 +221,7 @@ class TestGooseDetection:
         assert detection.fidelity == "L3"
         assert detection.transport == "hook-plugin"
 
-    def test_connect_check_shows_goose_install_and_dsh_detect_only(
-        self, home, tmp_path
-    ):
+    def test_connect_check_shows_goose_and_dsh_install(self, home, tmp_path):
         goose_detected(home)
         (home / "Applications" / "DeepSeek Harness.app").mkdir(parents=True)
         result = invoke_cli(tmp_path, "connect", "--check")
@@ -233,7 +232,8 @@ class TestGooseDetection:
             if line.strip().startswith(("goose", "dsh"))
         }
         assert "install" in lines["goose"]
-        assert "detect-only" in lines["dsh"]
+        assert "install" in lines["dsh"]
+        assert "session-tail" in lines["dsh"]
         assert "hook-plugin" in lines["goose"]
         assert not (home / ".agents").exists()
 

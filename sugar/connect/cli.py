@@ -269,6 +269,7 @@ def run_connect(
             transport=spec.transport,
             config_path=str(result.config_path) if result.config_path else "",
             notes=" ".join(result.notes),
+            adapter_version=spec.adapter_version,
         )
         registry.record_adapter(reg, harness, entry)
         outcome.installed.append(harness)
@@ -276,6 +277,8 @@ def run_connect(
         backup = f" (backup: {result.backup_path})" if result.backup_path else ""
         icon = "✅" if result.status in ("installed", "updated") else "•"
         echo(f"  {icon} {harness}: {result.status}{detail}{backup}")
+        for note in result.notes:
+            echo(f"     {note}")
 
     if outcome.installed:
         try:

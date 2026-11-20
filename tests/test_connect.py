@@ -5,7 +5,9 @@ detected or executed (PATH is emptied and binary probes are injected), and no
 test writes to the developer's ``~/.claude``/``~/.cursor``/``~/.codex``.
 """
 
+import dataclasses
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -342,11 +344,15 @@ class TestCommandInstallers:
         assert result.status == "would-install"
         assert not (home / ".codex").exists()
 
-    def test_detect_only_harness_is_skipped(self, home):
+    def test_non_installable_harness_is_skipped(self, home, monkeypatch):
+        spec = dataclasses.replace(
+            detect.HARNESS_SPECS[detect.DSH], installable=False, note="phase 2"
+        )
+        monkeypatch.setitem(detect.HARNESS_SPECS, detect.DSH, spec)
         result = installers.install(detect.DSH, home=home)
         assert result.status == "skipped"
         assert result.config_path is None
-        assert result.notes
+        assert result.notes == ["phase 2"]
 
     def test_unknown_harness_raises(self, home):
         with pytest.raises(installers.InstallError):
@@ -437,7 +443,7 @@ class TestConnectCLI:
         assert result.exit_code == 0, result.output
         assert "HARNESS" in result.output
         assert "claude-code" in result.output and "yes" in result.output
-        assert "detect-only" in result.output  # goose/dsh row label
+        assert "install" in result.output
         assert "--check" in result.output
         assert not (home / ".claude" / "settings.json").exists()
         assert not (home / ".cursor" / "hooks.json").exists()
@@ -516,11 +522,21 @@ class TestConnectCLI:
         assert result.exit_code == 0, result.output
         assert "No supported harness detected" in result.output
 
-    def test_detect_only_selection_is_skipped(self, home, tmp_path):
+    def test_dsh_selection_installs(self, home, tmp_path):
         make_dirs(home, "Applications/DeepSeek Harness.app")
         result = invoke_cli(tmp_path, "connect", "--harness", "dsh", "--yes")
         assert result.exit_code == 0, result.output
-        assert "No supported harness detected" in result.output
+        assert "dsh" in result.output
+        if sys.platform == "darwin":
+            plist = (
+                home
+                / "Library"
+                / "LaunchAgents"
+                / "io.roboticforce.sugar.dsh-tail.plist"
+            )
+            assert plist.exists()
+        else:
+            assert "manual setup (non-macOS)" in result.output
 
 
 class TestMatrix:
@@ -558,7 +574,8 @@ class TestMatrix:
         assert rows[detect.CLAUDE_CODE].action == "install"
         assert rows[detect.CURSOR].action == "keep (installed)"
         assert rows[detect.GOOSE].action == "install"
-        assert rows[detect.DSH].action == "detect-only (phase 1)"
+        assert rows[detect.DSH].action == "install"
+        assert rows[detect.DSH].transport == "session-tail"
         assert rows[detect.CODEX].action == "skip (not detected)"
 
     def test_format_matrix_alignment(self, home):

@@ -123,6 +123,7 @@ def adapter_entry(
     config_path: Optional[str] = None,
     notes: str = "",
     installed_at: Optional[str] = None,
+    adapter_version: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build one registry adapter entry (the on-disk contract shape)."""
     return {
@@ -132,7 +133,7 @@ def adapter_entry(
         "transport": transport,
         "installed_at": installed_at or utc_now_iso(),
         "config_path": config_path or "",
-        "adapter_version": ADAPTER_VERSION,
+        "adapter_version": adapter_version or ADAPTER_VERSION,
         "notes": notes or "",
     }
 

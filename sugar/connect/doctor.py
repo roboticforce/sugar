@@ -252,15 +252,61 @@ def run_doctor(
         probe_id = uuid.uuid4().hex
         probe_ids[harness] = probe_id
         raw = _probe_body(probe_id, harness)
+        transport = str(
+            entry.get("transport") or (spec.transport if spec else "") or ""
+        )
         probe = AdapterProbe(
             harness=harness,
             display_name=str(
                 entry.get("display_name") or (spec.display_name if spec else harness)
             ),
-            transport=str(
-                entry.get("transport") or (spec.transport if spec else "") or ""
-            ),
+            transport=transport,
         )
+
+        if transport == "session-tail":
+            # DSH has no hook endpoint: verify the canonical ingest path the
+            # session tail uses (POST /api/events), and report tail readiness.
+            from ..dsh.discover import discover_sessions
+            from ..dsh.parse import zstd_available
+            from ..telemetry.schema import build_envelope
+
+            envelope = build_envelope(
+                kind="session.started",
+                harness="dsh",
+                summary={"probe": probe_id, "source": "sugar-doctor"},
+                actor="dsh",
+                actor_kind="agent",
+                session_id=f"sugar-doctor-{probe_id}",
+                fidelity="L3",
+                source="sugar-doctor",
+            )
+            tail_resp = _request_json(
+                "POST",
+                f"{base}/api/events",
+                body=json.dumps(envelope).encode("utf-8"),
+                token=token,
+                timeout=timeout,
+            )
+            probe.http_status = tail_resp.get("status")
+            if probe.http_status is not None and 200 <= int(probe.http_status) < 300:
+                probe.delivered = True
+            else:
+                probe.detail = (
+                    f"ingest endpoint HTTP {probe.http_status}"
+                    if probe.http_status
+                    else "ingest endpoint unreachable"
+                )
+            sessions = discover_sessions()
+            checks.append(
+                DoctorCheck(
+                    "dsh session tail",
+                    zstd_available(),
+                    f"zstd={'yes' if zstd_available() else 'NO'}; "
+                    f"{len(sessions)} session log(s) found",
+                )
+            )
+            probes.append(probe)
+            continue
 
         hook_resp = _request_json(
             "POST",

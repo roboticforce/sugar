@@ -30,13 +30,14 @@ class HarnessSpec:
 
     name: str
     display_name: str
-    #: L3 = hook with tool args/results (HTTP hook or harness plugin hook),
-    #: L2 = command hook via ``sugar hook`` (tool names/status),
-    #: L1 = session-level only, L0 = detect-only (no telemetry path yet).
+    #: L3 = hook/session-tail with tool args/results, L2 = command hook via
+    #: ``sugar hook`` (tool names/status), L1 = session-level only, L0 = none.
     fidelity: str
     transport: Optional[str]
     installable: bool
     note: str = ""
+    #: Registry ``adapter_version`` recorded when this harness is installed.
+    adapter_version: str = "phase0"
 
 
 #: Ordered registry of known harnesses (display/capability source of truth).
@@ -74,10 +75,11 @@ HARNESS_SPECS: Dict[str, HarnessSpec] = {
     DSH: HarnessSpec(
         name=DSH,
         display_name="DeepSeek Harness",
-        fidelity="L0",
-        transport=None,
-        installable=False,
-        note="detected only; DSH adapter lands in Phase 1b",
+        fidelity="L3",
+        transport="session-tail",
+        installable=True,
+        note="session-log tail (system zstd preferred); macOS LaunchAgent, manual elsewhere",
+        adapter_version="phase1b",
     ),
 }
 
@@ -146,6 +148,8 @@ def _candidate_paths(harness: str, home: Path) -> List[Path]:
         return [home / ".config" / "goose"]
     if harness == DSH:
         return [
+            home / ".dsh",
+            home / ".deepseek",
             home / "Applications" / "DeepSeek Harness.app",
             Path("/Applications/DeepSeek Harness.app"),
         ]
