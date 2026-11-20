@@ -40,14 +40,7 @@ from .security import (
 )
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
-from ..telemetry.otlp import (
-    PROTOBUF_HINT,
-    OTLPFormatError,
-    ingest_otlp_events,
-    json_content_type,
-    logs_to_events,
-    spans_to_events,
-)
+from ..telemetry import otlp as otlp_mod
 from ..telemetry.pipeline import TelemetryPipeline
 from ..telemetry.schema import TelemetryValidationError
 from ..telemetry.socket import IngestSocketServer
@@ -368,39 +361,96 @@ def _otlp_auth_error(request: Request):
     return None
 
 
-async def _otlp_ingest(request: Request, mapper, source: str) -> JSONResponse:
+async def _read_otlp_body(request: Request) -> bytes:
+    """Read an OTLP body with the same 1 MB raw cap as the JSON endpoints."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        raise DashboardError(413, "payload_too_large", "request body is too large")
+    raw = await request.body()
+    if len(raw) > MAX_BODY_BYTES:
+        raise DashboardError(413, "payload_too_large", "request body is too large")
+    return raw
+
+
+def _parse_otlp_json(body: bytes) -> dict:
+    if not body.strip():
+        return {}
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise DashboardError(400, "validation_error", "invalid JSON body")
+    if not isinstance(data, dict):
+        raise DashboardError(400, "validation_error", "JSON body must be an object")
+    return data
+
+
+async def _otlp_ingest(
+    request: Request, mapper, protobuf_decoder, source: str
+) -> JSONResponse:
+    """Shared OTLP handler: auth -> wire format -> gzip -> JSON/protobuf -> mapper."""
     denied = _otlp_auth_error(request)
     if denied is not None:
         return denied
-    if not json_content_type(request.headers.get("content-type")):
-        raise DashboardError(415, "unsupported_media_type", PROTOBUF_HINT)
+    content_type = otlp_mod.classify_content_type(request.headers.get("content-type"))
+    if content_type is None:
+        raise DashboardError(415, "unsupported_media_type", otlp_mod.CONTENT_TYPE_HINT)
+    if content_type == "protobuf" and not otlp_mod.protobuf_available():
+        raise DashboardError(
+            415, "unsupported_media_type", otlp_mod.PROTOBUF_INSTALL_HINT
+        )
+    content_encoding = request.headers.get("content-encoding", "")
+    try:
+        otlp_mod.normalize_content_encoding(content_encoding)
+    except otlp_mod.OTLPUnsupportedEncoding as exc:
+        raise DashboardError(415, "unsupported_media_type", str(exc)) from exc
     spine = getattr(request.app.state, "spine", None)
     pipeline = getattr(request.app.state, "telemetry_pipeline", None)
     if spine is None or pipeline is None:
         raise DashboardError(
             503, "spine_unavailable", "the event spine is disabled on this server"
         )
-    body = await _read_json_object(request)
+    raw = await _read_otlp_body(request)
+    try:
+        body = otlp_mod.decode_content_encoding(raw, content_encoding, MAX_BODY_BYTES)
+    except otlp_mod.OTLPBodyTooLarge as exc:
+        raise DashboardError(413, "payload_too_large", str(exc)) from exc
+    except otlp_mod.OTLPFormatError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    if content_type == "json":
+        payload = _parse_otlp_json(body)
+    else:
+        try:
+            payload = protobuf_decoder(body)
+        except otlp_mod.OTLPProtobufUnavailable as exc:
+            raise DashboardError(
+                415, "unsupported_media_type", otlp_mod.PROTOBUF_INSTALL_HINT
+            ) from exc
+        except otlp_mod.OTLPFormatError as exc:
+            raise DashboardError(400, "validation_error", str(exc)) from exc
     harness_hint = request.query_params.get("harness")
     try:
-        events = mapper(body, harness_hint or None)
-    except OTLPFormatError as exc:
+        events = mapper(payload, harness_hint or None)
+    except otlp_mod.OTLPFormatError as exc:
         raise DashboardError(400, "validation_error", str(exc)) from exc
     try:
-        await ingest_otlp_events(events, pipeline, source=source)
+        await otlp_mod.ingest_otlp_events(events, pipeline, source=source)
     except Exception:  # pragma: no cover - exporters get a 200; storage is best effort
         logger.exception("otlp: ingest failed")
     return JSONResponse({})
 
 
 async def otlp_traces(request: Request) -> JSONResponse:
-    """OTLP/HTTP JSON trace export -> canonical telemetry events."""
-    return await _otlp_ingest(request, spans_to_events, "otlp:traces")
+    """OTLP/HTTP trace export (JSON or protobuf, optional gzip) -> events."""
+    return await _otlp_ingest(
+        request, otlp_mod.spans_to_events, otlp_mod.decode_trace_protobuf, "otlp:traces"
+    )
 
 
 async def otlp_logs(request: Request) -> JSONResponse:
-    """OTLP/HTTP JSON log export -> canonical telemetry events."""
-    return await _otlp_ingest(request, logs_to_events, "otlp:logs")
+    """OTLP/HTTP log export (JSON or protobuf, optional gzip) -> events."""
+    return await _otlp_ingest(
+        request, otlp_mod.logs_to_events, otlp_mod.decode_log_protobuf, "otlp:logs"
+    )
 
 
 async def coverage(request: Request) -> JSONResponse:

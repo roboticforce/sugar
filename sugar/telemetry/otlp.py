@@ -1,19 +1,23 @@
-"""OTLP/HTTP JSON receiver mapping (Phase 1a).
+"""OTLP/HTTP receiver mapping (Phase 1a JSON; Phase 1b protobuf + gzip).
 
-Decodes OTLP ``ExportTraceServiceRequest`` / ``ExportLogsServiceRequest`` JSON into
-canonical ``sugar.telemetry.v1`` envelopes and feeds them through the existing
-telemetry pipeline components (redaction, dedupe, spine append, SSE activity).
+Decodes OTLP ``ExportTraceServiceRequest`` / ``ExportLogsServiceRequest`` JSON or
+protobuf into canonical ``sugar.telemetry.v1`` envelopes and feeds them through
+the existing telemetry pipeline components (redaction, dedupe, spine append, SSE
+activity).
 
-JSON only: protobuf bodies are rejected by the HTTP layer with a hint to set
-``OTEL_EXPORTER_OTLP_PROTOCOL=http/json`` (Phase 1b will accept protobuf).
-No new dependencies; this is intentionally a small, tolerant subset of OTLP.
+Protobuf support is optional (the ``[telemetry]`` extra) and is imported lazily
+so the rest of Sugar stays importable without it. Gzip decompression is bounded
+so malicious bodies cannot expand past the normal OTLP body cap.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import logging
+import zlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -23,10 +27,42 @@ from .schema import SCHEMA, build_envelope, now_iso
 
 logger = logging.getLogger(__name__)
 
-PROTOBUF_HINT = (
-    "OTLP JSON only: set OTEL_EXPORTER_OTLP_PROTOCOL=http/json "
-    "(protobuf support is Phase 1b)"
+PROTOBUF_AVAILABLE = False
+PROTOBUF_IMPORT_ERROR = ""
+try:  # optional [telemetry] extra
+    from google.protobuf.json_format import MessageToDict
+    from google.protobuf.message import DecodeError as ProtobufDecodeError
+    from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import (
+        ExportLogsServiceRequest,
+    )
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+        ExportTraceServiceRequest,
+    )
+
+    PROTOBUF_AVAILABLE = True
+except ImportError as exc:  # pragma: no cover - exercised when the extra is absent
+    MessageToDict = None
+    ProtobufDecodeError = None
+    ExportLogsServiceRequest = None
+    ExportTraceServiceRequest = None
+    PROTOBUF_IMPORT_ERROR = str(exc)
+
+PROTOBUF_INSTALL_HINT = (
+    "OTLP protobuf support requires the telemetry extra: "
+    "pip install 'sugarai[telemetry]'"
 )
+CONTENT_TYPE_HINT = (
+    "OTLP/HTTP supports application/json, application/x-protobuf, "
+    "application/protobuf and application/octet-stream "
+    "(optionally Content-Encoding: gzip)"
+)
+# Backwards-compatible name for callers/tests from Phase 1a.
+PROTOBUF_HINT = PROTOBUF_INSTALL_HINT
+JSON_CONTENT_TYPE = "application/json"
+PROTOBUF_CONTENT_TYPES = frozenset(
+    {"application/x-protobuf", "application/protobuf", "application/octet-stream"}
+)
+DEFAULT_MAX_OTLP_BYTES = 1_000_000
 
 _TOOL_SPAN_PREFIXES = ("execute_tool", "function_span", "tool_call", "tool.")
 _AGENT_SPAN_PREFIXES = ("invoke_agent", "invoke_workflow")
@@ -45,7 +81,19 @@ _KNOWN_HARNESS_HINTS = {
 
 
 class OTLPFormatError(ValueError):
-    """Structurally invalid OTLP JSON (surfaced as HTTP 400)."""
+    """Structurally invalid OTLP JSON/protobuf/gzip (surfaced as HTTP 400)."""
+
+
+class OTLPProtobufUnavailable(RuntimeError):
+    """OTLP protobuf sent but the optional ``[telemetry]`` extra is absent."""
+
+
+class OTLPUnsupportedEncoding(ValueError):
+    """Unsupported ``Content-Encoding`` (surfaced as HTTP 415)."""
+
+
+class OTLPBodyTooLarge(ValueError):
+    """Gzip body expands past the OTLP body cap (surfaced as HTTP 413)."""
 
 
 # ---------------------------------------------------------------------------
@@ -882,6 +930,145 @@ async def ingest_otlp_events(
     return stored
 
 
+# ---------------------------------------------------------------------------
+# Protobuf + gzip wire support (Phase 1b)
+# ---------------------------------------------------------------------------
+
+
+def protobuf_available() -> bool:
+    """True when ``opentelemetry-proto`` (the ``[telemetry]`` extra) is importable."""
+    return PROTOBUF_AVAILABLE
+
+
+def classify_content_type(content_type: Optional[str]) -> Optional[str]:
+    """Return ``"json"``, ``"protobuf"`` or ``None`` for an OTLP content type."""
+    if not content_type:
+        return None
+    main = content_type.split(";")[0].strip().lower()
+    if main == JSON_CONTENT_TYPE:
+        return "json"
+    if main in PROTOBUF_CONTENT_TYPES:
+        return "protobuf"
+    return None
+
+
+def normalize_content_encoding(content_encoding: Optional[str]) -> str:
+    """Normalize ``Content-Encoding``; raise a 415-worthy error if unsupported."""
+    encoding = (content_encoding or "").strip().lower()
+    if encoding in ("", "identity"):
+        return "identity"
+    if encoding == "gzip":
+        return "gzip"
+    raise OTLPUnsupportedEncoding(
+        f"unsupported Content-Encoding {content_encoding!r}; "
+        "supported encodings: identity, gzip"
+    )
+
+
+def decompress_gzip(data: bytes, max_bytes: int = DEFAULT_MAX_OTLP_BYTES) -> bytes:
+    """Decompress gzip with a hard output cap (zip-bomb resistant)."""
+    if not isinstance(data, (bytes, bytearray)):
+        raise OTLPFormatError("gzip body must be bytes")
+    if max_bytes <= 0:
+        raise OTLPBodyTooLarge("OTLP body cap must be positive")
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        output = decompressor.decompress(bytes(data), max_bytes + 1)
+    except zlib.error as exc:
+        raise OTLPFormatError("malformed gzip body") from exc
+    if len(output) > max_bytes or decompressor.unconsumed_tail:
+        raise OTLPBodyTooLarge(f"decompressed OTLP body exceeds {max_bytes} bytes")
+    try:
+        output += decompressor.flush()
+    except zlib.error as exc:
+        raise OTLPFormatError("malformed gzip body") from exc
+    if len(output) > max_bytes:
+        raise OTLPBodyTooLarge(f"decompressed OTLP body exceeds {max_bytes} bytes")
+    if not decompressor.eof:
+        raise OTLPFormatError("truncated gzip body")
+    return output
+
+
+def decode_content_encoding(
+    body: bytes,
+    content_encoding: Optional[str],
+    max_bytes: int = DEFAULT_MAX_OTLP_BYTES,
+) -> bytes:
+    """Apply ``Content-Encoding`` with a bounded decompressed-size cap."""
+    encoding = normalize_content_encoding(content_encoding)
+    if encoding == "identity":
+        return bytes(body)
+    return decompress_gzip(body, max_bytes=max_bytes)
+
+
+def _b64_id_to_hex(value: str) -> str:
+    """Convert a protobuf-JSON base64 trace/span ID to the OTLP JSON hex form."""
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return value
+    return raw.hex() if raw else value
+
+
+def _convert_id_fields(item: Any, fields: Sequence[str]) -> None:
+    if not isinstance(item, Mapping):
+        return
+    for field in fields:
+        value = item.get(field)
+        if isinstance(value, str) and value:
+            item[field] = _b64_id_to_hex(value)
+
+
+def _protobuf_ids_to_hex(data: Any) -> Any:
+    """Rewrite MessageToDict base64 IDs to hex (the mapper expects OTLP JSON)."""
+    if not isinstance(data, Mapping):
+        return data
+    for resource_spans in data.get("resourceSpans") or []:
+        if not isinstance(resource_spans, Mapping):
+            continue
+        for scope_spans in resource_spans.get("scopeSpans") or []:
+            if not isinstance(scope_spans, Mapping):
+                continue
+            for span in scope_spans.get("spans") or []:
+                _convert_id_fields(span, ("traceId", "spanId", "parentSpanId"))
+    for resource_logs in data.get("resourceLogs") or []:
+        if not isinstance(resource_logs, Mapping):
+            continue
+        for scope_logs in resource_logs.get("scopeLogs") or []:
+            if not isinstance(scope_logs, Mapping):
+                continue
+            for record in scope_logs.get("logRecords") or []:
+                _convert_id_fields(record, ("traceId", "spanId"))
+    return data
+
+
+def _require_protobuf() -> None:
+    if not PROTOBUF_AVAILABLE:
+        raise OTLPProtobufUnavailable(PROTOBUF_INSTALL_HINT)
+
+
+def decode_trace_protobuf(body: bytes) -> Dict[str, Any]:
+    """Parse an ``ExportTraceServiceRequest`` into the OTLP-JSON mapper shape."""
+    _require_protobuf()
+    try:
+        message = ExportTraceServiceRequest.FromString(bytes(body))
+        data = MessageToDict(message, use_integers_for_enums=True)
+    except (ProtobufDecodeError, TypeError, ValueError) as exc:
+        raise OTLPFormatError("invalid OTLP protobuf trace body") from exc
+    return _protobuf_ids_to_hex(data)
+
+
+def decode_log_protobuf(body: bytes) -> Dict[str, Any]:
+    """Parse an ``ExportLogsServiceRequest`` into the OTLP-JSON mapper shape."""
+    _require_protobuf()
+    try:
+        message = ExportLogsServiceRequest.FromString(bytes(body))
+        data = MessageToDict(message, use_integers_for_enums=True)
+    except (ProtobufDecodeError, TypeError, ValueError) as exc:
+        raise OTLPFormatError("invalid OTLP protobuf log body") from exc
+    return _protobuf_ids_to_hex(data)
+
+
 def json_content_type(content_type: Optional[str]) -> bool:
     """True for ``application/json`` (with optional parameters)."""
     if not content_type:
@@ -890,14 +1077,30 @@ def json_content_type(content_type: Optional[str]) -> bool:
 
 
 __all__ = [
+    "CONTENT_TYPE_HINT",
+    "DEFAULT_MAX_OTLP_BYTES",
+    "JSON_CONTENT_TYPE",
+    "OTLPBodyTooLarge",
     "OTLPFormatError",
+    "OTLPProtobufUnavailable",
+    "OTLPUnsupportedEncoding",
+    "PROTOBUF_AVAILABLE",
+    "PROTOBUF_CONTENT_TYPES",
     "PROTOBUF_HINT",
+    "PROTOBUF_INSTALL_HINT",
     "SCHEMA",
+    "classify_content_type",
+    "decode_content_encoding",
+    "decode_log_protobuf",
     "decode_log_request",
+    "decode_trace_protobuf",
     "decode_trace_request",
+    "decompress_gzip",
     "ingest_otlp_events",
     "infer_harness",
     "json_content_type",
     "logs_to_events",
+    "normalize_content_encoding",
+    "protobuf_available",
     "spans_to_events",
 ]
