@@ -291,9 +291,10 @@ class TestGooseInstaller:
         hooks = read_json(plugin_dir / "hooks" / "hooks.json")["hooks"]
         assert set(hooks) == set(installers.GOOSE_EVENTS)
         for event in installers.GOOSE_EVENTS:
-            entry = hooks[event]
-            assert entry["matcher"] == ".*"
-            assert entry["hooks"] == [
+            rules = hooks[event]
+            assert isinstance(rules, list), f"{event} must be an array of rules"
+            assert rules[0]["matcher"] == ".*"
+            assert rules[0]["hooks"] == [
                 {
                     "type": "command",
                     "command": goose_hook_command(),
@@ -352,10 +353,11 @@ class TestGooseInstaller:
         assert hooks["user_top_level"] is True
         assert "CustomEvent" in hooks["hooks"]
         stop = hooks["hooks"]["Stop"]
-        assert stop["matcher"] == "Bash|Edit"  # user's matcher preserved
-        commands = [hook["command"] for hook in stop["hooks"]]
+        assert isinstance(stop, list), "legacy object migrated to rule array"
+        commands = [hook["command"] for rule in stop for hook in rule.get("hooks", [])]
         assert "user-stop-hook" in commands
         assert goose_hook_command() in commands
+        assert any(rule.get("matcher") == "Bash|Edit" for rule in stop)
 
     def test_launcher_path_change_updates_command_without_duplicates(
         self, home, monkeypatch
@@ -367,7 +369,9 @@ class TestGooseInstaller:
         assert result.status == "updated"
         hooks = read_json(installers.goose_hooks_path(home))["hooks"]
         for event in installers.GOOSE_EVENTS:
-            commands = [hook["command"] for hook in hooks[event]["hooks"]]
+            commands = [
+                hook["command"] for rule in hooks[event] for hook in rule["hooks"]
+            ]
             assert commands == ["/new/sugar hook --harness goose"]
 
     def test_dry_run_writes_nothing(self, home):
@@ -652,9 +656,10 @@ class TestGoosePluginSource:
         hooks = read_json(GOOSE_SOURCE / "hooks" / "hooks.json")["hooks"]
         assert set(hooks) == set(installers.GOOSE_EVENTS)
         for event in installers.GOOSE_EVENTS:
-            entry = hooks[event]
-            assert entry["matcher"] == ".*"
-            hook = entry["hooks"][0]
+            rules = hooks[event]
+            assert isinstance(rules, list), f"{event} must be an array of rules"
+            assert rules[0]["matcher"] == ".*"
+            hook = rules[0]["hooks"][0]
             assert hook["type"] == "command"
             assert "hook --harness goose" in hook["command"]
             assert hook["timeout"] == 5
