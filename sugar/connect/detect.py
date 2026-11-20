@@ -30,7 +30,8 @@ class HarnessSpec:
 
     name: str
     display_name: str
-    #: L3 = native HTTP hook, L2 = command hook via ``sugar hook``,
+    #: L3 = hook with tool args/results (HTTP hook or harness plugin hook),
+    #: L2 = command hook via ``sugar hook`` (tool names/status),
     #: L1 = session-level only, L0 = detect-only (no telemetry path yet).
     fidelity: str
     transport: Optional[str]
@@ -65,10 +66,10 @@ HARNESS_SPECS: Dict[str, HarnessSpec] = {
     GOOSE: HarnessSpec(
         name=GOOSE,
         display_name="Goose",
-        fidelity="L0",
-        transport=None,
-        installable=False,
-        note="detected only in Phase 0; adapter lands in Phase 1",
+        fidelity="L3",
+        transport="hook-plugin",
+        installable=True,
+        note="plugin hooks at ~/.agents/plugins/sugar-telemetry",
     ),
     DSH: HarnessSpec(
         name=DSH,
@@ -76,7 +77,7 @@ HARNESS_SPECS: Dict[str, HarnessSpec] = {
         fidelity="L0",
         transport=None,
         installable=False,
-        note="detected only in Phase 0; adapter lands in Phase 1",
+        note="detected only; DSH adapter lands in Phase 1b",
     ),
 }
 
