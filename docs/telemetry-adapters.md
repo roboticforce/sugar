@@ -7,14 +7,19 @@ spine next to task state. That is what makes Mission Control show live tool
 calls, the Activity feed queryable, and usage/audit/trends possible across
 different harnesses.
 
-This document covers the **Phase 0** adapter surface: the canonical envelope,
-fidelity levels, hook/evidence/socket ingestion, `sugar connect`, `sugar hook`,
-`sugar doctor`, the coverage API/UI, redaction and current limitations.
+This document covers the **Phase 1a** adapter surface: the canonical envelope,
+fidelity levels, hook/evidence/OTLP/socket ingestion, `sugar connect`,
+`sugar hook`, `sugar doctor`, the coverage API/UI, SDK helpers, redaction and
+current limitations.
 
-> **Scope.** Phase 0 ships adapters for **Claude Code**, **Cursor** and
-> **Codex**. Goose and DeepSeek Harness are detected but install-only in
-> Phase 1 (Goose OTel/hooks, DSH session-tail/ACP). Until then they fall back to
-> task/lease presence (L0/L1).
+> **Scope.** Phase 1a ships adapters for **Claude Code**, **Cursor**, **Codex**
+> and **Goose** (L3 hooks), an **OTLP/HTTP JSON receiver** (`/v1/traces`,
+> `/v1/logs`) for Goose/ADK/Codex/Claude OTel exporters, and helpers for
+> **Google ADK**, **OpenAI Agents SDK** and the **Claude Agent SDK**.
+> DeepSeek Harness is detected only until the session-tail/ACP adapter lands in
+> Phase 1b. Protobuf OTLP and gzip request bodies are Phase 1b. Until an
+> adapter lands, Sugar still shows the harness at L0/L1 through the task board
+> and leases.
 
 ---
 
@@ -104,6 +109,9 @@ Accepts a raw hook payload from a supported harness and normalizes it:
   `postToolUseFailure`, `stop` (command hooks; see §5).
 - `codex` — the Claude-compatible event names in `~/.codex/hooks.json`
   (command hooks; see §5).
+- `goose` — Goose hook-plugin events (`PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, `SessionStart/End`, `Stop`, `UserPromptSubmit`,
+  `BeforeReadFile`, `AfterFileEdit`, shell events; see §5).
 
 Behavior:
 
@@ -139,7 +147,36 @@ spine → `503`. Evidence defaults to `fidelity: L3` and `source:
 "telemetry:evidence"`. Use it from CI, verifiers or custom agents to put
 verification results next to the work they verify.
 
-### 3.3 Unix ingest socket — `sugar hook` fast path
+### 3.3 `POST /v1/traces` and `POST /v1/logs` — OTLP/HTTP JSON
+
+OTel-native harnesses can export directly to the same spine. Both endpoints
+accept standard OTLP/HTTP **JSON** (`ExportTraceServiceRequest` /
+`ExportLogsServiceRequest`):
+
+```bash
+# OTel exporters append /v1/traces or /v1/logs to the base endpoint
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7331
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+```
+
+- Success `200 {}`; malformed OTLP → `400`; body > 1 MB → `413`; disabled spine
+  → `503`.
+- Protobuf (the OTel default) → `415` with a clear hint to set
+  `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. Protobuf support is Phase 1b.
+- In token mode `/v1/*` requires a write-scoped bearer token.
+- Mapping: tool spans (`execute_tool*`, `function_span*`, `gen_ai.tool.name` /
+  `tool.name` attrs) → `tool.completed`/`tool.failed` at **L3** with
+  trace/span/parent ids; agent/workflow spans (`invoke_agent*`,
+  `invoke_workflow*`) → `run.ended` at L1; model spans (`chat`,
+  `generate_content*`, `stream_response_from_provider`) with token attrs →
+  `usage.reported`; DSH `session-log` records and `tool/call`/`tool/result` logs
+  map to the corresponding tool/turn/session kinds.
+- Harness comes from `?harness=goose|adk|codex|claude-code|dsh` or the
+  resource `service.name` (e.g. `goose`, `adk*`, `codex`); otherwise `unknown`.
+- Events are redacted/deduped by the same pipeline and stored with
+  `source="otlp:traces"` / `"otlp:logs"`.
+
+### 3.4 Unix ingest socket — `sugar hook` fast path
 
 The dashboard listens on a Unix socket (default `~/.sugar/ingest.sock`,
 `$SUGAR_INGEST_SOCKET` to override; `''` disables). It accepts newline-delimited
@@ -153,7 +190,7 @@ Socket file mode is `0600`. It is the preferred transport for command hooks
 (Cursor/Codex) because it avoids HTTP overhead. Events go through the same
 normalization/redaction/dedupe pipeline as HTTP hooks.
 
-### 3.4 Existing generic endpoints
+### 3.5 Existing generic endpoints
 
 - `POST /api/events` — raw spine event (`sugar emit`/custom scripts); unchanged.
 - `GET /api/activity` — history.
@@ -216,8 +253,8 @@ Installs:
 | Claude Code | `~/.claude/settings.json` hooks (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`) as `type: "http"` to `/api/hooks/claude-code` | HTTP hook (no process) | L3 |
 | Cursor | `~/.cursor/hooks.json` command hooks calling `sugar hook --harness cursor` | command hook | L3 |
 | Codex | `~/.codex/hooks.json` command hooks calling `sugar hook --harness codex` | command hook | L3 |
-| Goose | detected only (Phase 1) | — | L0 |
-| DeepSeek Harness | detected only (Phase 1) | — | L0 |
+| Goose | `~/.agents/plugins/sugar-telemetry/{plugin.json,hooks/hooks.json}` calling `sugar hook --harness goose` | hook plugin | L3 |
+| DeepSeek Harness | detected only (Phase 1b: session-tail/ACP) | — | L0 |
 
 - Existing config is preserved; a `.bak` backup is written next to the file.
 - Installs are idempotent: re-running updates Sugar's entries and keeps
@@ -227,6 +264,9 @@ Installs:
   `/hooks`, and approve them. Sugar never bypasses this. For unattended
   automation only, Codex offers `--dangerously-bypass-hook-trust` — an explicit
   operator choice, not something Sugar enables.
+- **Goose:** installs a user plugin under `~/.agents/plugins/sugar-telemetry/`
+  (plugin.json + hooks/hooks.json). Hooks are awaited by Goose, so the command
+  uses the short-timeout, fail-open `sugar hook` shim; matchers are regex.
 - The registry (`~/.sugar/adapters.json`) is what the Coverage API reads.
 
 A Claude Code plugin is also included at `integrations/claude-plugin/` for teams
@@ -289,19 +329,80 @@ up (Sugar writes `.bak` files).
 
 ---
 
-## 7. What Phase 0 does not cover yet
+## 7. SDK helpers (no code changes in the agent)
 
-- **Goose** — OTel spans and hook plugins exist; adapter lands in Phase 1
-  (OTLP receiver + hook plugin).
-- **DeepSeek Harness** — session-log tail/ACP adapter in Phase 1. Desktop
-  telemetry export is feedback-gated; Sugar will not depend on it.
-- **ADK / OpenAI Agents SDK / Claude Agent SDK** — SDK/OTel adapters in
-  Phase 1.
+SDK-based agents can report through a small, dependency-free helper that posts
+canonical events to `POST /api/events`. The helper builds the
+`sugar.telemetry.v1` envelope and applies redaction client-side, so the
+`/api/events` path does not depend on hook-format normalization. Delivery is
+fail-open and bounded (1.5 s default, clamped 0.2–5 s).
+
+### Google ADK
+
+```python
+from sugar.integrations.adk import SugarADKPlugin
+
+app = App(name="my_app", root_agent=agent, plugins=[SugarADKPlugin()])
+# or: adk web --extra_plugins=sugar.integrations.adk.SugarADKPlugin
+```
+
+Maps `before_tool_callback` / `after_tool_callback` / `on_tool_error_callback`
+to `tool.started` / `tool.completed` / `tool.failed` (L3, harness `adk`).
+`google-adk` is optional: importing the module works without it; instantiating
+the plugin without the SDK raises a clear `ImportError`.
+
+### OpenAI Agents SDK
+
+```python
+from sugar.integrations.openai_agents import install
+
+install()               # add_trace_processor: keep existing processors
+install(replace=True)   # set_trace_processors: no OpenAI trace egress
+```
+
+Maps `FunctionSpanData` → tool kinds, `GenerationSpanData` → `usage.reported`,
+agent/turn spans → turn/run kinds. Tolerant of missing/renamed span fields.
+
+### Claude Agent SDK
+
+CLI users get hooks from `sugar connect` automatically. Programmatic embedders
+can use:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+from sugar.integrations.claude_sdk import make_hooks
+
+options = ClaudeAgentOptions(hooks=make_hooks())
+```
+
+Callbacks always return `{}` and never block a tool call.
+
+### Custom agents
+
+```python
+from sugar.integrations.client import SugarTelemetryClient
+
+client = SugarTelemetryClient(harness="my-harness")
+client.emit("tool.completed", tool_name="Bash", status="completed",
+            fidelity="L3", summary={"command": "pytest -q", "exit_code": 0})
+```
+
+Set `$SUGAR_BOARD_URL` and (token mode) `$SUGAR_BOARD_TOKEN`; the client never
+raises into the agent.
+
+## 8. What Phase 1a does not cover yet
+
+- **DeepSeek Harness** — session-log tail (`session.v4.jsonl.zstd`) and
+  ACP-managed runs in Phase 1b. Desktop OTel export is feedback-gated; Sugar
+  will not depend on it.
+- **Protobuf OTLP / gzip request bodies** — Phase 1b. JSON works today; set
+  `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`.
 - **MCP proxy** — Phase 2 (captures MCP tool calls where harness hooks don't).
-- **OTLP receiver** — Phase 1 (`/v1/traces`, `/v1/logs`).
-- **Remote/team** — the existing board token mode; hook endpoints inherit it.
-- **Windows** — HTTP hooks are portable; Cursor/Codex command hooks go through
-  their own shell handling. `sugar hook` is intentionally small and silent.
+- **Remote/team** — the existing board token mode; hook and `/v1/*` endpoints
+  inherit it.
+- **Windows** — HTTP hooks are portable; Cursor/Codex/Goose command hooks go
+  through their own shell handling. `sugar hook` is intentionally small and
+  silent.
 
 Until an adapter lands, Sugar still shows the harness at L0/L1 through the task
 board and leases — the same fallback that makes Mission Control useful even
@@ -309,7 +410,7 @@ with no hooks installed.
 
 ---
 
-## 8. Quick verification
+## 9. Quick verification
 
 ```bash
 # Terminal 1
@@ -322,6 +423,17 @@ sugar doctor
 
 # Real Claude Code session in any repo (after connect): the Live floor and
 # Activity feed should show tool calls; Coverage shows Claude Code at L3.
+
+# Goose
+sugar connect --harness goose --yes
+# then start a goose session; Coverage shows Goose at L3.
+
+# OTLP JSON (Goose/ADK/Codex/Claude OTel)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7331
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+
+# SDK
+python -c "from sugar.integrations.openai_agents import install; install()"
 ```
 
 Manual test without a harness:
