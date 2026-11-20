@@ -381,8 +381,10 @@ python scripts/demo_dashboard.py --serve --open
 ## 10. Roadmap
 
 1. **Lease heartbeat + reaper** — reclaim a task from a dead worker automatically.
-2. **Harness hooks** (DSH/Claude/Hermes plugins) — `run.started`,
-   `tool.invoked`, `memory.recalled` with `trace_id`, making "why" first-class.
+2. **Harness adapters** — **shipped Phase 0/1a/1b**: Claude Code (HTTP hooks),
+   Cursor/Codex (command hooks), Goose (hook plugin), DeepSeek Harness
+   (session-tail LaunchAgent), OTLP protobuf/JSON for ADK/Codex/Claude/Goose,
+   ADK/OpenAI/Claude SDK helpers. **Next**: DSH ACP live events, MCP proxy.
 3. **Analytics** — flow graph (harness → project → status), per-actor
    throughput/latency, dependency DAG, expired-lease and double-claim anomalies,
    with rollups over the raw spine.
@@ -396,5 +398,7 @@ python scripts/demo_dashboard.py --serve --open
 
 - [local-dashboard.md](local-dashboard.md) — frozen REST/SSE contract, board
   sources, provenance fields, event-spine schema.
+- [telemetry-adapters.md](telemetry-adapters.md) — `sugar connect`, hook/OTLP/SDK
+  ingestion, fidelity levels, coverage API/UI, redaction.
 - [agent-teams.md](agent-teams.md) — why Sugar is the substrate, not a framework.
 - [task_orchestration.md](task_orchestration.md) — how work is decomposed.

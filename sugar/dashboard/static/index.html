@@ -257,6 +257,78 @@
   .usage-nums { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
   .usage-empty { color: var(--muted); font-size: 12px; }
 
+  /* Coverage matrix (Phase 0). The header trigger opens a read-only overlay fed
+     by GET /api/coverage; it auto-refreshes while open and never touches SSE. */
+  .coverage-trigger { display: inline-flex; align-items: center; gap: 8px; }
+  .coverage-badge {
+    min-width: 44px; padding: 0 7px; border-radius: 999px; text-align: center;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    font-size: 11px; line-height: 17px; font-variant-numeric: tabular-nums;
+  }
+  .coverage-badge.ok { color: var(--green); border-color: rgba(63, 185, 80, 0.45); }
+  .coverage-badge.partial { color: var(--yellow); border-color: rgba(210, 153, 34, 0.45); }
+  .coverage-panel {
+    width: min(760px, 100%); max-height: 88vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); outline: none;
+  }
+  .coverage-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .coverage-head h2 { margin: 0; font-size: 15px; }
+  .coverage-sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .coverage-actions { margin-left: auto; display: flex; gap: 8px; flex: none; }
+  .coverage-summary {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--panel-2);
+  }
+  .coverage-summary[hidden] { display: none; }
+  .coverage-level {
+    display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 10px;
+    border: 1px solid var(--border); border-radius: 999px;
+    color: var(--muted); font-size: 11.5px;
+  }
+  .coverage-level b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .coverage-level.l3 b { color: var(--green); }
+  .coverage-level.l2 b { color: var(--teal); }
+  .coverage-level.l1 b { color: var(--yellow); }
+  .coverage-level.l0 b { color: var(--red); }
+  .coverage-level-note { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+  .coverage-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 18px; display: flex; flex-direction: column; gap: 8px; }
+  .coverage-state { color: var(--muted); text-align: center; padding: 30px 10px; font-size: 13px; }
+  .coverage-state[hidden] { display: none; }
+  .coverage-row {
+    display: grid; grid-template-columns: minmax(150px, 0.9fr) minmax(250px, 2fr);
+    gap: 5px 14px; padding: 10px 12px;
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .coverage-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .coverage-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .coverage-title strong { font-size: 13.5px; }
+  .coverage-harness { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .coverage-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
+  .coverage-status .dot { width: 7px; height: 7px; }
+  .coverage-status.detected .dot { background: var(--green); }
+  .coverage-status.not-detected .dot { background: var(--muted); }
+  .coverage-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; color: var(--muted); font-size: 12px; min-width: 0; }
+  .coverage-fid { padding: 0 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; letter-spacing: 0.3px; }
+  .coverage-fid.l3 { color: var(--green); }
+  .coverage-fid.l2 { color: var(--teal); }
+  .coverage-fid.l1 { color: var(--yellow); }
+  .coverage-fid.l0 { color: var(--red); }
+  .coverage-metric { white-space: nowrap; }
+  .coverage-metric b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .coverage-transport { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
+  .coverage-notes { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; }
+  .coverage-notes::before { content: "notes: "; opacity: 0.75; }
+  .coverage-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 9px 18px; border-top: 1px solid var(--border); background: var(--panel-2); color: var(--muted); font-size: 11.5px; }
+  @media (max-width: 600px) {
+    .meta { flex-wrap: wrap; justify-content: flex-end; }
+    .db { max-width: 46vw; }
+    .coverage-row { grid-template-columns: 1fr; }
+    .coverage-head { flex-wrap: wrap; }
+    .coverage-actions { margin-left: 0; }
+    .coverage-level-note { margin-left: 0; width: 100%; }
+  }
+
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(3, 6, 10, 0.66); z-index: 40;
     display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px;
@@ -294,6 +366,12 @@
   <div class="brand"><span class="logo">🍰</span><h1>Sugar</h1><span class="sub">dashboard</span></div>
   <div class="counts" id="counts"></div>
   <div class="meta">
+    <button class="btn coverage-trigger" id="coverage-open" type="button"
+            aria-haspopup="dialog" aria-controls="coverage-modal"
+            title="Harness coverage (L0–L3)">
+      <span>Coverage</span>
+      <span class="coverage-badge" id="coverage-badge">—</span>
+    </button>
     <span class="pill" id="ro-badge" hidden>READ-ONLY</span>
     <span class="dot" id="conn-dot"></span>
     <span id="conn-label">connecting…</span>
@@ -426,6 +504,32 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="coverage-modal" hidden>
+  <div class="coverage-panel" id="coverage-panel" role="dialog" aria-modal="true"
+       aria-labelledby="coverage-title" tabindex="-1">
+    <header class="coverage-head">
+      <div>
+        <h2 id="coverage-title">Harness coverage</h2>
+        <div class="coverage-sub" id="coverage-generated">Fidelity L0–L3 · loading…</div>
+      </div>
+      <div class="coverage-actions">
+        <button class="btn" id="coverage-refresh" type="button">Refresh</button>
+        <button class="btn" id="coverage-close" type="button" title="Close (Esc)">✕</button>
+      </div>
+    </header>
+    <div class="coverage-summary" id="coverage-summary" hidden></div>
+    <div class="coverage-body" id="coverage-body">
+      <div class="coverage-state" id="coverage-state">Loading coverage…</div>
+      <div id="coverage-list"></div>
+    </div>
+    <footer class="coverage-foot">
+      <span id="coverage-updated">—</span>
+      <span class="spacer"></span>
+      <span>auto-refresh 15s</span>
+    </footer>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -474,7 +578,12 @@
     feedIds: new Set(),
     feedKind: "",
     feedQuery: "",
-    feedUnavailable: false
+    feedUnavailable: false,
+    // Coverage matrix (Phase 0): read-only snapshot, refreshed while open.
+    coverage: null,
+    coverageError: null,
+    coverageFetchedAt: 0,
+    coverageOpen: false
   };
 
   let eventSource = null;
@@ -484,6 +593,9 @@
   let authNoticeShown = false;
   let feedRenderTimer = null;
   let activityGap = false;
+  let coverageTimer = null;
+  let coverageLastFocus = null;
+  let coverageInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -1497,6 +1609,236 @@
     }
   }
 
+  // ------------------------------------------------ coverage matrix (Phase 0)
+
+  const COVERAGE_LEVELS = ["L3", "L2", "L1", "L0"];
+  const COVERAGE_LEVEL_HELP = {
+    L3: "tool args/results",
+    L2: "tool names/status",
+    L1: "session/turn/run",
+    L0: "board/leases only"
+  };
+  const COVERAGE_REFRESH_MS = 15000;
+
+  function coverageLevel(fidelity) {
+    const level = String(fidelity || "").toUpperCase();
+    return COVERAGE_LEVELS.indexOf(level) === -1 ? "L0" : level;
+  }
+
+  function coverageCounts(payload) {
+    const counts = { L3: 0, L2: 0, L1: 0, L0: 0 };
+    const harnesses = payload && Array.isArray(payload.harnesses) ? payload.harnesses : [];
+    harnesses.forEach(function (item) {
+      counts[coverageLevel(item && item.fidelity)] += 1;
+    });
+    const summary = payload && payload.summary;
+    if (summary && typeof summary === "object") {
+      COVERAGE_LEVELS.forEach(function (level) {
+        if (Array.isArray(summary[level])) counts[level] = summary[level].length;
+      });
+    }
+    return counts;
+  }
+
+  function coverageTotal(payload) {
+    const counts = coverageCounts(payload);
+    return counts.L3 + counts.L2 + counts.L1 + counts.L0;
+  }
+
+  function setCoverageBadge(payload, unavailable) {
+    const badge = $("coverage-badge");
+    const trigger = $("coverage-open");
+    if (!badge || !trigger) return;
+    badge.classList.remove("ok", "partial");
+    if (unavailable || !payload) {
+      badge.textContent = "—";
+      badge.title = "Coverage unavailable on this server";
+      trigger.title = "Coverage unavailable on this server";
+      trigger.setAttribute("aria-label", "Coverage unavailable on this server");
+      return;
+    }
+    const counts = coverageCounts(payload);
+    const total = coverageTotal(payload);
+    if (!total) {
+      badge.textContent = "—";
+      badge.title = "No harnesses reported";
+      trigger.title = "Harness coverage: no harnesses reported";
+      trigger.setAttribute("aria-label", "Coverage: no harnesses reported");
+      return;
+    }
+    const covered = counts.L3 + counts.L2 + counts.L1;
+    badge.textContent = covered + "/" + total;
+    badge.classList.add(covered === total ? "ok" : "partial");
+    badge.title = covered + " of " + total + " harnesses above L0";
+    trigger.title = "Harness coverage: " + covered + " of " + total + " above L0 (L3–L1)";
+    trigger.setAttribute("aria-label", "Coverage: " + covered + " of " + total + " harnesses instrumented above L0");
+  }
+
+  function coverageStatusNode(item) {
+    const detected = !!(item && item.detected);
+    const installed = !!(item && item.installed);
+    const node = el("span", "coverage-status " + (detected ? "detected" : "not-detected"));
+    node.appendChild(el("span", "dot"));
+    let text = "not detected";
+    if (detected && installed) text = "detected · installed";
+    else if (detected) text = "detected · not installed";
+    else if (installed) text = "not detected · installed";
+    node.appendChild(document.createTextNode(text));
+    return node;
+  }
+
+  function coverageRow(item) {
+    const row = el("div", "coverage-row");
+    const name = el("div", "coverage-name");
+    const title = el("div", "coverage-title");
+    title.appendChild(el("strong", null, (item && (item.display_name || item.harness)) || "unknown"));
+    title.appendChild(coverageStatusNode(item));
+    name.appendChild(title);
+    if (item && item.display_name && item.harness) {
+      name.appendChild(el("div", "coverage-harness", item.harness));
+    }
+    row.appendChild(name);
+
+    const meta = el("div", "coverage-meta");
+    const level = coverageLevel(item && item.fidelity);
+    const fid = el("span", "coverage-fid " + level.toLowerCase(), level);
+    fid.title = level + " = " + COVERAGE_LEVEL_HELP[level];
+    meta.appendChild(fid);
+    if (item && item.transport) meta.appendChild(el("span", "coverage-transport", item.transport));
+    const events = el("span", "coverage-metric");
+    events.appendChild(el("b", null, String(Number(item && item.events_24h) || 0)));
+    events.appendChild(document.createTextNode(" events/24h"));
+    meta.appendChild(events);
+    const last = el("span", "coverage-metric", "last event " + timeAgo(item && item.last_event_at));
+    last.title = fullTime(item && item.last_event_at);
+    meta.appendChild(last);
+    if (item && item.adapter_version) {
+      meta.appendChild(el("span", "coverage-metric", "adapter " + item.adapter_version));
+    }
+    row.appendChild(meta);
+
+    if (item && item.notes) row.appendChild(el("div", "coverage-notes", item.notes));
+    return row;
+  }
+
+  function coverageSummaryNodes(payload) {
+    const counts = coverageCounts(payload);
+    const nodes = COVERAGE_LEVELS.map(function (level) {
+      const chip = el("span", "coverage-level " + level.toLowerCase());
+      chip.title = level + " = " + COVERAGE_LEVEL_HELP[level];
+      chip.appendChild(el("b", null, counts[level]));
+      chip.appendChild(document.createTextNode(level));
+      return chip;
+    });
+    const total = coverageTotal(payload);
+    nodes.push(el("span", "coverage-level-note", total + (total === 1 ? " harness" : " harnesses")));
+    return nodes;
+  }
+
+  function renderCoverage() {
+    const list = $("coverage-list");
+    const stateBox = $("coverage-state");
+    const summary = $("coverage-summary");
+    const generated = $("coverage-generated");
+    if (!list || !stateBox || !summary) return;
+    if (state.coverageError) {
+      summary.hidden = true;
+      summary.replaceChildren();
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.coverageError;
+      generated.textContent = "Fidelity L0–L3";
+      generated.title = "";
+      return;
+    }
+    const payload = state.coverage;
+    if (!payload) {
+      summary.hidden = true;
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading coverage…";
+      return;
+    }
+    const harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
+    summary.hidden = false;
+    summary.replaceChildren.apply(summary, coverageSummaryNodes(payload));
+    generated.textContent = "Fidelity L0–L3" + (payload.generated_at
+      ? " · generated " + timeAgo(payload.generated_at) : "");
+    generated.title = payload.generated_at ? fullTime(payload.generated_at) : "";
+    list.replaceChildren.apply(list, harnesses.map(coverageRow));
+    if (harnesses.length) {
+      stateBox.hidden = true;
+      stateBox.textContent = "";
+    } else {
+      stateBox.hidden = false;
+      stateBox.textContent = "No harnesses reported.";
+    }
+  }
+
+  async function loadCoverage() {
+    if (coverageInFlight) return;
+    coverageInFlight = true;
+    const refresh = $("coverage-refresh");
+    const updated = $("coverage-updated");
+    if (refresh) refresh.disabled = true;
+    if (updated) updated.textContent = state.coverage ? "refreshing…" : "loading…";
+    try {
+      const payload = await api.get("/api/coverage");
+      state.coverage = payload;
+      state.coverageError = null;
+      state.coverageFetchedAt = Date.now();
+      setCoverageBadge(payload, false);
+      renderCoverage();
+    } catch (error) {
+      // The coverage API lands with Phase 0; older servers simply 404.
+      if (error && (error.status === 404 || error.status === 503)) {
+        state.coverage = null;
+        state.coverageError = "Coverage unavailable on this server";
+      } else {
+        state.coverage = null;
+        state.coverageError = "Coverage failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      setCoverageBadge(null, true);
+      renderCoverage();
+    } finally {
+      coverageInFlight = false;
+      if (refresh) refresh.disabled = false;
+      if (updated) {
+        updated.textContent = state.coverageFetchedAt
+          ? "updated " + timeAgo(new Date(state.coverageFetchedAt).toISOString())
+          : "—";
+      }
+    }
+  }
+
+  function openCoverage() {
+    coverageLastFocus = document.activeElement;
+    if (!coverageLastFocus || coverageLastFocus === document.body) {
+      coverageLastFocus = $("coverage-open");
+    }
+    state.coverageOpen = true;
+    $("coverage-modal").hidden = false;
+    $("coverage-panel").focus();
+    loadCoverage();
+    if (coverageTimer) clearInterval(coverageTimer);
+    coverageTimer = setInterval(function () {
+      if (state.coverageOpen) loadCoverage();
+    }, COVERAGE_REFRESH_MS);
+  }
+
+  function closeCoverage() {
+    state.coverageOpen = false;
+    $("coverage-modal").hidden = true;
+    if (coverageTimer) {
+      clearInterval(coverageTimer);
+      coverageTimer = null;
+    }
+    if (coverageLastFocus && typeof coverageLastFocus.focus === "function") {
+      coverageLastFocus.focus();
+    }
+    coverageLastFocus = null;
+  }
+
   // ------------------------------------------------------------------ form
 
   function populateFormTypeOptions() {
@@ -1704,8 +2046,15 @@
     $("form-close").addEventListener("click", closeForm);
     $("form-cancel").addEventListener("click", closeForm);
     $("task-form").addEventListener("submit", submitForm);
+    $("coverage-open").addEventListener("click", openCoverage);
+    $("coverage-close").addEventListener("click", closeCoverage);
+    $("coverage-refresh").addEventListener("click", function () { loadCoverage(); });
+    $("coverage-modal").addEventListener("click", function (event) {
+      if (event.target === $("coverage-modal")) closeCoverage();
+    });
     document.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
+      if (!$("coverage-modal").hidden) { closeCoverage(); return; }
       if (!$("modal").hidden) { closeForm(); return; }
       if (!$("drawer").hidden) {
         state.selectedId = null;
@@ -1721,6 +2070,7 @@
     await Promise.all([loadHealth(), loadTypes(), loadMeta()]);
     connect();
     loadActivity();
+    loadCoverage();
     // Safety net: if SSE is blocked entirely, still show the queue once.
     setTimeout(function () { if (!state.gotSnapshot) fallbackLoad(); }, 1500);
   }

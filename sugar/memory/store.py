@@ -256,11 +256,13 @@ class MemoryStore:
                 try:
                     embedding = self.embedder.embed(entry.content)
                     if embedding:
+                        # vec0 rejects REPLACE conflict resolution (UNIQUE on the
+                        # primary key), so an upsert is DELETE + INSERT.
                         cursor.execute(
-                            """
-                            INSERT OR REPLACE INTO memory_vectors (id, embedding)
-                            VALUES (?, ?)
-                        """,
+                            "DELETE FROM memory_vectors WHERE id = ?", (entry.id,)
+                        )
+                        cursor.execute(
+                            "INSERT INTO memory_vectors (id, embedding) VALUES (?, ?)",
                             (entry.id, _serialize_embedding(embedding)),
                         )
                 except Exception as e:
@@ -268,6 +270,61 @@ class MemoryStore:
 
             conn.commit()
             return entry.id
+
+    def reindex_embeddings(self, *, batch_size: int = 64) -> Dict[str, Any]:
+        """Backfill vectors for entries written before semantic search was enabled.
+
+        Vectors are only created on write, so a store that gains sqlite-vec +
+        sentence-transformers later keeps its existing rows keyword-only forever.
+        This walks every entry with no row in ``memory_vectors`` and embeds it.
+
+        Safe to re-run: entries that already have a vector are left alone, and a
+        failure to embed one entry does not abort the rest.
+
+        Returns a summary dict: ``semantic`` (whether vectors are active),
+        ``embedded``, ``skipped`` and ``pending`` (rows with no vector at start).
+        """
+        if not self._has_vec or isinstance(self.embedder, FallbackEmbedder):
+            return {"semantic": False, "embedded": 0, "skipped": 0, "pending": 0}
+
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, content FROM memory_entries
+                WHERE id NOT IN (SELECT id FROM memory_vectors)
+                """
+            )
+            rows = cursor.fetchall()
+
+            embedded = skipped = 0
+            for start in range(0, len(rows), batch_size):
+                for entry_id, content in rows[start : start + batch_size]:
+                    try:
+                        embedding = self.embedder.embed(content)
+                    except Exception as e:
+                        logger.warning(f"Reindex: failed to embed {entry_id}: {e}")
+                        embedding = None
+                    if not embedding:
+                        skipped += 1
+                        continue
+                    cursor.execute(
+                        "DELETE FROM memory_vectors WHERE id = ?", (entry_id,)
+                    )
+                    cursor.execute(
+                        "INSERT INTO memory_vectors (id, embedding) VALUES (?, ?)",
+                        (entry_id, _serialize_embedding(embedding)),
+                    )
+                    embedded += 1
+                conn.commit()
+
+        return {
+            "semantic": True,
+            "embedded": embedded,
+            "skipped": skipped,
+            "pending": len(rows),
+        }
 
     def get(self, entry_id: str) -> Optional[MemoryEntry]:
         """Get a memory entry by ID."""
@@ -294,6 +351,11 @@ class MemoryStore:
             cursor = conn.cursor()
 
             cursor.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
+            # Capture before touching the vector table: cursor.rowcount would
+            # otherwise report the vector delete, so an entry that had no vector
+            # (legacy rows, or a store that gained sqlite-vec later) looked
+            # like it was never deleted.
+            deleted = cursor.rowcount > 0
 
             if self._has_vec:
                 try:
@@ -304,7 +366,7 @@ class MemoryStore:
                     logger.warning(f"Failed to delete vector for entry {entry_id}: {e}")
 
             conn.commit()
-            return cursor.rowcount > 0
+            return deleted
 
     def search(self, query: MemoryQuery) -> List[MemorySearchResult]:
         """
@@ -356,21 +418,22 @@ class MemoryStore:
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-        # Vector search with filters
+        # Vector search with filters. sqlite-vec does KNN with MATCH + k; the
+        # `embedding <-> ?` operator belongs to sqlite-vss and is a syntax error
+        # here, which used to degrade every semantic search to keyword silently.
         try:
+            filter_sql = f"AND {' AND '.join(where_clauses)}" if where_clauses else ""
             sql = f"""
                 SELECT e.*, v.distance
-                FROM memory_entries e
-                JOIN memory_vectors v ON e.id = v.id
-                {where_sql}
-                ORDER BY v.embedding <-> ?
-                LIMIT ?
+                FROM memory_vectors v
+                JOIN memory_entries e ON e.id = v.id
+                WHERE v.embedding MATCH ? AND k = ?
+                {filter_sql}
+                ORDER BY v.distance
             """
-            params_with_query = params + [
-                _serialize_embedding(query_embedding),
-                query.limit,
-            ]
-            cursor.execute(sql, params_with_query)
+            cursor.execute(
+                sql, [_serialize_embedding(query_embedding), query.limit, *params]
+            )
         except Exception as e:
             logger.warning(f"Vector search failed: {e}")
             return self._search_keyword(query)

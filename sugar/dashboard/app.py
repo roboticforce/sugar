@@ -36,7 +36,14 @@ from .security import (
     TokenRegistry,
     set_board_cookie,
     unauthorized_response,
+    forbidden_scope_response,
 )
+from ..telemetry.coverage import coverage_report
+from ..telemetry.normalize import normalize_harness_name
+from ..telemetry import otlp as otlp_mod
+from ..telemetry.pipeline import TelemetryPipeline
+from ..telemetry.schema import TelemetryValidationError
+from ..telemetry.socket import IngestSocketServer
 from .spine import EventSpine, SpineError
 from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
@@ -296,6 +303,167 @@ async def ingest_event(request: Request) -> JSONResponse:
     return JSONResponse({"event": event}, status_code=201)
 
 
+async def hooks_ingest(request: Request) -> JSONResponse:
+    """Ingest a raw harness hook payload (``POST /api/hooks/{harness}``).
+
+    Always returns ``200 {"ok": true}`` for a known harness, even if the event is
+    ignored/deduped/storage is unavailable (fail-open for hook callers). Unknown
+    harnesses are ``404``; malformed JSON is ``400``.
+    """
+    harness = request.path_params["harness"]
+    if normalize_harness_name(harness) is None:
+        raise DashboardError(404, "not_found")
+    body = await _read_json_object(request)
+    pipeline = getattr(request.app.state, "telemetry_pipeline", None)
+    if pipeline is not None:
+        try:
+            await pipeline.ingest_hook(harness, body)
+        except TelemetryValidationError as exc:
+            raise DashboardError(400, "validation_error", str(exc)) from exc
+        except Exception:  # hooks must never fail their caller
+            logger.warning("telemetry: hook ingest failed", exc_info=True)
+    return JSONResponse({"ok": True})
+
+
+async def evidence_ingest(request: Request) -> JSONResponse:
+    """Ingest a canonical evidence event (``POST /api/evidence``) -> 201."""
+    spine = getattr(request.app.state, "spine", None)
+    pipeline = getattr(request.app.state, "telemetry_pipeline", None)
+    if spine is None or pipeline is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    body = await _read_json_object(request)
+    try:
+        result = await pipeline.ingest_evidence(body)
+    except TelemetryValidationError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    if result.stored and result.event is not None:
+        return JSONResponse({"event": result.event}, status_code=201)
+    return JSONResponse({"ok": False, "dropped": True}, status_code=202)
+
+
+def _otlp_auth_error(request: Request):
+    """Return a 401/403 response for token-protected ``/v1/*``, else None."""
+    tokens = getattr(request.app.state, "tokens", None)
+    if not isinstance(tokens, TokenRegistry) or tokens.is_empty:
+        return None
+    authorization = request.headers.get("authorization", "")
+    parts = authorization.strip().split(None, 1)
+    candidate = (
+        parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
+    )
+    record = tokens.find(candidate)
+    if record is None:
+        return unauthorized_response()
+    if not record.allows("POST"):
+        return forbidden_scope_response(record.scope, "POST")
+    return None
+
+
+async def _read_otlp_body(request: Request) -> bytes:
+    """Read an OTLP body with the same 1 MB raw cap as the JSON endpoints."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        raise DashboardError(413, "payload_too_large", "request body is too large")
+    raw = await request.body()
+    if len(raw) > MAX_BODY_BYTES:
+        raise DashboardError(413, "payload_too_large", "request body is too large")
+    return raw
+
+
+def _parse_otlp_json(body: bytes) -> dict:
+    if not body.strip():
+        return {}
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise DashboardError(400, "validation_error", "invalid JSON body")
+    if not isinstance(data, dict):
+        raise DashboardError(400, "validation_error", "JSON body must be an object")
+    return data
+
+
+async def _otlp_ingest(
+    request: Request, mapper, protobuf_decoder, source: str
+) -> JSONResponse:
+    """Shared OTLP handler: auth -> wire format -> gzip -> JSON/protobuf -> mapper."""
+    denied = _otlp_auth_error(request)
+    if denied is not None:
+        return denied
+    content_type = otlp_mod.classify_content_type(request.headers.get("content-type"))
+    if content_type is None:
+        raise DashboardError(415, "unsupported_media_type", otlp_mod.CONTENT_TYPE_HINT)
+    if content_type == "protobuf" and not otlp_mod.protobuf_available():
+        raise DashboardError(
+            415, "unsupported_media_type", otlp_mod.PROTOBUF_INSTALL_HINT
+        )
+    content_encoding = request.headers.get("content-encoding", "")
+    try:
+        otlp_mod.normalize_content_encoding(content_encoding)
+    except otlp_mod.OTLPUnsupportedEncoding as exc:
+        raise DashboardError(415, "unsupported_media_type", str(exc)) from exc
+    spine = getattr(request.app.state, "spine", None)
+    pipeline = getattr(request.app.state, "telemetry_pipeline", None)
+    if spine is None or pipeline is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    raw = await _read_otlp_body(request)
+    try:
+        body = otlp_mod.decode_content_encoding(raw, content_encoding, MAX_BODY_BYTES)
+    except otlp_mod.OTLPBodyTooLarge as exc:
+        raise DashboardError(413, "payload_too_large", str(exc)) from exc
+    except otlp_mod.OTLPFormatError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    if content_type == "json":
+        payload = _parse_otlp_json(body)
+    else:
+        try:
+            payload = protobuf_decoder(body)
+        except otlp_mod.OTLPProtobufUnavailable as exc:
+            raise DashboardError(
+                415, "unsupported_media_type", otlp_mod.PROTOBUF_INSTALL_HINT
+            ) from exc
+        except otlp_mod.OTLPFormatError as exc:
+            raise DashboardError(400, "validation_error", str(exc)) from exc
+    harness_hint = request.query_params.get("harness")
+    try:
+        events = mapper(payload, harness_hint or None)
+    except otlp_mod.OTLPFormatError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    try:
+        await otlp_mod.ingest_otlp_events(events, pipeline, source=source)
+    except Exception:  # pragma: no cover - exporters get a 200; storage is best effort
+        logger.exception("otlp: ingest failed")
+    return JSONResponse({})
+
+
+async def otlp_traces(request: Request) -> JSONResponse:
+    """OTLP/HTTP trace export (JSON or protobuf, optional gzip) -> events."""
+    return await _otlp_ingest(
+        request, otlp_mod.spans_to_events, otlp_mod.decode_trace_protobuf, "otlp:traces"
+    )
+
+
+async def otlp_logs(request: Request) -> JSONResponse:
+    """OTLP/HTTP log export (JSON or protobuf, optional gzip) -> events."""
+    return await _otlp_ingest(
+        request, otlp_mod.logs_to_events, otlp_mod.decode_log_protobuf, "otlp:logs"
+    )
+
+
+async def coverage(request: Request) -> JSONResponse:
+    """Adapter coverage matrix from the registry + recent spine events."""
+    spine = getattr(request.app.state, "spine", None)
+    try:
+        report = await coverage_report(spine.db_path if spine is not None else None)
+    except Exception:  # pragma: no cover - defensive; coverage must not 500 often
+        logger.exception("coverage report failed")
+        raise DashboardError(500, "internal", "coverage report unavailable")
+    return JSONResponse(report)
+
+
 async def meta(request: Request) -> JSONResponse:
     return JSONResponse(_service(request).meta())
 
@@ -353,6 +521,7 @@ def create_app(
     events_db: Any = None,
     tokens: TokenRegistry | None = None,
     trust_same_origin: bool | None = None,
+    ingest_socket: str | None = None,
 ) -> Starlette:
     """Build the dashboard ASGI app for ``db_path``.
 
@@ -371,6 +540,12 @@ def create_app(
     cadence (default: ``$SUGAR_PRESENCE_INTERVAL`` or 2.0 seconds). It applies
     when the app builds its own :class:`DashboardService`; a custom ``service``
     owns its own state.
+
+    ``ingest_socket`` overrides the telemetry Unix-socket path (default
+    ``$SUGAR_INGEST_SOCKET`` or ``~/.sugar/ingest.sock``; an empty string
+    disables it). When the event spine is enabled, hook ingestion is reachable
+    at ``POST /api/hooks/{harness}`` and evidence at ``POST /api/evidence``; the
+    socket serves the same pipeline for fast command hooks.
     """
     resolved_db = str(Path(db_path).expanduser().resolve())
     dashboard = service or DashboardService(
@@ -395,12 +570,26 @@ def create_app(
                 )
                 spine = None
                 app.state.spine = None
+        pipeline = None
+        ingest_socket_server = None
         if spine is not None:
             dashboard.spine = spine
+            pipeline = TelemetryPipeline(spine, dashboard.broadcaster)
+        app.state.telemetry_pipeline = pipeline
         await dashboard.start()
+        if pipeline is not None:
+            try:
+                ingest_socket_server = IngestSocketServer(pipeline, path=ingest_socket)
+                if await ingest_socket_server.start():
+                    app.state.ingest_socket = str(ingest_socket_server.path)
+            except Exception:  # pragma: no cover - socket is an optional fast path
+                logger.exception("dashboard: telemetry socket failed to start")
+                ingest_socket_server = None
         try:
             yield
         finally:
+            if ingest_socket_server is not None:
+                await ingest_socket_server.stop()
             await dashboard.stop()
             if spine is not None:
                 await spine.close()
@@ -426,6 +615,11 @@ def create_app(
         Route("/api/trends", trends, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
+        Route("/api/hooks/{harness}", hooks_ingest, methods=["POST"]),
+        Route("/api/evidence", evidence_ingest, methods=["POST"]),
+        Route("/api/coverage", coverage, methods=["GET"]),
+        Route("/v1/traces", otlp_traces, methods=["POST"]),
+        Route("/v1/logs", otlp_logs, methods=["POST"]),
     ]
 
     registry = tokens if isinstance(tokens, TokenRegistry) else None
@@ -450,4 +644,6 @@ def create_app(
     app.state.dashboard = dashboard
     app.state.spine = spine
     app.state.tokens = registry
+    app.state.telemetry_pipeline = None
+    app.state.ingest_socket = None
     return app

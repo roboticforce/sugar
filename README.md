@@ -100,8 +100,9 @@ sugar init
 sugar add "Fix the auth timeout" --type bug_fix --urgent
 sugar add "Add profile settings" --type feature
 
-# Watch it, or let Sugar run it
+# Watch it, instrument your harnesses, or let Sugar run it
 sugar dashboard --open
+sugar connect --yes        # Claude Code / Cursor / Codex / Goose adapters
 sugar run
 ```
 
@@ -128,6 +129,46 @@ sugar emit --kind tool.invoked --task-id "$TASK_ID" \
   --message "running pytest tests/test_api.py" --payload file=src/api.py
 ```
 
+### Connect your agents (one command)
+
+```bash
+sugar connect --check   # detected harnesses, fidelity and transport
+sugar connect --yes     # Claude Code, Cursor, Codex, Goose; DSH tail (macOS)
+sugar doctor            # end-to-end check: board + adapter + activity
+```
+
+Claude Code gets native **HTTP hooks**; Cursor, Codex and Goose get command
+hooks that call a fail-open `sugar hook` shim. Sugar records tool calls,
+sessions, prompts, usage and failures as canonical events, and the Coverage
+panel shows each harness at **L3/L2/L1/L0**, events/24h, transport and last
+seen. Codex hooks stay trust-gated: approve them once via `/hooks`.
+
+For OTel-native agents (Google ADK, Codex OTel, Goose OTel), export OTLP to
+the same board — protobuf (the OTel default) or JSON, optionally gzipped:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7331
+# protobuf is the default; set http/json only if you prefer it
+```
+
+SDK agents get first-class helpers with no extra dependencies:
+
+```python
+# Google ADK
+from sugar.integrations.adk import SugarADKPlugin
+app = App(name="my_app", root_agent=agent, plugins=[SugarADKPlugin()])
+
+# OpenAI Agents SDK
+from sugar.integrations.openai_agents import install
+install()
+
+# Claude Agent SDK
+from sugar.integrations.claude_sdk import make_hooks
+options = ClaudeAgentOptions(hooks=make_hooks())
+```
+
+Full matrix and caveats: [Telemetry Adapters](docs/telemetry-adapters.md).
+
 <img src="docs/images/live-floor.png" alt="SugarDash Live floor: agents at work with real leases, current actions and countdowns" width="880">
 
 No harness wired up yet? The repo ships a simulator for demos:
@@ -144,24 +185,26 @@ Trends need history; seed a throwaway spine and open the Trends view:
 python scripts/seed_demo_trends.py --db /tmp/sugar-dashboard-demo/.sugar/events.db --reset
 ```
 
-Full walkthrough: [Mission Control](docs/mission-control.md) · [Telemetry](docs/telemetry.md) · [Trends](docs/trends.md)
+Full walkthrough: [Mission Control](docs/mission-control.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Trends](docs/trends.md)
 
 ## Works with your harnesses
 
-Any harness that can run a CLI or speak MCP can use the board and the memory. The built-in runner
-(`sugar run`) drives Claude Code through the Agent SDK today; the other harnesses keep doing their own thing
-while Sugar coordinates them.
+Any harness that can run a CLI or speak MCP can use the board and the memory.
+The built-in runner (`sugar run`) drives Claude Code through the Agent SDK
+today; the other harnesses keep doing their own thing while Sugar coordinates
+them and records what they do.
 
-| Harness | Board (MCP / CLI / REST) | Shared memory | Notes |
-|---|---|---|---|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Yes | Yes | Built-in runner; plugin + Skills; full support |
-| Codex | Yes | Yes | Via MCP/CLI; no runner coupling |
-| Cursor | Yes | Yes | Via MCP |
-| [Goose](https://block.github.io/goose) | Yes | Yes | Via MCP extension |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Yes | Yes | `sugar opencode setup` |
-| [Aider](https://aider.chat) | Yes | Yes | Via CLI/MCP |
-| Hermes Kanban | Yes | — | Mirror a board with `--board kanban`; Hermes owns writes |
-| Custom scripts / bots | Yes | Yes | REST + SSE, or MCP |
+| Harness | Board (MCP / CLI / REST) | Shared memory | Live telemetry | Notes |
+|---|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Yes | Yes | **L3** HTTP hooks | Built-in runner; plugin + Skills |
+| Codex | Yes | Yes | **L3** command hooks | Via MCP/CLI; approve hooks once via `/hooks` |
+| Cursor | Yes | Yes | **L3** command hooks | Via MCP; imports Claude-style hooks |
+| [Goose](https://block.github.io/goose) | Yes | Yes | **L3** hook plugin | `sugar connect --harness goose` |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Yes | Yes | L0 board/leases | `sugar opencode setup` |
+| [Aider](https://aider.chat) | Yes | Yes | L0 board/leases | Via CLI/MCP |
+| Hermes Kanban | Yes | — | L0 board events | Mirror a board with `--board kanban` |
+| DeepSeek Harness | Yes | Yes | **L3** session tail | `sugar connect --harness dsh`; macOS LaunchAgent, manual tail elsewhere |
+| Custom scripts / bots | Yes | Yes | **L3** via SDK/`sugar emit` | REST + SSE, or MCP |
 
 ## Team edition (self-hosted)
 
@@ -268,7 +311,7 @@ claim work.
 
 - [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
 - [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
-- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
+- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
 - [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)

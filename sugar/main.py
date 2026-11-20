@@ -15,7 +15,22 @@ from typing import Optional
 import click
 
 from .__version__ import __version__, get_version_info
-from .core.loop import SugarLoop
+
+# ``sugar.core.loop`` pulls in the agent SDK + MCP client (~2s of imports). The
+# per-tool-call `sugar hook` command imports this module on every hook, so the
+# class is resolved lazily. It stays a module attribute because tests patch
+# ``sugar.main.SugarLoop``.
+SugarLoop = None
+
+
+def _sugar_loop_class():
+    """Import ``SugarLoop`` on first use (keeps ``sugar hook`` fast)."""
+    global SugarLoop
+    if SugarLoop is None:
+        from .core.loop import SugarLoop as _SugarLoop
+
+        SugarLoop = _SugarLoop
+    return SugarLoop
 
 
 def validate_task_type(ctx, param, value):
@@ -2043,8 +2058,8 @@ def run(ctx, dry_run, once, validate):
     _require_sugar_project(config_file)
 
     try:
-        # Initialize Sugar
-        sugar_loop = SugarLoop(config_file)
+        # Initialize Sugar (imported lazily so `sugar hook` stays fast)
+        sugar_loop = _sugar_loop_class()(config_file)
 
         # Override dry_run if specified
         if dry_run:
@@ -4560,6 +4575,65 @@ def export_context(ctx, output_format, limit, types):
             click.echo(f"# Error: {e}")
 
 
+@cli.group("memory")
+def memory_group():
+    """Manage Sugar's memory stores."""
+
+
+@memory_group.command("reindex")
+@click.pass_context
+def memory_reindex(ctx):
+    """Backfill embeddings for memories stored before semantic search was enabled.
+
+    Vectors are only written when a memory is added, so installing the
+    `sugarai[memory]` extra later leaves existing memories keyword-only. This
+    builds the missing vectors in place; re-running it is harmless.
+    """
+    from .memory import is_semantic_search_available
+
+    if not is_semantic_search_available():
+        click.echo("❌ Vectors are unavailable, so there is nothing to build.")
+        click.echo("   Install the vector extra first: pip install 'sugarai[memory]'")
+        sys.exit(1)
+
+    config_file = ctx.obj["config"]
+    try:
+        config = _require_sugar_project(config_file)
+    except SystemExit:
+        config = None
+
+    manager = _get_global_memory_manager(config=config)
+    stores = [("global", manager.global_store)]
+    if manager.project_store is not None:
+        stores.append(("project", manager.project_store))
+
+    click.echo("\n🧠 Sugar memory reindex\n")
+    seen: set = set()
+    total = 0
+    try:
+        for label, store in stores:
+            resolved = store.db_path.resolve()
+            if resolved in seen:
+                # Project store and global store are the same file ($HOME case).
+                continue
+            seen.add(resolved)
+            stats = store.reindex_embeddings()
+            if not stats["semantic"]:
+                click.echo(
+                    f"  {label:8s} vectors unavailable (sqlite-vec missing); skipped"
+                )
+                continue
+            total += stats["embedded"]
+            click.echo(
+                f"  {label:8s} {stats['embedded']} embedded, "
+                f"{stats['skipped']} skipped, {stats['pending']} were pending"
+            )
+    finally:
+        manager.close()
+
+    click.echo(f"\n✅ Reindex complete: {total} memories now searchable by meaning.\n")
+
+
 @cli.command("memory-stats")
 @click.pass_context
 def memory_stats(ctx):
@@ -6059,6 +6133,254 @@ def trends(events_db, since, until, bucket, group_by, limit, as_json):
         click.echo(json.dumps(report, indent=2, sort_keys=True))
         return
     click.echo(format_trends_table(report))
+
+
+# =============================================================================
+# Harness Connect / Hook / Doctor Commands
+# =============================================================================
+
+
+@cli.command("hook")
+@click.option(
+    "--harness",
+    required=True,
+    type=click.Choice(
+        ["claude-code", "cursor", "codex", "goose", "dsh"], case_sensitive=False
+    ),
+    help="Harness that produced this hook payload",
+)
+@click.option(
+    "--socket",
+    "socket_path",
+    default=None,
+    type=click.Path(),
+    help="Unix ingest socket (default: $SUGAR_INGEST_SOCKET or ~/.sugar/ingest.sock)",
+)
+@click.option(
+    "--url",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Suppress output (hooks are silent by default; accepted for config safety)",
+)
+def hook(harness, socket_path, url, quiet):
+    """Forward one harness hook payload from stdin to Sugar (fail-open, silent)
+
+    This is the command Cursor, Codex and the Goose plugin hooks invoke (Claude
+    Code uses a native HTTP hook). It reads the raw hook JSON from stdin and
+    forwards it to the Unix ingest socket (preferred) or
+    ``POST /api/hooks/<harness>``. ``dsh`` is reserved for the Phase-1b adapter.
+
+    It is deliberately boring: bounded timeouts, no output, and it always exits
+    0, because a stopped board must never block an agent's tool call. Set
+    ``$SUGAR_HOOK_DEBUG=1`` to see what happened on stderr.
+    """
+    import os
+
+    from .connect.hook import forward_hook, read_stdin_bytes
+
+    result = None
+    try:
+        raw = read_stdin_bytes(getattr(sys.stdin, "buffer", sys.stdin))
+        result = forward_hook(raw, harness.lower(), socket_path=socket_path, url=url)
+    except Exception:  # fail-open is the contract: never break the harness
+        result = None
+    if os.environ.get("SUGAR_HOOK_DEBUG") and result is not None:
+        transport = result.transport or "none"
+        click.echo(
+            f"sugar hook: harness={harness} delivered={result.delivered} "
+            f"transport={transport} {result.detail}",
+            err=True,
+        )
+
+
+@cli.command("connect")
+@click.option(
+    "--check", is_flag=True, help="Detect harnesses and print the matrix only"
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Show planned config changes without writing"
+)
+@click.option(
+    "--harness",
+    "harnesses",
+    multiple=True,
+    type=click.Choice(
+        ["claude-code", "cursor", "codex", "goose", "dsh"], case_sensitive=False
+    ),
+    help="Target harness (repeatable; default: every detected installable one)",
+)
+@click.option("--yes", "-y", is_flag=True, help="Apply without a confirmation prompt")
+def connect(check, dry_run, harnesses, yes):
+    """Detect coding agents and install Sugar telemetry adapters
+
+    Claude Code gets native HTTP hooks (no subprocess); Cursor and Codex get
+    command hooks that call ``sugar hook``. Existing harness config is preserved,
+    a ``.bak`` backup is written, and re-running is a no-op.
+
+    Examples:
+
+        sugar connect --check
+
+        sugar connect --dry-run
+
+        sugar connect --yes
+
+        sugar connect --harness cursor --yes
+
+    Goose and DSH are detected only in Phase 0 (their adapters land in Phase 1).
+    Codex hooks are trust-gated: after installing, open ``codex``, run
+    ``/hooks`` and approve them — Sugar never bypasses that approval.
+    """
+    from .connect.cli import run_connect
+
+    outcome = run_connect(
+        check=check,
+        dry_run=dry_run,
+        harnesses=[item.lower() for item in harnesses],
+        yes=yes,
+    )
+    if outcome.exit_code:
+        sys.exit(outcome.exit_code)
+
+
+@cli.command("doctor")
+@click.option(
+    "--server",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--socket",
+    "socket_path",
+    default=None,
+    type=click.Path(),
+    help="Unix ingest socket (default: $SUGAR_INGEST_SOCKET or ~/.sugar/ingest.sock)",
+)
+@click.option("--json", "json_output", is_flag=True, help="Print JSON diagnostics")
+def doctor(server, socket_path, json_output):
+    """Verify the board and installed adapters deliver telemetry end to end
+
+    Checks ``/api/health``, sends a uniquely-tagged synthetic hook through each
+    installed adapter path (HTTP hook endpoint and/or Unix ingest socket), looks
+    for it in ``/api/activity``, and prints ``/api/coverage``.
+
+    Exits 1 when the board is unreachable or no installed adapter can deliver.
+    Run ``sugar connect`` first.
+    """
+    from .connect.cli import run_doctor_command
+
+    code = run_doctor_command(
+        server=server, socket_path=socket_path, json_output=json_output
+    )
+    if code:
+        sys.exit(code)
+
+
+# =============================================================================
+# Session Tail Commands (DeepSeek Harness)
+# =============================================================================
+
+
+@cli.group()
+@click.pass_context
+def tail(ctx):
+    """Tail local agent session logs and stream them to a Sugar board"""
+    pass
+
+
+@tail.command("dsh")
+@click.option(
+    "--once",
+    is_flag=True,
+    help="Scan the logs once and exit (the default)",
+)
+@click.option(
+    "--watch",
+    is_flag=True,
+    help="Keep polling for new sessions/events (use under a process manager)",
+)
+@click.option(
+    "--sessions-dir",
+    "sessions_dir",
+    default=None,
+    type=click.Path(file_okay=False),
+    help="DSH sessions dir (default: $SUGAR_DSH_SESSIONS or ~/.dsh/sessions)",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Checkpoint file (default: $SUGAR_DSH_STATE or ~/.sugar/dsh-tail-state.json)",
+)
+@click.option(
+    "--interval",
+    type=float,
+    default=None,
+    help="Poll interval in seconds for --watch (default: 2)",
+)
+@click.option(
+    "--url",
+    default=None,
+    help="Board base URL (default: $SUGAR_BOARD_URL or http://127.0.0.1:7331)",
+)
+@click.option(
+    "--since",
+    default=None,
+    help="Skip events older than this ISO-8601 timestamp (or epoch seconds)",
+)
+@click.option("--quiet", is_flag=True, help="No output; only emit events")
+def dsh(
+    once,
+    watch,
+    sessions_dir,
+    state_file,
+    interval,
+    url,
+    since,
+    quiet,
+):
+    """Tail DeepSeek Harness session logs and stream them to the board
+
+    DSH writes compressed JSONL session logs under ``~/.dsh/sessions/``. This
+    replays session/turn/tool-call/approval events as canonical telemetry to
+    the board (``POST /api/events``), keeping a per-session checkpoint so
+    events are delivered once and a restart resumes where it stopped.
+
+    Examples:
+
+        sugar tail dsh
+
+        sugar tail dsh --watch --interval 2
+
+        sugar tail dsh --since 2026-11-01 --quiet
+
+    On macOS, ``sugar connect --harness dsh`` installs a LaunchAgent that runs
+    the ``--watch`` form at login and restarts it if it exits.
+    """
+    if once and watch:
+        raise click.UsageError("--once and --watch are mutually exclusive")
+    if interval is not None and interval <= 0:
+        raise click.BadParameter(
+            "must be a positive number of seconds", param_hint="--interval"
+        )
+    from .dsh.cli import run_tail_dsh
+
+    code = run_tail_dsh(
+        watch_mode=watch,
+        sessions_dir=sessions_dir,
+        state_file=state_file,
+        interval=interval,
+        url=url,
+        since=since,
+        quiet=quiet,
+    )
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":

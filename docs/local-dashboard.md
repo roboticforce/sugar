@@ -609,6 +609,25 @@ reaper); plus free-form ingest kinds
 - `GET /api/trends?since=&until=&bucket=hour|day|week&group_by=actor|harness|project&limit=` —
   zero-filled UTC time buckets of task counts, event volume, tokens/cost and
   cycle time from the spine (see `docs/trends.md`).
+- `POST /api/hooks/{harness}` — raw harness hook payload (`claude-code`,
+  `cursor`, `codex`), normalized to `sugar.telemetry.v1`. Known harness always
+  returns `200 {"ok": true}` (hooks are fail-open); unknown → 404, malformed →
+  400. See `docs/telemetry-adapters.md`.
+- `POST /api/evidence` — canonical evidence event (`verification.*`,
+  `policy.decision`, `approval.*`, `artifact.created`, `commit.linked`) →
+  `201 {"event": Event}`; invalid kind/payload → 400, no spine → 503.
+- `GET /api/coverage` — adapter coverage (`detected`/`installed`, per-harness
+  L0-L3 fidelity, transport, last event, 24h count) from
+  `~/.sugar/adapters.json` plus the spine. See `docs/telemetry-adapters.md`.
+- `POST /v1/traces`, `POST /v1/logs` — OTLP/HTTP **protobuf or JSON** export
+  (standard `ExportTraceServiceRequest`/`ExportLogsServiceRequest`), optionally
+  gzipped, mapped to canonical events via the telemetry pipeline. Content types
+  `application/x-protobuf`, `application/protobuf`,
+  `application/octet-stream`, `application/json`; encodings `identity`, `gzip`;
+  protobuf requires `sugarai[telemetry]`. `200 {}`; malformed → 400; raw or
+  decompressed >1 MB → 413; unsupported type/encoding → 415; no spine → 503.
+  In token mode a write-scoped bearer token is required. See
+  `docs/telemetry-adapters.md`.
 - `POST /api/events` — harness telemetry. Body: `{kind*, actor?, actor_kind?,
   harness?, session_id?, task_id?, run_id?, project?, trace_id?, payload?}`;
   server fills `ts`, `machine`, `source="ingest"`, `id`, `ingested_at`. Unknown

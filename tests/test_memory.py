@@ -665,3 +665,255 @@ class TestMemoryWorkflow:
         # Delete
         store.delete("lifecycle-1")
         assert store.get("lifecycle-1") is None
+
+
+# ============================================================================
+# Unit Tests - Embedding backfill (sugar memory reindex)
+# ============================================================================
+
+
+class _StubEmbedder:
+    """Deterministic stand-in for a sentence-transformers embedder (no ML deps)."""
+
+    def __init__(self, dimension: int = 4, fail_on: str = ""):
+        self.dimension = dimension
+        self.fail_on = fail_on
+
+    def embed(self, text: str):
+        import hashlib
+
+        if self.fail_on and self.fail_on in text:
+            raise RuntimeError("embed failed")
+        vector = [0.0] * self.dimension
+        for token in text.lower().split():
+            index = int(hashlib.sha256(token.encode()).hexdigest(), 16) % self.dimension
+            vector[index] += 1.0
+        if not any(vector):
+            vector[0] = 1.0
+        return vector
+
+    def embed_batch(self, texts):
+        return [self.embed(text) for text in texts]
+
+
+class TestReindexEmbeddings:
+    """Vectors are only written on store(), so older rows need a backfill."""
+
+    @pytest.fixture
+    def store(self, temp_dir):
+        from sugar.memory import MemoryStore
+        from sugar.memory.embedder import FallbackEmbedder
+
+        instance = MemoryStore(
+            str(temp_dir / "reindex.db"), embedder=FallbackEmbedder()
+        )
+        yield instance
+        instance.close()
+
+    def _enable_vectors(self, store, embedder):
+        """Simulate sqlite-vec + a real embedder being installed after the fact."""
+        from sugar.memory.embedder import EMBEDDING_DIM
+
+        if store._has_vec:
+            # sqlite-vec is installed: use the real vec0 table, which requires
+            # vectors of the full embedding width.
+            embedder.dimension = EMBEDDING_DIM
+        else:
+            with store._lock:
+                conn = store._get_connection()
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS memory_vectors "
+                    "(id TEXT PRIMARY KEY, embedding BLOB)"
+                )
+                conn.commit()
+            store._has_vec = True
+        store.embedder = embedder
+
+    def _vector_ids(self, store):
+        with store._lock:
+            conn = store._get_connection()
+            return {row[0] for row in conn.execute("SELECT id FROM memory_vectors")}
+
+    def _entries(self, store, count: int):
+        from sugar.memory import MemoryEntry, MemoryType
+
+        for index in range(count):
+            store.store(
+                MemoryEntry(
+                    id=f"reindex-{index}",
+                    memory_type=MemoryType.DECISION,
+                    content=f"memory {index}",
+                )
+            )
+
+    def test_reindex_is_a_noop_without_vectors(self, store):
+        self._entries(store, 2)
+        assert store.reindex_embeddings() == {
+            "semantic": False,
+            "embedded": 0,
+            "skipped": 0,
+            "pending": 0,
+        }
+
+    def test_reindex_backfills_only_missing_vectors(self, store):
+        self._entries(store, 3)
+        self._enable_vectors(store, _StubEmbedder())
+
+        stats = store.reindex_embeddings()
+        assert stats == {"semantic": True, "embedded": 3, "skipped": 0, "pending": 3}
+        assert self._vector_ids(store) == {"reindex-0", "reindex-1", "reindex-2"}
+
+        # Re-running is harmless: nothing is pending any more.
+        again = store.reindex_embeddings()
+        assert again["embedded"] == 0 and again["pending"] == 0
+        assert len(self._vector_ids(store)) == 3
+
+    def test_reindex_counts_embed_failures_as_skipped(self, store):
+        from sugar.memory import MemoryEntry, MemoryType
+
+        self._entries(store, 2)
+        store.store(
+            MemoryEntry(
+                id="reindex-boom",
+                memory_type=MemoryType.DECISION,
+                content="boom content",
+            )
+        )
+        self._enable_vectors(store, _StubEmbedder(fail_on="boom"))
+
+        stats = store.reindex_embeddings()
+        assert stats["embedded"] == 2
+        assert stats["skipped"] == 1
+        assert "reindex-boom" not in self._vector_ids(store)
+
+
+def test_memory_reindex_command_reports_missing_vectors(temp_dir):
+    """`sugar memory reindex` explains itself when vectors are not installed."""
+    import os
+
+    import yaml
+
+    from sugar.main import cli
+    from sugar.memory import is_semantic_search_available
+
+    if is_semantic_search_available():
+        pytest.skip("vector extra installed; the failure path is not reachable")
+
+    project_dir = temp_dir / "reindex_project"
+    sugar_dir = project_dir / ".sugar"
+    sugar_dir.mkdir(parents=True)
+    config_file = sugar_dir / "config.yaml"
+    config_file.write_text(
+        yaml.dump({"sugar": {"storage": {"database": str(sugar_dir / "sugar.db")}}}),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=project_dir.parent):
+        os.chdir(project_dir)
+        result = runner.invoke(cli, ["--config", str(config_file), "memory", "reindex"])
+
+    assert result.exit_code == 1
+    assert "Vectors are unavailable" in result.output
+    assert "sugarai[memory]" in result.output
+
+
+def _sqlite_vec_installed() -> bool:
+    try:
+        import sqlite_vec  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+class TestSemanticSearchWithSqliteVec:
+    """The real sqlite-vec path: KNN syntax and vector upserts.
+
+    Skipped when sqlite-vec is not installed, so the suite still runs on a bare
+    checkout; CI installs sqlite-vec so these always execute there.
+    """
+
+    pytestmark = pytest.mark.skipif(
+        not _sqlite_vec_installed(), reason="sqlite-vec not installed"
+    )
+
+    @pytest.fixture
+    def store(self, temp_dir):
+        from sugar.memory import MemoryStore
+        from sugar.memory.embedder import EMBEDDING_DIM
+
+        instance = MemoryStore(
+            str(temp_dir / "semantic.db"), embedder=_StubEmbedder(EMBEDDING_DIM)
+        )
+        if not instance._has_vec:
+            pytest.skip("sqlite-vec is importable but the extension failed to load")
+        yield instance
+        instance.close()
+
+    def _vector_count(self, store):
+        with store._lock:
+            conn = store._get_connection()
+            return conn.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0]
+
+    def _store(self, store, entry_id, content):
+        from sugar.memory import MemoryEntry, MemoryType
+
+        return store.store(
+            MemoryEntry(id=entry_id, memory_type=MemoryType.DECISION, content=content)
+        )
+
+    def test_vectors_are_written_on_store(self, store):
+        self._store(store, "s0", "deploy with kamal")
+        self._store(store, "s1", "postgres migrations use alembic")
+        assert self._vector_count(store) == 2
+
+    def test_semantic_search_uses_the_vector_index(self, store):
+        from sugar.memory import MemoryQuery
+
+        self._store(store, "s0", "deploy with kamal")
+        self._store(store, "s1", "postgres migrations use alembic")
+
+        hits = store.search(MemoryQuery(query="kamal deploy", limit=2))
+        assert hits, "semantic search returned nothing"
+        assert all(hit.match_type == "semantic" for hit in hits)
+        assert "kamal" in hits[0].entry.content
+
+    def test_updating_an_entry_refreshes_its_vector(self, store):
+        from sugar.memory import MemoryQuery
+
+        self._store(store, "s0", "old alpha decision")
+        self._store(store, "s1", "unrelated beta note")
+
+        # vec0 has no REPLACE conflict resolution: this used to raise and leave
+        # the old vector in place.
+        self._store(store, "s0", "new omega decision")
+        assert self._vector_count(store) == 2
+
+        hits = store.search(MemoryQuery(query="omega", limit=2))
+        assert hits and "omega" in hits[0].entry.content
+
+    def test_reindex_backfills_the_real_vector_table(self, store):
+        from sugar.memory import MemoryEntry, MemoryQuery, MemoryType
+        from sugar.memory.embedder import EMBEDDING_DIM, FallbackEmbedder
+
+        # Legacy rows: vectors unavailable when they were written.
+        legacy = store
+        legacy.embedder = FallbackEmbedder()
+        for index in range(2):
+            legacy.store(
+                MemoryEntry(
+                    id=f"legacy-{index}",
+                    memory_type=MemoryType.DECISION,
+                    content=f"legacy memory {index}",
+                )
+            )
+        assert self._vector_count(legacy) == 0
+
+        legacy.embedder = _StubEmbedder(EMBEDDING_DIM)
+        stats = legacy.reindex_embeddings()
+        assert stats["embedded"] == 2 and stats["pending"] == 2
+        assert self._vector_count(legacy) == 2
+
+        hits = legacy.search(MemoryQuery(query="legacy memory 1", limit=2))
+        assert hits and all(hit.match_type == "semantic" for hit in hits)

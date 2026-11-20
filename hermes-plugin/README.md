@@ -39,11 +39,22 @@ Python environment Hermes uses, and `sugar` must be on `PATH`:
 pip install "sugarai>=3.10.6,<3.11"
 ```
 
-Vector search is optional. Without it, search is SQLite FTS5 keyword search -
-functional, just not semantic:
+Vector search is **not** installed with the plugin, and that is deliberate: the
+`[memory]` extra resolves to ~69 packages including `torch`, which has no place
+in a host's locked environment by default. Without it, search is SQLite FTS5
+keyword search - functional, just not semantic.
+
+Hermes has no supported way for a provider to offer an *optional* extra yet
+([NousResearch/hermes-agent#152776](https://github.com/NousResearch/hermes-agent/issues/152776)),
+so there is currently no durable opt-in. Installing it by hand into the runtime
+venv works, but the runtime environment is reconciled from Hermes's lock, so a
+later `hermes pm` install/repair/update can drop it.
+
+If you do enable it, backfill your existing memories - vectors are only created
+when a memory is written, so older rows stay keyword-only until you run:
 
 ```bash
-pip install "sugarai[memory]>=3.10.6,<3.11"   # adds sentence-transformers + sqlite-vec
+sugar memory reindex
 ```
 
 ### Verify before you trust it
@@ -71,7 +82,7 @@ If any of those fail, see Troubleshooting below before assuming the plugin is br
 | `sugar: command not found` from the plugin | CLI not on the Python env Hermes spawns | Install `sugarai` into that env; check with `hermes memory status` |
 | Recall finds nothing from this repository | The session workspace has no `.sugar/` above it, so only the global store is searched | Run `sugar init` in the project, or set `project_dir` |
 | A `scope: "project"` write comes back as `global`, or scope labels look wrong | The session workspace is `$HOME` (or above it), so the nearest `.sugar/` **is** the global store - there is no separate project store for that session | Expected. Work from a repo with its own `.sugar/`, or run `sugar init` there. This provider reports the promotion instead of mislabelling the entry |
-| Obvious keyword matches are missed | Keyword-only search (no vector extra) | `pip install "sugarai[memory]>=3.10.6,<3.11"` |
+| Obvious keyword matches are missed | Keyword-only search (no vector extra) | Semantic search is not installed by default; see the vector-extra note above and NousResearch/hermes-agent#152776 |
 | Memories exist but recall is empty on the first turn | Recall is cached; the first turn searches, later turns return the cache | Normal - ask something relevant, or run `sugar recall "<text>"` directly |
 
 ## What it gives Hermes
