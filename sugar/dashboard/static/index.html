@@ -327,7 +327,49 @@
     .coverage-head { flex-wrap: wrap; }
     .coverage-actions { margin-left: 0; }
     .coverage-level-note { margin-left: 0; width: 100%; }
+    .evidence-filters input[type="search"], .evidence-filters select { flex: 1 1 100%; width: 100%; }
   }
+
+  /* Evidence panel (Phase 1c). Read-only verification/policy/approval events fed
+     by GET /api/evidence; shares the Coverage modal shell and never touches SSE. */
+  .evidence-trigger { display: inline-flex; align-items: center; gap: 8px; }
+  .evidence-badge {
+    min-width: 36px; padding: 0 7px; border-radius: 999px; text-align: center;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    font-size: 11px; line-height: 17px; font-variant-numeric: tabular-nums;
+  }
+  .evidence-badge.ok { color: var(--green); border-color: rgba(63, 185, 80, 0.45); }
+  .evidence-badge.has-failures { color: var(--red); border-color: rgba(248, 81, 73, 0.45); }
+  .evidence-panel { width: min(860px, 100%); }
+  .evidence-filters {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--panel-2);
+  }
+  .evidence-filters input[type="search"] { min-width: 190px; flex: 0 1 240px; }
+  .evidence-filters select { min-width: 150px; }
+  .evidence-chip {
+    display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 10px;
+    border: 1px solid var(--border); border-radius: 999px;
+    color: var(--muted); font-size: 11.5px;
+  }
+  .evidence-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .evidence-chip.passed b { color: var(--green); }
+  .evidence-chip.failed b { color: var(--red); }
+  .evidence-chip.blocked b { color: var(--orange); }
+  .evidence-row {
+    display: flex; flex-direction: column; gap: 4px; padding: 9px 12px;
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .evidence-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .evidence-kind, .evidence-status {
+    padding: 0 8px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 11px; line-height: 18px; white-space: nowrap; letter-spacing: 0.2px;
+  }
+  .evidence-status { text-transform: capitalize; }
+  .evidence-time { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .evidence-summary { color: var(--text); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .evidence-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 11.5px; min-width: 0; overflow: hidden; }
+  .evidence-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(3, 6, 10, 0.66); z-index: 40;
@@ -366,6 +408,12 @@
   <div class="brand"><span class="logo">🍰</span><h1>Sugar</h1><span class="sub">dashboard</span></div>
   <div class="counts" id="counts"></div>
   <div class="meta">
+    <button class="btn evidence-trigger" id="evidence-open" type="button"
+            aria-haspopup="dialog" aria-controls="evidence-modal"
+            title="Verification, policy and approval evidence">
+      <span>Evidence</span>
+      <span class="evidence-badge" id="evidence-badge">—</span>
+    </button>
     <button class="btn coverage-trigger" id="coverage-open" type="button"
             aria-haspopup="dialog" aria-controls="coverage-modal"
             title="Harness coverage (L0–L3)">
@@ -530,6 +578,56 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="evidence-modal" hidden>
+  <div class="coverage-panel evidence-panel" id="evidence-panel" role="dialog" aria-modal="true"
+       aria-labelledby="evidence-title" tabindex="-1">
+    <header class="coverage-head">
+      <div>
+        <h2 id="evidence-title">Evidence</h2>
+        <div class="coverage-sub" id="evidence-generated">Verification, policy &amp; approval events · loading…</div>
+      </div>
+      <div class="coverage-actions">
+        <button class="btn" id="evidence-refresh" type="button">Refresh</button>
+        <button class="btn" id="evidence-close" type="button" title="Close (Esc)">✕</button>
+      </div>
+    </header>
+    <div class="evidence-filters" id="evidence-filters">
+      <input type="search" id="evidence-task" placeholder="Filter by task id…"
+             autocomplete="off" aria-label="Filter evidence by task id">
+      <select id="evidence-kind" aria-label="Filter evidence by kind">
+        <option value="">All kinds</option>
+        <option value="verification.test_run">verification.test_run</option>
+        <option value="verification.check_result">verification.check_result</option>
+        <option value="verification.review">verification.review</option>
+        <option value="policy.decision">policy.decision</option>
+        <option value="approval.granted">approval.granted</option>
+        <option value="approval.denied">approval.denied</option>
+        <option value="artifact.created">artifact.created</option>
+        <option value="commit.linked">commit.linked</option>
+      </select>
+      <select id="evidence-status" aria-label="Filter evidence by status">
+        <option value="">All statuses</option>
+        <option value="passed">passed</option>
+        <option value="failed">failed</option>
+        <option value="blocked">blocked</option>
+        <option value="ok">ok</option>
+        <option value="error">error</option>
+      </select>
+    </div>
+    <div class="coverage-summary" id="evidence-summary" hidden></div>
+    <div class="coverage-body" id="evidence-body">
+      <div class="coverage-state" id="evidence-state">Loading evidence…</div>
+      <div id="evidence-list"></div>
+    </div>
+    <footer class="coverage-foot">
+      <span id="evidence-updated">—</span>
+      <span class="spacer"></span>
+      <span id="evidence-limit-note">limit 100</span>
+      <span>auto-refresh 15s</span>
+    </footer>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -583,7 +681,13 @@
     coverage: null,
     coverageError: null,
     coverageFetchedAt: 0,
-    coverageOpen: false
+    coverageOpen: false,
+    // Evidence panel (Phase 1c): filtered read, refreshed while open.
+    evidence: null,
+    evidenceError: null,
+    evidenceFetchedAt: 0,
+    evidenceOpen: false,
+    evidenceApplied: { task_id: "", kind: "", status: "" }
   };
 
   let eventSource = null;
@@ -596,6 +700,10 @@
   let coverageTimer = null;
   let coverageLastFocus = null;
   let coverageInFlight = false;
+  let evidenceTimer = null;
+  let evidenceLastFocus = null;
+  let evidenceInFlight = false;
+  let evidenceDebounce = null;
 
   // ------------------------------------------------------------------ utils
 
@@ -1839,6 +1947,328 @@
     coverageLastFocus = null;
   }
 
+  // ------------------------------------------------- evidence (Phase 1c)
+
+  const EVIDENCE_REFRESH_MS = 15000;
+  const EVIDENCE_LIMIT = 100;
+  const EVIDENCE_STATUS_STYLE = {
+    passed: "var(--green)", ok: "var(--green)", granted: "var(--green)",
+    success: "var(--green)", failed: "var(--red)", error: "var(--red)",
+    denied: "var(--red)", blocked: "var(--orange)", pending: "var(--yellow)",
+    warning: "var(--yellow)", skipped: "var(--muted)"
+  };
+  const EVIDENCE_KIND_STYLE = {
+    verification: "var(--teal)",
+    policy: "var(--purple)",
+    approval: "var(--yellow)",
+    artifact: "var(--accent)",
+    commit: "var(--orange)"
+  };
+
+  function evidenceStatusStyle(status) {
+    return EVIDENCE_STATUS_STYLE[String(status || "").toLowerCase()] || UNKNOWN_COLOR;
+  }
+
+  function evidenceKindColor(kind) {
+    return EVIDENCE_KIND_STYLE[String(kind || "").split(".")[0]] || UNKNOWN_COLOR;
+  }
+
+  function evidencePayload(event) {
+    const payload = event && event.payload;
+    return payload && typeof payload === "object" ? payload : {};
+  }
+
+  function evidenceInner(event) {
+    const outer = evidencePayload(event);
+    const inner = outer.payload;
+    return inner && typeof inner === "object" ? inner : {};
+  }
+
+  function evidenceStatus(event) {
+    const outer = evidencePayload(event);
+    const inner = evidenceInner(event);
+    return String(outer.status || inner.status || "").trim().toLowerCase();
+  }
+
+  function evidenceSummaryText(event) {
+    const inner = evidenceInner(event);
+    const fields = ["check", "command", "title", "message", "summary", "commit", "name", "path", "reason"];
+    for (let i = 0; i < fields.length; i += 1) {
+      const value = inner[fields[i]];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  }
+
+  function evidenceRaw(event) {
+    const inner = evidenceInner(event);
+    try {
+      return JSON.stringify(inner).slice(0, 400);
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function evidenceCounts(payload) {
+    const summary = payload && payload.summary;
+    const by = (summary && summary.by_status) || {};
+    const events = payload && Array.isArray(payload.events) ? payload.events : [];
+    const total = summary && summary.total !== undefined ? Number(summary.total) || 0 : events.length;
+    return {
+      total: total,
+      passed: Number(by.passed) || 0,
+      failed: Number(by.failed) || 0,
+      blocked: Number(by.blocked) || 0
+    };
+  }
+
+  function setEvidenceBadge(payload, unavailable) {
+    const badge = $("evidence-badge");
+    const trigger = $("evidence-open");
+    if (!badge || !trigger) return;
+    badge.classList.remove("ok", "has-failures");
+    if (unavailable || !payload) {
+      badge.textContent = "—";
+      badge.title = "Evidence unavailable on this server";
+      trigger.title = "Evidence unavailable on this server";
+      trigger.setAttribute("aria-label", "Evidence unavailable on this server");
+      return;
+    }
+    const counts = evidenceCounts(payload);
+    badge.textContent = String(counts.total);
+    if (counts.failed) badge.classList.add("has-failures");
+    else if (counts.total) badge.classList.add("ok");
+    badge.title = counts.total + (counts.total === 1 ? " evidence event" : " evidence events") +
+      (counts.failed ? ", " + counts.failed + " failed" : "");
+    trigger.title = "Verification, policy and approval evidence";
+    trigger.setAttribute("aria-label", "Evidence: " + counts.total + " events" +
+      (counts.failed ? ", " + counts.failed + " failed" : ""));
+  }
+
+  function evidenceRow(event) {
+    const row = el("div", "evidence-row");
+    const line = el("div", "evidence-line");
+    const kindText = (event && event.kind) || "event";
+    const kindColor = evidenceKindColor(kindText);
+    const kind = el("span", "evidence-kind", kindText);
+    kind.style.color = kindColor;
+    kind.style.borderColor = "color-mix(in srgb, " + kindColor + " 45%, transparent)";
+    line.appendChild(kind);
+
+    const status = evidenceStatus(event);
+    if (status) {
+      const statusColor = evidenceStatusStyle(status);
+      const badge = el("span", "evidence-status", status);
+      badge.style.color = statusColor;
+      badge.style.borderColor = "color-mix(in srgb, " + statusColor + " 45%, transparent)";
+      line.appendChild(badge);
+    }
+
+    const iso = (event && (event.ts || event.ingested_at || event.created_at)) || null;
+    const time = el("span", "evidence-time", timeAgo(iso));
+    time.title = fullTime(iso);
+    line.appendChild(time);
+    row.appendChild(line);
+
+    const summaryText = evidenceSummaryText(event);
+    if (summaryText) {
+      const summary = el("div", "evidence-summary", summaryText);
+      summary.title = summaryText;
+      row.appendChild(summary);
+    }
+
+    const meta = el("div", "evidence-meta");
+    if (event && event.harness) meta.appendChild(el("span", null, event.harness));
+    if (event && event.task_id) meta.appendChild(el("span", null, event.task_id));
+    if (event && event.actor && event.actor !== event.harness) {
+      meta.appendChild(el("span", null, event.actor));
+    }
+    if (meta.childNodes.length) row.appendChild(meta);
+
+    row.title = evidenceRaw(event);
+    return row;
+  }
+
+  function evidenceSummaryNodes(payload) {
+    const counts = evidenceCounts(payload);
+    const nodes = [];
+    const total = el("span", "evidence-chip total");
+    total.appendChild(el("b", null, counts.total));
+    total.appendChild(document.createTextNode(" total"));
+    nodes.push(total);
+    [["passed", counts.passed], ["failed", counts.failed], ["blocked", counts.blocked]]
+      .forEach(function (pair) {
+        if (!pair[1]) return;
+        const chip = el("span", "evidence-chip " + pair[0]);
+        chip.appendChild(el("b", null, pair[1]));
+        chip.appendChild(document.createTextNode(" " + pair[0]));
+        nodes.push(chip);
+      });
+    nodes.push(el("span", "coverage-level-note", "newest first"));
+    return nodes;
+  }
+
+  function currentEvidenceFilters() {
+    return {
+      task_id: $("evidence-task") ? $("evidence-task").value.trim() : "",
+      kind: $("evidence-kind") ? $("evidence-kind").value : "",
+      status: $("evidence-status") ? $("evidence-status").value : ""
+    };
+  }
+
+  function evidenceFiltersMatch() {
+    const current = currentEvidenceFilters();
+    const applied = state.evidenceApplied || {};
+    return current.task_id === applied.task_id &&
+      current.kind === applied.kind &&
+      current.status === applied.status;
+  }
+
+  function evidenceFiltersActive() {
+    const applied = state.evidenceApplied || {};
+    return !!(applied.task_id || applied.kind || applied.status);
+  }
+
+  function evidenceUrl(filters) {
+    const params = ["limit=" + EVIDENCE_LIMIT, "offset=0"];
+    if (filters.task_id) params.push("task_id=" + encodeURIComponent(filters.task_id));
+    if (filters.kind) params.push("kind=" + encodeURIComponent(filters.kind));
+    if (filters.status) params.push("status=" + encodeURIComponent(filters.status));
+    return "/api/evidence?" + params.join("&");
+  }
+
+  function renderEvidence() {
+    const list = $("evidence-list");
+    const stateBox = $("evidence-state");
+    const summary = $("evidence-summary");
+    const generated = $("evidence-generated");
+    const note = $("evidence-limit-note");
+    if (!list || !stateBox || !summary) return;
+    if (state.evidenceError) {
+      summary.hidden = true;
+      summary.replaceChildren();
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.evidenceError;
+      generated.textContent = "Verification, policy & approval events";
+      generated.title = "";
+      if (note) note.textContent = "limit " + EVIDENCE_LIMIT;
+      return;
+    }
+    const payload = state.evidence;
+    if (!payload) {
+      summary.hidden = true;
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading evidence…";
+      return;
+    }
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    summary.hidden = false;
+    summary.replaceChildren.apply(summary, evidenceSummaryNodes(payload));
+    generated.textContent = "Verification, policy & approval events · updated " +
+      (state.evidenceFetchedAt ? timeAgo(new Date(state.evidenceFetchedAt).toISOString()) : "—");
+    generated.title = state.evidenceFetchedAt
+      ? fullTime(new Date(state.evidenceFetchedAt).toISOString()) : "";
+    list.replaceChildren.apply(list, events.map(evidenceRow));
+    if (events.length) {
+      stateBox.hidden = true;
+      stateBox.textContent = "";
+    } else {
+      stateBox.hidden = false;
+      stateBox.textContent = evidenceFiltersActive()
+        ? "No evidence matches the current filters."
+        : "No evidence yet — record one with `sugar evidence record ...`";
+    }
+    if (note) {
+      const counts = evidenceCounts(payload);
+      note.textContent = counts.total > events.length
+        ? "showing " + events.length + " of " + counts.total + " · limit " + EVIDENCE_LIMIT
+        : events.length + (events.length === 1 ? " event" : " events") + " · limit " + EVIDENCE_LIMIT;
+      note.title = payload && payload.last_id !== undefined ? "last_id " + payload.last_id : "";
+    }
+  }
+
+  async function loadEvidence() {
+    if (evidenceInFlight) return;
+    evidenceInFlight = true;
+    const filters = currentEvidenceFilters();
+    state.evidenceApplied = Object.assign({}, filters);
+    const refresh = $("evidence-refresh");
+    const updated = $("evidence-updated");
+    if (refresh) refresh.disabled = true;
+    if (updated) updated.textContent = state.evidence ? "refreshing…" : "loading…";
+    try {
+      const payload = await api.get(evidenceUrl(filters));
+      state.evidence = payload;
+      state.evidenceError = null;
+      state.evidenceFetchedAt = Date.now();
+      setEvidenceBadge(payload, false);
+      renderEvidence();
+    } catch (error) {
+      // The read endpoint lands with Phase 1c; older servers simply 404.
+      if (error && (error.status === 404 || error.status === 405 || error.status === 503)) {
+        state.evidence = null;
+        state.evidenceError = "Evidence unavailable on this server";
+      } else {
+        state.evidence = null;
+        state.evidenceError = "Evidence failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      setEvidenceBadge(null, true);
+      renderEvidence();
+    } finally {
+      evidenceInFlight = false;
+      if (refresh) refresh.disabled = false;
+      if (updated) {
+        updated.textContent = state.evidenceFetchedAt
+          ? "updated " + timeAgo(new Date(state.evidenceFetchedAt).toISOString())
+          : "—";
+      }
+    }
+  }
+
+  function scheduleEvidenceLoad() {
+    if (evidenceDebounce) clearTimeout(evidenceDebounce);
+    evidenceDebounce = setTimeout(function () {
+      evidenceDebounce = null;
+      loadEvidence();
+    }, 250);
+  }
+
+  function openEvidence() {
+    evidenceLastFocus = document.activeElement;
+    if (!evidenceLastFocus || evidenceLastFocus === document.body) {
+      evidenceLastFocus = $("evidence-open");
+    }
+    state.evidenceOpen = true;
+    $("evidence-modal").hidden = false;
+    $("evidence-panel").focus();
+    loadEvidence();
+    if (evidenceTimer) clearInterval(evidenceTimer);
+    evidenceTimer = setInterval(function () {
+      // Auto-refresh only while open and only when the visible filters still
+      // match the ones last applied; filter edits load immediately themselves.
+      if (state.evidenceOpen && evidenceFiltersMatch()) loadEvidence();
+    }, EVIDENCE_REFRESH_MS);
+  }
+
+  function closeEvidence() {
+    state.evidenceOpen = false;
+    $("evidence-modal").hidden = true;
+    if (evidenceTimer) {
+      clearInterval(evidenceTimer);
+      evidenceTimer = null;
+    }
+    if (evidenceDebounce) {
+      clearTimeout(evidenceDebounce);
+      evidenceDebounce = null;
+    }
+    if (evidenceLastFocus && typeof evidenceLastFocus.focus === "function") {
+      evidenceLastFocus.focus();
+    }
+    evidenceLastFocus = null;
+  }
+
   // ------------------------------------------------------------------ form
 
   function populateFormTypeOptions() {
@@ -2052,8 +2482,18 @@
     $("coverage-modal").addEventListener("click", function (event) {
       if (event.target === $("coverage-modal")) closeCoverage();
     });
+    $("evidence-open").addEventListener("click", openEvidence);
+    $("evidence-close").addEventListener("click", closeEvidence);
+    $("evidence-refresh").addEventListener("click", function () { loadEvidence(); });
+    $("evidence-modal").addEventListener("click", function (event) {
+      if (event.target === $("evidence-modal")) closeEvidence();
+    });
+    $("evidence-task").addEventListener("input", scheduleEvidenceLoad);
+    $("evidence-kind").addEventListener("change", function () { loadEvidence(); });
+    $("evidence-status").addEventListener("change", function () { loadEvidence(); });
     document.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
+      if (!$("evidence-modal").hidden) { closeEvidence(); return; }
       if (!$("coverage-modal").hidden) { closeCoverage(); return; }
       if (!$("modal").hidden) { closeForm(); return; }
       if (!$("drawer").hidden) {
@@ -2071,6 +2511,7 @@
     connect();
     loadActivity();
     loadCoverage();
+    loadEvidence();
     // Safety net: if SSE is blocked entirely, still show the queue once.
     setTimeout(function () { if (!state.gotSnapshot) fallbackLoad(); }, 1500);
   }
