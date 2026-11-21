@@ -170,7 +170,7 @@ from sugar.integrations.claude_sdk import make_hooks
 options = ClaudeAgentOptions(hooks=make_hooks())
 ```
 
-Full matrix and caveats: [Telemetry Adapters](docs/telemetry-adapters.md).
+Full matrix and caveats: [Telemetry Adapters](docs/telemetry-adapters.md). Real-machine checks: `python scripts/verify_harnesses.py` — [Harness Verification](docs/harness-verification.md).
 
 <img src="docs/images/live-floor.png" alt="SugarDash Live floor: agents at work with real leases, current actions and countdowns" width="880">
 
@@ -321,6 +321,7 @@ claim work.
 - [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Evidence ledger](docs/evidence.md) · [Audit exports](docs/audit.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
+- [Harness verification](docs/harness-verification.md) — real CLI/config checks for the installed harnesses
 - [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)
 - [Agent Teams: market & validation](docs/agent-teams-market.md) · [Business strategy](docs/business-strategy.md)
 
