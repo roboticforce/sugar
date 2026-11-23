@@ -1547,3 +1547,490 @@ enum TrendsFormat {
         return formatter.string(from: date)
     }
 }
+
+// MARK: - Coverage (`GET /api/coverage`)
+
+/// Adapter fidelity level in the Phase-0 telemetry matrix (L0–L3).
+enum CoverageFidelity: String, CaseIterable, Sendable, Identifiable {
+    case l3 = "L3"
+    case l2 = "L2"
+    case l1 = "L1"
+    case l0 = "L0"
+
+    var id: String { rawValue }
+
+    /// Unknown/missing fidelities degrade to L0 (board/leases only), exactly
+    /// like the web Mission Control panel.
+    static func normalize(_ raw: String?) -> CoverageFidelity {
+        guard let raw else { return .l0 }
+        return CoverageFidelity(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) ?? .l0
+    }
+
+    /// Short explanation shown as a tooltip on the summary chips.
+    var help: String {
+        switch self {
+        case .l3: return "tool args/results"
+        case .l2: return "tool names/status"
+        case .l1: return "session/turn/run"
+        case .l0: return "board/leases only"
+        }
+    }
+}
+
+/// Counts per fidelity level. Derived from `summary` when present, otherwise
+/// from the harness rows (older/smaller payloads).
+struct CoverageCounts: Hashable, Sendable {
+    var l3: Int = 0
+    var l2: Int = 0
+    var l1: Int = 0
+    var l0: Int = 0
+
+    var total: Int { l3 + l2 + l1 + l0 }
+    /// Harnesses instrumented above L0 (what the web badge calls "covered").
+    var aboveL0: Int { l3 + l2 + l1 }
+
+    func count(_ level: CoverageFidelity) -> Int {
+        switch level {
+        case .l3: return l3
+        case .l2: return l2
+        case .l1: return l1
+        case .l0: return l0
+        }
+    }
+
+    mutating func add(_ level: CoverageFidelity) {
+        switch level {
+        case .l3: l3 += 1
+        case .l2: l2 += 1
+        case .l1: l1 += 1
+        case .l0: l0 += 1
+        }
+    }
+}
+
+/// `summary` maps fidelity level → harness ids. Decoded as a raw dictionary so
+/// unknown levels and missing keys are tolerated and key casing never bites.
+struct CoverageSummary: Decodable, Hashable, Sendable {
+    var levels: [String: [String]]
+
+    init(levels: [String: [String]] = [:]) {
+        self.levels = levels
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        levels = (try? container.decode([String: [String]].self)) ?? [:]
+    }
+
+    func harnesses(at level: CoverageFidelity) -> [String] {
+        levels[level.rawValue] ?? []
+    }
+}
+
+/// One harness row in the adapter coverage matrix.
+struct CoverageHarness: Decodable, Identifiable, Hashable, Sendable {
+    var harness: String
+    var displayName: String
+    var detected: Bool
+    var installed: Bool
+    var fidelity: String
+    var transport: String
+    var lastEventAt: Date?
+    var events24h: Int
+    var adapterVersion: String?
+    var notes: String?
+
+    var id: String { harness.isEmpty ? displayName : harness }
+
+    var fidelityLevel: CoverageFidelity { CoverageFidelity.normalize(fidelity) }
+
+    /// "detected · installed" / "detected · not installed" / etc.
+    var statusText: String {
+        switch (detected, installed) {
+        case (true, true): return "detected · installed"
+        case (true, false): return "detected · not installed"
+        case (false, true): return "not detected · installed"
+        case (false, false): return "not detected"
+        }
+    }
+
+    var title: String {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        let harnessTrimmed = harness.trimmingCharacters(in: .whitespacesAndNewlines)
+        return harnessTrimmed.isEmpty ? "Unknown harness" : harnessTrimmed
+    }
+
+    init(
+        harness: String,
+        displayName: String = "",
+        detected: Bool = false,
+        installed: Bool = false,
+        fidelity: String = "L0",
+        transport: String = "",
+        lastEventAt: Date? = nil,
+        events24h: Int = 0,
+        adapterVersion: String? = nil,
+        notes: String? = nil
+    ) {
+        self.harness = harness
+        self.displayName = displayName
+        self.detected = detected
+        self.installed = installed
+        self.fidelity = fidelity
+        self.transport = transport
+        self.lastEventAt = lastEventAt
+        self.events24h = events24h
+        self.adapterVersion = adapterVersion
+        self.notes = notes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case harness
+        case displayName
+        case detected
+        case installed
+        case fidelity
+        case transport
+        case lastEventAt
+        // `convertFromSnakeCase` maps "events_24h" -> "events24H" (the digit
+        // stops the usual capitalisation), so map it explicitly.
+        case events24h = "events24H"
+        case adapterVersion
+        case notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        harness = try container.decodeIfPresent(String.self, forKey: .harness) ?? ""
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+        detected = try container.decodeIfPresent(Bool.self, forKey: .detected) ?? false
+        installed = try container.decodeIfPresent(Bool.self, forKey: .installed) ?? false
+        fidelity = try container.decodeIfPresent(String.self, forKey: .fidelity) ?? "L0"
+        transport = try container.decodeIfPresent(String.self, forKey: .transport) ?? ""
+        lastEventAt = try container.decodeIfPresent(Date.self, forKey: .lastEventAt)
+        events24h = try container.decodeIfPresent(Int.self, forKey: .events24h) ?? 0
+        adapterVersion = try container.decodeIfPresent(String.self, forKey: .adapterVersion)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+    }
+}
+
+/// `GET /api/coverage` response: generated timestamp, fidelity summary and the
+/// per-harness adapter matrix. Tolerant of missing/extra fields.
+struct CoverageReport: Decodable, Sendable {
+    var generatedAt: Date?
+    var summary: CoverageSummary
+    var harnesses: [CoverageHarness]
+
+    init(
+        generatedAt: Date? = nil,
+        summary: CoverageSummary = CoverageSummary(),
+        harnesses: [CoverageHarness] = []
+    ) {
+        self.generatedAt = generatedAt
+        self.summary = summary
+        self.harnesses = harnesses
+    }
+
+    /// Summary arrays are authoritative when present; otherwise derive counts
+    /// from each harness row's fidelity.
+    var counts: CoverageCounts {
+        let summaryHasData = CoverageFidelity.allCases.contains {
+            !summary.harnesses(at: $0).isEmpty
+        }
+        if summaryHasData {
+            return CoverageCounts(
+                l3: summary.harnesses(at: .l3).count,
+                l2: summary.harnesses(at: .l2).count,
+                l1: summary.harnesses(at: .l1).count,
+                l0: summary.harnesses(at: .l0).count
+            )
+        }
+
+        var counts = CoverageCounts()
+        for item in harnesses {
+            counts.add(item.fidelityLevel)
+        }
+        return counts
+    }
+
+    var isEmpty: Bool {
+        harnesses.isEmpty && counts.total == 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case generatedAt
+        case summary
+        case harnesses
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decodeIfPresent(Date.self, forKey: .generatedAt)
+        summary = try container.decodeIfPresent(CoverageSummary.self, forKey: .summary) ?? CoverageSummary()
+        harnesses = try container.decodeIfPresent([CoverageHarness].self, forKey: .harnesses) ?? []
+    }
+}
+
+// MARK: - Evidence (`GET /api/evidence`)
+
+/// Summary counters from `GET /api/evidence`.
+struct EvidenceSummary: Decodable, Hashable, Sendable {
+    var total: Int
+    var byStatus: [String: Int]
+    var byKind: [String: Int]
+
+    init(
+        total: Int = 0,
+        byStatus: [String: Int] = [:],
+        byKind: [String: Int] = [:]
+    ) {
+        self.total = total
+        self.byStatus = byStatus
+        self.byKind = byKind
+    }
+
+    func statusCount(_ status: String) -> Int {
+        byStatus[status.lowercased()] ?? 0
+    }
+
+    func kindCount(_ kind: String) -> Int {
+        byKind[kind] ?? 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case total
+        case byStatus
+        case byKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        total = try container.decodeIfPresent(Int.self, forKey: .total) ?? 0
+        byStatus = try container.decodeIfPresent([String: Int].self, forKey: .byStatus) ?? [:]
+        byKind = try container.decodeIfPresent([String: Int].self, forKey: .byKind) ?? [:]
+    }
+}
+
+/// One canonical evidence event from the spine. Only `id`, `ts` and `kind` are
+/// guaranteed; the nested `payload.payload` object carries check/command/commit
+/// /title/status and is decoded loosely as `JSONValue`.
+struct EvidenceEvent: Decodable, Identifiable, Hashable, Sendable {
+    var id: Int
+    var ts: Date
+    var kind: String
+    var actor: String?
+    var actorKind: String?
+    var harness: String?
+    var taskId: String?
+    var payload: JSONValue
+    var ingestedAt: Date?
+
+    /// `payload.payload` — the canonical evidence detail object.
+    var innerPayload: [String: JSONValue]? {
+        payload.objectValue?["payload"]?.objectValue
+    }
+
+    /// `payload.payload.status` then `payload.status`, trimmed + lowercased.
+    var status: String? {
+        let inner = innerPayload?["status"]?.stringValue
+        let outer = payload.objectValue?["status"]?.stringValue
+        for raw in [outer, inner] {
+            guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        return nil
+    }
+
+    /// One-line human summary mirroring the web panel's extraction order.
+    var summaryText: String {
+        let inner = innerPayload
+        let fields = ["check", "command", "title", "message", "summary", "commit", "name", "path", "reason"]
+        for field in fields {
+            if let value = inner?[field]?.stringValue {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        let outer = payload.objectValue
+        if let tool = outer?["tool_name"]?.stringValue {
+            let trimmed = tool.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        if let status { return status }
+        return kind
+    }
+
+    var actorLabel: String {
+        guard let actor, !actor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "unknown"
+        }
+        return actor
+    }
+
+    var kindGroup: String {
+        kind.split(separator: ".").first.map(String.init) ?? kind
+    }
+
+    var timestamp: Date { ts }
+
+    init(
+        id: Int,
+        ts: Date,
+        kind: String,
+        actor: String? = nil,
+        actorKind: String? = nil,
+        harness: String? = nil,
+        taskId: String? = nil,
+        payload: JSONValue = .null,
+        ingestedAt: Date? = nil
+    ) {
+        self.id = id
+        self.ts = ts
+        self.kind = kind
+        self.actor = actor
+        self.actorKind = actorKind
+        self.harness = harness
+        self.taskId = taskId
+        self.payload = payload
+        self.ingestedAt = ingestedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case ts
+        case kind
+        case actor
+        case actorKind
+        case harness
+        case taskId
+        case payload
+        case ingestedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        ts = try container.decode(Date.self, forKey: .ts)
+        kind = try container.decode(String.self, forKey: .kind)
+        actor = try container.decodeIfPresent(String.self, forKey: .actor)
+        actorKind = try container.decodeIfPresent(String.self, forKey: .actorKind)
+        harness = try container.decodeIfPresent(String.self, forKey: .harness)
+        taskId = try container.decodeIfPresent(String.self, forKey: .taskId)
+        payload = try container.decodeIfPresent(JSONValue.self, forKey: .payload) ?? .null
+        ingestedAt = try container.decodeIfPresent(Date.self, forKey: .ingestedAt)
+    }
+}
+
+/// `GET /api/evidence` response: oldest-first page + summary counters.
+struct EvidenceReport: Decodable, Sendable {
+    var events: [EvidenceEvent]
+    var lastId: Int
+    var summary: EvidenceSummary
+
+    init(
+        events: [EvidenceEvent] = [],
+        lastId: Int = 0,
+        summary: EvidenceSummary = EvidenceSummary()
+    ) {
+        self.events = events
+        self.lastId = lastId
+        self.summary = summary
+    }
+
+    var isEmpty: Bool { events.isEmpty }
+
+    private enum CodingKeys: String, CodingKey {
+        case events
+        case lastId
+        case summary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        events = try container.decodeIfPresent([EvidenceEvent].self, forKey: .events) ?? []
+        lastId = try container.decodeIfPresent(Int.self, forKey: .lastId) ?? 0
+        summary = try container.decodeIfPresent(EvidenceSummary.self, forKey: .summary) ?? EvidenceSummary()
+    }
+}
+
+/// Kind filter chips for the Evidence view. Raw values match the frozen API.
+enum EvidenceKindFilter: String, CaseIterable, Identifiable, Sendable {
+    case all = ""
+    case testRun = "verification.test_run"
+    case checkResult = "verification.check_result"
+    case review = "verification.review"
+    case policyDecision = "policy.decision"
+    case approvalGranted = "approval.granted"
+    case approvalDenied = "approval.denied"
+    case artifactCreated = "artifact.created"
+    case commitLinked = "commit.linked"
+
+    var id: String { rawValue.isEmpty ? "all" : rawValue }
+    var title: String { self == .all ? "All kinds" : rawValue }
+    var queryValue: String? { rawValue.isEmpty ? nil : rawValue }
+}
+
+/// Status filter for the Evidence view (same vocabulary as the web panel).
+enum EvidenceStatusFilter: String, CaseIterable, Identifiable, Sendable {
+    case all = ""
+    case passed
+    case failed
+    case blocked
+    case ok
+    case error
+
+    var id: String { rawValue.isEmpty ? "all" : rawValue }
+    var title: String { self == .all ? "All statuses" : rawValue }
+    var queryValue: String? { rawValue.isEmpty ? nil : rawValue }
+}
+
+/// Typed `GET /api/evidence` query. Builds a percent-encoded URL via
+/// `URLComponents`, which is also what the tests pin.
+struct EvidenceQuery: Hashable, Sendable {
+    var taskID: String?
+    var kind: String?
+    var status: String?
+    var limit: Int
+    var offset: Int
+
+    init(
+        taskID: String? = nil,
+        kind: String? = nil,
+        status: String? = nil,
+        limit: Int = 100,
+        offset: Int = 0
+    ) {
+        self.taskID = Self.normalized(taskID)
+        self.kind = Self.normalized(kind)
+        self.status = Self.normalized(status)
+        self.limit = min(max(limit, 1), 500)
+        self.offset = max(offset, 0)
+    }
+
+    var queryItems: [URLQueryItem] {
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset)),
+        ]
+        if let taskID { items.append(URLQueryItem(name: "task_id", value: taskID)) }
+        if let kind { items.append(URLQueryItem(name: "kind", value: kind)) }
+        if let status { items.append(URLQueryItem(name: "status", value: status)) }
+        return items
+    }
+
+    func url(relativeTo baseURL: URL) -> URL {
+        let base = baseURL.appendingPathComponent("api/evidence")
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.queryItems = queryItems
+        return components?.url ?? base
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
