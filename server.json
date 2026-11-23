@@ -2,23 +2,29 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cdnsteve/sugar",
   "title": "Sugar",
-  "description": "Coordination and evidence layer for AI agent fleets: durable task board with atomic claims, live Mission Control, cost attribution, audit exports and shared memory for Claude Code, Codex and any MCP harness",
+  "description": "Control plane for AI agent fleets: durable task board, live telemetry and coverage across Claude Code/Codex/Cursor/Goose/DSH, cost attribution, verification evidence and tamper-evident audit exports",
   "repository": {
     "url": "https://github.com/roboticforce/sugar",
     "source": "github"
   },
-  "version": "3.10.2",
+  "version": "3.11.1",
   "websiteUrl": "https://github.com/roboticforce/sugar",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "sugarai",
-      "version": "3.10.2",
+      "version": "3.11.1",
       "name": "sugar-memory",
       "description": "Sugar Memory MCP Server - semantic memory for AI coding sessions",
       "packageArguments": [
-        {"type": "positional", "value": "mcp"},
-        {"type": "positional", "value": "memory"}
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "positional",
+          "value": "memory"
+        }
       ],
       "transport": {
         "type": "stdio"
@@ -28,12 +34,18 @@
     {
       "registryType": "pypi",
       "identifier": "sugarai",
-      "version": "3.10.2",
+      "version": "3.11.1",
       "name": "sugar-tasks",
       "description": "Sugar Task Queue MCP Server - autonomous task management",
       "packageArguments": [
-        {"type": "positional", "value": "mcp"},
-        {"type": "positional", "value": "serve"}
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "positional",
+          "value": "serve"
+        }
       ],
       "transport": {
         "type": "stdio"
