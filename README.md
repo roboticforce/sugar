@@ -64,6 +64,9 @@ between them and your repo.
 
 - **Append-only event spine** (`~/.sugar/events.db`, retention configurable) records every task transition and
   every harness event: actor, harness, machine, session, task, project, run and trace id.
+- **Verification ledger** (`sugar evidence`, `/api/evidence`): record test runs, checks, reviews, approvals,
+  policy decisions, artifacts and commit links against a task; list and summarize them from the CLI, the
+  browser **Evidence** panel or the API. Export the same records with the audit tools.
 - **Usage and cost attribution** (`sugar usage`, `/api/usage`): tokens and cost as your harness reports them —
   no invented pricing table.
 - **Tamper-evident audit exports** (`sugar audit export` / `sugar audit verify`): canonical JSONL plus a
@@ -100,7 +103,7 @@ sugar init
 sugar add "Fix the auth timeout" --type bug_fix --urgent
 sugar add "Add profile settings" --type feature
 
-# Watch it, instrument your harnesses, or let Sugar run it
+# Watch it (browser UI on macOS/Linux/Windows), instrument harnesses, or run
 sugar dashboard --open
 sugar connect --yes        # Claude Code / Cursor / Codex / Goose adapters
 sugar run
@@ -167,7 +170,7 @@ from sugar.integrations.claude_sdk import make_hooks
 options = ClaudeAgentOptions(hooks=make_hooks())
 ```
 
-Full matrix and caveats: [Telemetry Adapters](docs/telemetry-adapters.md).
+Full matrix and caveats: [Telemetry Adapters](docs/telemetry-adapters.md). Real-machine checks: `python scripts/verify_harnesses.py` — [Harness Verification](docs/harness-verification.md).
 
 <img src="docs/images/live-floor.png" alt="SugarDash Live floor: agents at work with real leases, current actions and countdowns" width="880">
 
@@ -178,6 +181,10 @@ git clone https://github.com/roboticforce/sugar.git && cd sugar
 python scripts/demo_dashboard.py --serve --open      # demo queue + dashboard
 python scripts/simulate_agent_activity.py            # live agents in a second shell
 ```
+
+The Coverage panel makes the adapter matrix explicit — what Sugar can see per harness, and what it can't:
+
+<img src="docs/images/coverage-panel.png" alt="Coverage panel: Claude Code, DeepSeek Harness and Goose installed at L3 with transports and 24h event counts" width="880">
 
 Trends need history; seed a throwaway spine and open the Trends view:
 
@@ -310,10 +317,12 @@ claim work.
 ## Documentation
 
 - [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
+- [Web Mission Control](docs/web-mission-control.md) — browser UI on macOS/Linux/Windows, screenshots, live Activity clip
 - [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
-- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Audit exports](docs/audit.md)
+- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Evidence ledger](docs/evidence.md) · [Audit exports](docs/audit.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
+- [Harness verification](docs/harness-verification.md) — real CLI/config checks for the installed harnesses
 - [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)
 - [Agent Teams: market & validation](docs/agent-teams-market.md) · [Business strategy](docs/business-strategy.md)
 

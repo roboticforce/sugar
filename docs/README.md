@@ -35,6 +35,7 @@ Documentation for watching and steering agents, and for running several harnesse
 against one board:
 
 - **[Mission Control](mission-control.md)** - Dashboard, native macOS app, provenance and the event spine: the whole control plane in one place
+- **[Web Mission Control](web-mission-control.md)** - The browser dashboard on any OS: Tasks, live Activity over SSE, Coverage, Evidence, near-real-time latency and team access, with screenshots and a live clip
 - **[Local Dashboard API](local-dashboard.md)** - Frozen REST/SSE contract, board sources (`--board sugar|kanban`), provenance fields, event-spine schema
 - **[Sugar as a Team Bus](agent-teams.md)** - Code-grounded analysis: what Sugar already does for multi-agent coordination, the gaps, and the phased plan
 - **[Agent Teams: Market & Validation](agent-teams-market.md)** - Landscape (Claude Agent Teams, Vibe Kanban, A2A), Sugar's honest gaps, positioning, and the experiments that tell us whether teams actually want this
@@ -45,7 +46,9 @@ against one board:
 - **[Usage & Cost](usage.md)** - Harness-reported usage/cost events, `/api/usage`, `sugar usage`, and the Activity panel: "where is the money going?"
 - **[Telemetry](telemetry.md)** - Live agent activity events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`), `sugar emit`, and the MCP `sugar_emit_event` tool
 - **[Telemetry Adapters](telemetry-adapters.md)** - Phase 1b plug-and-play capture: canonical `sugar.telemetry.v1` envelope, L0-L3 fidelity, `sugar connect`/`sugar hook`/`sugar doctor`, Claude Code/Cursor/Codex/Goose/DSH adapters, OTLP protobuf+JSON receiver (`/v1/traces`, `/v1/logs`), ADK/OpenAI/Claude SDK helpers, coverage API/UI, redaction
+- **[Harness Verification](harness-verification.md)** - Real-machine integration checks for Claude Code, Codex, Goose, Cursor, OpenCode, Hermes Kanban and DSH: `scripts/verify_harnesses.py`, what PASS/SKIP mean, and the current verified matrix
 - **[Trends](trends.md)** - Time-bucketed work analytics (`/api/trends`, `sugar trends`): throughput, failures, cycle time and spend by agent, harness or project
+- **[Evidence Ledger](evidence.md)** - First-class verification records: `POST/GET /api/evidence`, `sugar evidence record|list|summary`, the browser Evidence panel, verification/policy/approval/artifact kinds and how they export with audit
 - **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
 - **[Business Strategy](business-strategy.md)** - Positioning, ICP, open-core monetization (tiers, pricing hypotheses, dual licensing), growth engine, revenue-tied roadmap and 30/60/90 plan
 

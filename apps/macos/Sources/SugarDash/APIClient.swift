@@ -321,6 +321,24 @@ struct APIClient {
         return try decode(TrendsResponse.self, from: data)
     }
 
+    /// `GET /api/coverage` — adapter coverage matrix. Servers that predate the
+    /// endpoint return 404; the app renders a clear "unavailable" state.
+    func coverage() async throws -> CoverageReport {
+        let data = try await send("api/coverage")
+        return try decode(CoverageReport.self, from: data)
+    }
+
+    /// `GET /api/evidence` — verification/policy/approval evidence page.
+    /// Query construction lives in `EvidenceQuery` (percent-encoded by
+    /// `URLComponents`); 404/405/503 are surfaced to the caller so it can show
+    /// the "unavailable on this server" fallback.
+    func evidence(_ query: EvidenceQuery) async throws -> EvidenceReport {
+        var request = makeRequest(path: "api/evidence", method: "GET")
+        request.url = query.url(relativeTo: baseURL)
+        let data = try await perform(request)
+        return try decode(EvidenceReport.self, from: data)
+    }
+
     // MARK: Writes
 
     func createTask(_ body: TaskCreate) async throws -> Task {

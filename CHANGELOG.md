@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.1] - 2026-11-23
+
+### Added
+- **Verification/evidence ledger**: `GET /api/evidence` with filters and summaries, `sugar evidence record|list|summary`, browser Evidence panel, and the site/docs evidence section.
+- **DeepSeek Harness L3 adapter**: `sugar tail dsh` tails real session logs with resumable checkpoints; `sugar connect --harness dsh` installs a macOS LaunchAgent; `sugar doctor` verifies the path.
+- **OTLP protobuf + gzip**: `/v1/traces` and `/v1/logs` accept the OTel default wire format and gzipped bodies, using the optional `sugarai[telemetry]` extra.
+- **Harness verification**: `scripts/verify_harnesses.py` and docs covering real Claude Code/Codex/Goose/OpenCode/Hermes/DSH checks, with auth failures reported as SKIP.
+
+### Changed
+- **SugarDash parity**: Coverage and Evidence sections on macOS, with 76 Swift tests.
+- **Cross-platform docs**: web Mission Control guide, screenshots and live clips for macOS/Linux/Windows.
+- **Site**: telemetry tour, coverage/evidence visuals, web UI documentation.
+
 ## [3.11.0] - 2026-11-20
 
 ### Added
+- **Verification/evidence ledger (Phase 1c)**: `GET /api/evidence` returns evidence events with filters (`task_id`, `kind`, `status`, `since`, `until`, `limit`, `offset`) plus a summary covering the whole filtered set. New `sugar evidence record|list|summary` CLI records test runs, checks, reviews, approvals, policy decisions, artifacts and commit links against tasks, with human tables or raw JSON, `$SUGAR_BOARD_URL`/`$SUGAR_BOARD_TOKEN`, and clear exit codes. Mission Control gains an **Evidence** panel (count badge, passed/failed/blocked summary, task/kind/status filters, 15s refresh, unavailable fallback) built on the same endpoint. Evidence events remain ordinary spine events, so they export with the existing audit tools.
 - **DeepSeek Harness session-tail adapter (Phase 1b)**: DSH has no hook API, so Sugar tails its compressed JSONL session logs (`~/.dsh/sessions/…/session.v4.jsonl.zstd`) and maps sessions, turns, tool calls/results (with call/result pairing and error detection) and approval policies to canonical L3 events. `sugar tail dsh` supports `--once`/`--watch`, a resumable per-session checkpoint, `--since`, fail-open delivery and at-most-once semantics; `sugar connect --harness dsh` installs a macOS LaunchAgent (manual command elsewhere) and `sugar doctor` verifies the session-tail path.
 - **OTLP protobuf + gzip (Phase 1b)**: `/v1/traces` and `/v1/logs` now accept OTLP **protobuf** (`application/x-protobuf`, `application/protobuf`, `application/octet-stream`) as well as JSON, with optional `Content-Encoding: gzip`. Protobuf uses the optional `sugarai[telemetry]` extra (`opentelemetry-proto`, `protobuf`); without it JSON still works and protobuf returns a clear 415 hint. Raw and decompressed bodies are capped at 1 MB (zip-bomb resistant), token auth/redaction/dedupe/spine/SSE are unchanged.
 - **Goose telemetry adapter (Phase 1a)**: `sugar connect --harness goose` installs a hook plugin at `~/.agents/plugins/sugar-telemetry/` (`plugin.json` + `hooks/hooks.json`) that calls the fail-open `sugar hook --harness goose` shim. Tool calls, sessions, prompts, file reads/writes and shell execution map to the canonical envelope at **L3**; existing Goose plugins/hooks are preserved, re-running is a no-op, and `.bak` backups are written. Coverage shows Goose installed at L3.
@@ -29,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI installs `sqlite-vec` (0.2 MB, no ML dependency) and the suite gains four tests over the real `vec0` path — the semantic bugs above were invisible because CI had no vec extension at all. `sentence-transformers`/`torch` stay out of CI.
 
 ### Changed
+- **Cross-platform web UI documented.** New `docs/web-mission-control.md` covers the browser dashboard on macOS/Linux/Windows: Tasks, live Activity over SSE, Coverage, Evidence, remote/team access, screenshots and a 13-second live clip. Measured local ingest-to-visible latency is ~2.8 ms median / ~5 ms p95 for hook events; native SugarDash remains the place for the Live floor, console and Trends charts.
 - **Tagline: “Mission control for your agent fleet.”** README hero, docs intro/footer and the GitHub repo description now lead with the tagline; the site (`roboticforce.io/sugar`) was repositioned around it, including the demo video title card.
 
 ### Fixed

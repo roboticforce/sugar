@@ -616,6 +616,10 @@ reaper); plus free-form ingest kinds
 - `POST /api/evidence` — canonical evidence event (`verification.*`,
   `policy.decision`, `approval.*`, `artifact.created`, `commit.linked`) →
   `201 {"event": Event}`; invalid kind/payload → 400, no spine → 503.
+- `GET /api/evidence?since=&until=&task_id=&kind=&status=&limit=100&offset=0`
+  — evidence events oldest→newest plus `{last_id, summary:{total,by_status,by_kind}}`;
+  summary covers the whole filtered set, independent of pagination. Invalid
+  filters → 400; no spine → 503. See `docs/evidence.md`.
 - `GET /api/coverage` — adapter coverage (`detected`/`installed`, per-harness
   L0-L3 fidelity, transport, last event, 24h count) from
   `~/.sugar/adapters.json` plus the spine. See `docs/telemetry-adapters.md`.
