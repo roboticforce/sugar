@@ -103,7 +103,7 @@ sugar init
 sugar add "Fix the auth timeout" --type bug_fix --urgent
 sugar add "Add profile settings" --type feature
 
-# Watch it, instrument your harnesses, or let Sugar run it
+# Watch it (browser UI on macOS/Linux/Windows), instrument harnesses, or run
 sugar dashboard --open
 sugar connect --yes        # Claude Code / Cursor / Codex / Goose adapters
 sugar run
@@ -317,6 +317,7 @@ claim work.
 ## Documentation
 
 - [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
+- [Web Mission Control](docs/web-mission-control.md) — browser UI on macOS/Linux/Windows, screenshots, live Activity clip
 - [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
 - [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Evidence ledger](docs/evidence.md) · [Audit exports](docs/audit.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
