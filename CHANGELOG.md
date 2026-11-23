@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI installs `sqlite-vec` (0.2 MB, no ML dependency) and the suite gains four tests over the real `vec0` path — the semantic bugs above were invisible because CI had no vec extension at all. `sentence-transformers`/`torch` stay out of CI.
 
 ### Changed
+- **Cross-platform web UI documented.** New `docs/web-mission-control.md` covers the browser dashboard on macOS/Linux/Windows: Tasks, live Activity over SSE, Coverage, Evidence, remote/team access, screenshots and a 13-second live clip. Measured local ingest-to-visible latency is ~2.8 ms median / ~5 ms p95 for hook events; native SugarDash remains the place for the Live floor, console and Trends charts.
 - **Tagline: “Mission control for your agent fleet.”** README hero, docs intro/footer and the GitHub repo description now lead with the tagline; the site (`roboticforce.io/sugar`) was repositioned around it, including the demo video title card.
 
 ### Fixed

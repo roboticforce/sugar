@@ -396,6 +396,8 @@ python scripts/demo_dashboard.py --serve --open
 
 ## Related
 
+- [web-mission-control.md](web-mission-control.md) — browser UI on any OS,
+  screenshots, near-real-time Activity and cross-platform guidance.
 - [local-dashboard.md](local-dashboard.md) — frozen REST/SSE contract, board
   sources, provenance fields, event-spine schema.
 - [telemetry-adapters.md](telemetry-adapters.md) — `sugar connect`, hook/OTLP/SDK
