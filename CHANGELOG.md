@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.1] - 2026-11-23
+
+### Added
+- **Verification/evidence ledger**: `GET /api/evidence` with filters and summaries, `sugar evidence record|list|summary`, browser Evidence panel, and the site/docs evidence section.
+- **DeepSeek Harness L3 adapter**: `sugar tail dsh` tails real session logs with resumable checkpoints; `sugar connect --harness dsh` installs a macOS LaunchAgent; `sugar doctor` verifies the path.
+- **OTLP protobuf + gzip**: `/v1/traces` and `/v1/logs` accept the OTel default wire format and gzipped bodies, using the optional `sugarai[telemetry]` extra.
+- **Harness verification**: `scripts/verify_harnesses.py` and docs covering real Claude Code/Codex/Goose/OpenCode/Hermes/DSH checks, with auth failures reported as SKIP.
+
+### Changed
+- **SugarDash parity**: Coverage and Evidence sections on macOS, with 76 Swift tests.
+- **Cross-platform docs**: web Mission Control guide, screenshots and live clips for macOS/Linux/Windows.
+- **Site**: telemetry tour, coverage/evidence visuals, web UI documentation.
+
 ## [3.11.0] - 2026-11-20
 
 ### Added
