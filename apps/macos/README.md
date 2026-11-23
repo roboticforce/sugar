@@ -135,14 +135,18 @@ The app opens one window:
 
 - **Sidebar** — status filters (All / Pending / Active / Hold / Completed /
   Failed) with live counters, **Live** (agents at work), **Activity** (event
-  feed), **Trends** (Charts analytics), the server URL field (persisted in
-  `UserDefaults`), connection state, and the server's DB path/version. The last
-  selected view (Tasks / Live / Activity / Trends) is persisted with
-  `@AppStorage`, so relaunching the app returns to it (default: Tasks).
+  feed), **Trends** (Charts analytics), **Coverage** (adapter fidelity matrix)
+  and **Evidence** (verification/policy/approval feed), the server URL field
+  (persisted in `UserDefaults`), connection state, and the server's DB
+  path/version. The last selected view (Tasks / Live / Activity / Trends /
+  Coverage / Evidence) is persisted with `@AppStorage`, so relaunching the app
+  returns to it (default: Tasks). Unknown persisted values migrate safely to
+  Tasks.
 - **Task inspector** — the detail pane (`TaskDetailView`) is a native inspector
   that appears **only when a task is selected**; clearing the selection hides it and
-  gives the width back to the task list / Live floor / Activity / Trends. A toolbar
-  Inspector button (`sidebar.right`) toggles it while a task is selected. The task
+  gives the width back to the task list / Live floor / Activity / Trends /
+  Coverage / Evidence. A toolbar Inspector button (`sidebar.right`) toggles it
+  while a task is selected (Tasks view only). The task
   detail includes a **Live activity** strip (last 5 events for the task).
 - **Live floor** — "Agents at work": one card per active task grouped by agent,
   with a pulsing lease-health dot (green > 60 s, amber < 60 s, red
@@ -165,6 +169,18 @@ The app opens one window:
   labels and a hover tooltip, plus a per-group totals bar chart. Refreshes on
   range/dimension change and every ~30 s only while the pane is visible; shows
   clear empty, error and "older server (404)" states.
+- **Coverage** — the Mission Control adapter coverage matrix (`GET
+  /api/coverage`): fidelity summary chips (L3/L2/L1/L0 + harness count), then one
+  row per harness with display name, detected/installed status, fidelity badge
+  (L3 green, L2 teal, L1 yellow, L0 red), transport, events/24h, relative last
+  event, adapter version and notes. Refreshes on open and every 15 s while
+  visible; empty, error and "unavailable on this server" states.
+- **Evidence** — verification/policy/approval evidence (`GET /api/evidence`):
+  summary chips (total/passed/failed/blocked), task-id search (debounced),
+  kind + status filters, and an oldest-first page of rows with kind/status
+  badges, relative time, one-line summary (check → command → title → message →
+  commit → …), harness/task/actor metadata. Refreshes every 15 s only while
+  visible; empty, filtered-empty, error and "unavailable on this server" states.
 - **Task list** — priority, status, type, title, assigned agent, attempts and
   relative update time; searchable and filterable.
 - **Detail** — a compact **Live activity** strip (last 5 events for the task,
@@ -187,6 +203,12 @@ Features:
   (404) show an "isn't available on this server" state instead of an error.
   Trends are only fetched while the Trends view is visible (30 s cadence), and
   stale requests are cancelled/discarded when the range or dimension changes.
+- Coverage and Evidence are optional Mission Control endpoints. 404/405/503
+  renders a clear "unavailable on this server" fallback instead of an error;
+  both auto-refresh every 15 s only while their pane is visible (Evidence
+  restarts immediately when its filters change). The app still has no bearer
+  token field, so these calls follow the same loopback/unauthenticated behaviour
+  as the rest of the client.
 - Full CRUD: create, edit (including status transitions), hold/release, delete
   with a confirmation dialog.
 - Type picker populated from `GET /api/task-types`; priority 1 (Urgent) – 5
@@ -207,7 +229,11 @@ with stats, and an ISO-8601 `Z` timestamp. `LiveTests.swift` covers the
 thresholds, actor grouping/order, the task-lease fallback, the live
 formatting helpers, latest-action selection (task match / actor fallback /
 120 s freshness), payload message extraction priority, console filtering /
-ordering / rate math and the task-detail event selection; `TrendsTests.swift`
+ordering / rate math and the task-detail event selection; `CoverageEvidenceTests.swift`
+covers coverage/evidence decoding (full, tolerant, unknown fidelity), summary
+text priority, typed evidence query URL construction/percent-encoding, filter
+enums, section-persistence migration and the 404/405/503 fallback mapping;
+`TrendsTests.swift`
 covers the `/api/trends` payload (full, tolerant, zero-filled alignment, empty),
 range→since/until/bucket math with an injected clock, dimension/metric mapping,
 failure-rate and weighted cycle-time aggregation, formatting, palette stability
@@ -242,6 +268,8 @@ apps/macos/
 │   ├── LiveFloorPane.swift           # "Agents at work" floor + current action + ticker
 │   ├── LiveConsolePane.swift         # streaming console, filters, auto-scroll
 │   ├── TrendsPane.swift              # Swift Charts trends (range/dimension/metric)
+│   ├── CoveragePane.swift            # Mission Control coverage matrix
+│   ├── EvidencePane.swift            # Mission Control evidence feed + filters
 │   ├── TaskDetailView.swift          # read-only detail + actions
 │   └── TaskEditorView.swift          # add/edit sheet
 ├── Tests/SugarDashTests/
@@ -249,7 +277,8 @@ apps/macos/
 │   ├── ActivityTests.swift
 │   ├── SSEStreamTests.swift
 │   ├── LiveTests.swift
-│   └── TrendsTests.swift
+│   ├── TrendsTests.swift
+│   └── CoverageEvidenceTests.swift
 ├── build-app.sh
 └── README.md
 ```

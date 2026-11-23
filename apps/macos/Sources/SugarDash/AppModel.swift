@@ -51,6 +51,8 @@ enum SidebarItem: Hashable {
     case live
     case activity
     case trends
+    case coverage
+    case evidence
 }
 
 /// Top-level middle-pane views. Persisted with `@AppStorage` in ContentView so
@@ -60,8 +62,22 @@ enum AppSection: String, CaseIterable, Identifiable {
     case live
     case activity
     case trends
+    case coverage
+    case evidence
 
     var id: String { rawValue }
+
+    /// Stable display name for accessibility / persistence diagnostics.
+    var title: String {
+        switch self {
+        case .tasks: return "Tasks"
+        case .live: return "Live"
+        case .activity: return "Activity"
+        case .trends: return "Trends"
+        case .coverage: return "Coverage"
+        case .evidence: return "Evidence"
+        }
+    }
 }
 
 // MARK: - Store
@@ -142,6 +158,29 @@ final class AppModel {
     private(set) var trendsUnavailable = false
     private var trendsGeneration = 0
 
+    // Coverage (`GET /api/coverage`) — read-only Mission Control parity.
+    private(set) var coverage: CoverageReport?
+    private(set) var coverageLoading = false
+    private(set) var coverageError: String?
+    /// True when the endpoint is missing/disabled on this server (404/503).
+    private(set) var coverageUnavailable = false
+    /// Local fetch time (not the server's generated_at) for "updated Xs ago".
+    private(set) var coverageFetchedAt: Date?
+    private var coverageGeneration = 0
+
+    // Evidence (`GET /api/evidence`) — read-only verification/policy/approval
+    // feed with filters, refreshed only while the pane is visible.
+    var evidenceTaskID: String = ""
+    var evidenceKind: EvidenceKindFilter = .all
+    var evidenceStatus: EvidenceStatusFilter = .all
+    private(set) var evidence: EvidenceReport?
+    private(set) var evidenceLoading = false
+    private(set) var evidenceError: String?
+    private(set) var evidenceUnavailable = false
+    /// Local fetch time for "updated Xs ago".
+    private(set) var evidenceFetchedAt: Date?
+    private var evidenceGeneration = 0
+
     // Connection state.
     private(set) var connection: ConnectionState = .idle
     private(set) var hasEverConnected = false
@@ -162,6 +201,10 @@ final class AppModel {
     /// True while the sidebar's Trends row is selected; the middle pane shows
     /// the Charts-based analytics view. Mutually exclusive with the above.
     var showsTrends = false
+    /// True while the sidebar's Coverage row is selected.
+    var showsCoverage = false
+    /// True while the sidebar's Evidence row is selected.
+    var showsEvidence = false
 
     // Configuration.
     private(set) var serverURLString: String
@@ -288,6 +331,8 @@ final class AppModel {
 
     /// The currently selected top-level view (Tasks is the default).
     var activeSection: AppSection {
+        if showsCoverage { return .coverage }
+        if showsEvidence { return .evidence }
         if showsTrends { return .trends }
         if showsLive { return .live }
         if showsActivity { return .activity }
@@ -299,6 +344,8 @@ final class AppModel {
         showsLive = section == .live
         showsActivity = section == .activity
         showsTrends = section == .trends
+        showsCoverage = section == .coverage
+        showsEvidence = section == .evidence
     }
 
     /// Restore the view persisted by `@AppStorage` (unknown values → Tasks).
@@ -319,6 +366,16 @@ final class AppModel {
     /// Sidebar entry point: show the Charts-based Trends view.
     func showTrends() {
         selectSection(.trends)
+    }
+
+    /// Sidebar entry point: show the Mission Control coverage matrix.
+    func showCoverage() {
+        selectSection(.coverage)
+    }
+
+    /// Sidebar entry point: show the Mission Control evidence feed.
+    func showEvidence() {
+        selectSection(.evidence)
     }
 
     // MARK: - Live action (what each agent is doing right now)
@@ -416,6 +473,153 @@ final class AppModel {
                 trendsError = friendlyMessage(error)
             }
         }
+    }
+
+    // MARK: - Coverage (REST, only while visible)
+
+    /// Immediate load, then every ~15 s while the caller is alive (matches the
+    /// web Mission Control panel). SwiftUI cancels the task when the pane hides.
+    func runCoverageRefreshLoop() async {
+        guard showsCoverage else { return }
+        while !_Concurrency.Task.isCancelled {
+            await loadCoverage()
+            if _Concurrency.Task.isCancelled { return }
+            do {
+                try await _Concurrency.Task.sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+        }
+    }
+
+    func refreshCoverage() {
+        AsyncTask<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.loadCoverage()
+        }
+    }
+
+    func loadCoverage() async {
+        coverageGeneration += 1
+        let generation = coverageGeneration
+        let client = self.client
+        coverageLoading = true
+
+        defer {
+            if generation == coverageGeneration {
+                coverageLoading = false
+            }
+        }
+
+        do {
+            let report = try await client.coverage()
+            guard generation == coverageGeneration,
+                  !_Concurrency.Task.isCancelled,
+                  self.client.baseURL == client.baseURL else {
+                return
+            }
+            coverage = report
+            coverageError = nil
+            coverageUnavailable = false
+            coverageFetchedAt = Date()
+        } catch {
+            guard generation == coverageGeneration else { return }
+            if _Concurrency.Task.isCancelled { return }
+
+            if Self.isUnavailableEndpointError(error) {
+                coverage = nil
+                coverageUnavailable = true
+                coverageError = nil
+            } else {
+                coverageUnavailable = false
+                coverageError = friendlyMessage(error)
+            }
+        }
+    }
+
+    // MARK: - Evidence (REST, only while visible)
+
+    var evidenceQuery: EvidenceQuery {
+        EvidenceQuery(
+            taskID: evidenceTaskID,
+            kind: evidenceKind.queryValue,
+            status: evidenceStatus.queryValue,
+            limit: 100
+        )
+    }
+
+    /// Restarts the visible-only refresh loop when the filters change.
+    var evidenceQueryKey: String {
+        "\(evidenceTaskID.trimmingCharacters(in: .whitespacesAndNewlines))|\(evidenceKind.id)|\(evidenceStatus.id)"
+    }
+
+    func runEvidenceRefreshLoop() async {
+        guard showsEvidence else { return }
+        while !_Concurrency.Task.isCancelled {
+            await loadEvidence()
+            if _Concurrency.Task.isCancelled { return }
+            do {
+                try await _Concurrency.Task.sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+        }
+    }
+
+    func refreshEvidence() {
+        AsyncTask<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.loadEvidence()
+        }
+    }
+
+    func loadEvidence() async {
+        evidenceGeneration += 1
+        let generation = evidenceGeneration
+        let client = self.client
+        let query = evidenceQuery
+        evidenceLoading = true
+
+        defer {
+            if generation == evidenceGeneration {
+                evidenceLoading = false
+            }
+        }
+
+        do {
+            let report = try await client.evidence(query)
+            guard generation == evidenceGeneration,
+                  !_Concurrency.Task.isCancelled,
+                  self.client.baseURL == client.baseURL else {
+                return
+            }
+            evidence = report
+            evidenceError = nil
+            evidenceUnavailable = false
+            evidenceFetchedAt = Date()
+        } catch {
+            guard generation == evidenceGeneration else { return }
+            if _Concurrency.Task.isCancelled { return }
+
+            if Self.isUnavailableEndpointError(error) {
+                evidence = nil
+                evidenceUnavailable = true
+                evidenceError = nil
+            } else {
+                evidenceUnavailable = false
+                evidenceError = friendlyMessage(error)
+            }
+        }
+    }
+
+    /// 404/405/503 mean "this server does not expose the optional endpoint";
+    /// render the parity fallback instead of a generic error.
+    static func isUnavailableEndpointError(_ error: Error) -> Bool {
+        guard let apiError = error as? APIClient.APIError,
+              case .server(let status, _, _) = apiError else {
+            return false
+        }
+        return status == 404 || status == 405 || status == 503
     }
 
     // MARK: - Lifecycle
@@ -803,6 +1007,8 @@ final class AppModel {
         showsLive = false
         showsActivity = false
         showsTrends = false
+        showsCoverage = false
+        showsEvidence = false
         selection = id
         if !filteredTasks.contains(where: { $0.id == id }) {
             statusFilter = .all
@@ -868,6 +1074,18 @@ final class AppModel {
         trendsError = nil
         trendsUnavailable = false
         trendsGeneration += 1
+        coverage = nil
+        coverageLoading = false
+        coverageError = nil
+        coverageUnavailable = false
+        coverageFetchedAt = nil
+        coverageGeneration += 1
+        evidence = nil
+        evidenceLoading = false
+        evidenceError = nil
+        evidenceUnavailable = false
+        evidenceFetchedAt = nil
+        evidenceGeneration += 1
         selection = nil
         hasEverConnected = false
         serverVersion = nil

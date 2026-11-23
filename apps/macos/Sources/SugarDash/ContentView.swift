@@ -63,8 +63,8 @@ struct ContentView: View {
     /// content pane gets the full width (no "No Task Selected" placeholder).
     @State private var showInspector = false
 
-    /// Remember the last top-level view (Tasks / Live / Activity / Trends) so a
-    /// relaunch returns to it. Defaults to Tasks.
+    /// Remember the last top-level view (Tasks / Live / Activity / Trends /
+    /// Coverage / Evidence) so a relaunch returns to it. Defaults to Tasks.
     @AppStorage("SugarDash.selectedSection") private var persistedSection = AppSection.tasks.rawValue
 
     var body: some View {
@@ -79,6 +79,10 @@ struct ContentView: View {
                     ActivityFeedPane()
                 } else if model.showsTrends {
                     TrendsPane()
+                } else if model.showsCoverage {
+                    CoveragePane()
+                } else if model.showsEvidence {
+                    EvidencePane()
                 } else {
                     TaskListPane(showCreateTask: $showCreateTask, editingTask: $editingTask)
                 }
@@ -95,7 +99,9 @@ struct ContentView: View {
         .task { model.start() }
         .onAppear {
             model.restoreSection(raw: persistedSection)
-            syncInspectorVisibility(model.selectedTask != nil)
+            // The inspector is a Tasks-only affordance; never leave it open
+            // when the persisted section is one of the read-only panes.
+            syncInspectorVisibility(model.activeSection == .tasks && model.selectedTask != nil)
         }
         .onChange(of: model.selectedTask?.id) { _, _ in
             // Only the Tasks pane owns the inspector. Live/Activity/Trends
@@ -169,7 +175,7 @@ struct ContentView: View {
             .keyboardShortcut("n", modifiers: .command)
             .help(model.isReadOnly ? "The server is read-only" : "Create a new task")
 
-            if model.selectedTask != nil {
+            if model.selectedTask != nil, model.activeSection == .tasks {
                 Button {
                     showInspector.toggle()
                 } label: {
@@ -221,6 +227,8 @@ struct SidebarView: View {
                 case .live: return .live
                 case .activity: return .activity
                 case .trends: return .trends
+                case .coverage: return .coverage
+                case .evidence: return .evidence
                 case .tasks: return .status(model.statusFilter)
                 }
             },
@@ -232,6 +240,10 @@ struct SidebarView: View {
                     model.showActivity()
                 case .trends:
                     model.showTrends()
+                case .coverage:
+                    model.showCoverage()
+                case .evidence:
+                    model.showEvidence()
                 case .status(let filter):
                     model.selectSection(.tasks)
                     model.statusFilter = filter
@@ -312,6 +324,40 @@ struct SidebarView: View {
                 .accessibilityLabel("Trends")
             }
 
+            Section("Mission Control") {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.shield")
+                        .frame(width: 18)
+                        .foregroundStyle(model.showsCoverage ? Color.accentColor : .secondary)
+                    Text("Coverage")
+                    Spacer(minLength: 8)
+                    if let counts = model.coverage?.counts, counts.total > 0 {
+                        Text("\(counts.aboveL0)/\(counts.total)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .help("\(counts.aboveL0) of \(counts.total) harnesses instrumented above L0")
+                    }
+                }
+                .tag(SidebarItem.coverage)
+                .accessibilityLabel(coverageAccessibilityLabel)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .frame(width: 18)
+                        .foregroundStyle(model.showsEvidence ? Color.accentColor : .secondary)
+                    Text("Evidence")
+                    Spacer(minLength: 8)
+                    if let summary = model.evidence?.summary, summary.total > 0 {
+                        Text("\(summary.total)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(summary.statusCount("failed") > 0 ? Color.red : Color.secondary)
+                            .help(evidenceAccessibilityLabel)
+                    }
+                }
+                .tag(SidebarItem.evidence)
+                .accessibilityLabel(evidenceAccessibilityLabel)
+            }
+
             if let health = model.health {
                 Section("Server") {
                     LabeledContent("Version", value: model.serverVersion ?? health.version)
@@ -336,6 +382,19 @@ struct SidebarView: View {
                 urlDraft = model.serverURLString
             }
         }
+    }
+
+    private var coverageAccessibilityLabel: String {
+        guard let counts = model.coverage?.counts else { return "Coverage" }
+        return "Coverage, \(counts.aboveL0) of \(counts.total) harnesses above L0"
+    }
+
+    private var evidenceAccessibilityLabel: String {
+        guard let summary = model.evidence?.summary else { return "Evidence" }
+        let failed = summary.statusCount("failed")
+        return failed > 0
+            ? "Evidence, \(summary.total) events, \(failed) failed"
+            : "Evidence, \(summary.total) events"
     }
 
     private var serverForm: some View {
