@@ -29,6 +29,7 @@ from sugar.dsh.discover import decode_workspace, discover_sessions
 from sugar.dsh.parse import (
     DshConfigError,
     DshParseError,
+    ms_to_iso,
     normalize_since,
     parse_session_file,
     zstd_available,
@@ -1417,3 +1418,488 @@ class TestUsageMapping:
         if checked == 0:
             pytest.skip("no real DSH logs with usage on this host")
         assert seen_usage > 0
+
+
+# ---------------------------------------------------------------------------
+# Trace enrichment: subagent / team / artifact events
+# ---------------------------------------------------------------------------
+
+
+TEAM_ID = "session-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+MEMBER_ID = "11111111-aaaa-bbbb-cccc-222222222222"
+CHILD_ID = "99999999-aaaa-bbbb-cccc-000000000000"
+
+
+def team_member_event(
+    seq: int, member_id: str = MEMBER_ID, name: str = "researcher"
+) -> dict:
+    return event(
+        "team/member",
+        seq,
+        {
+            "version": 2,
+            "teamId": TEAM_ID,
+            "member": {
+                "id": member_id,
+                "name": name,
+                "description": "research the spec",
+                "provider": "spawn",
+                "context": "fresh",
+                "phase": "active",
+            },
+        },
+    )
+
+
+def team_task_event(
+    seq: int,
+    *,
+    task_id: str = "task-1",
+    revision: int = 1,
+    status: str = "pending",
+    owner_id: str | None = None,
+    blocked_by: list | None = None,
+    subject: str = "Research the spec",
+) -> dict:
+    task = {
+        "id": task_id,
+        "revision": revision,
+        "subject": subject,
+        "description": "long description",
+        "status": status,
+        "blockedBy": blocked_by or [],
+        "writeScopes": ["docs/spec.md"],
+    }
+    if owner_id:
+        task["ownerId"] = owner_id
+    return event("team/task", seq, {"version": 2, "teamId": TEAM_ID, "task": task})
+
+
+def catalog_event(
+    seq: int,
+    *,
+    child_id: str = CHILD_ID,
+    created_ms: int = 1_793_893_387_561,
+    label: str = "Research the spec",
+    mode: str = "continuable",
+) -> dict:
+    return event(
+        "subagent/catalog",
+        seq,
+        {
+            "version": 0,
+            "childId": child_id,
+            "childCreatedAt": created_ms,
+            "mode": mode,
+            "label": label,
+        },
+    )
+
+
+def deliverables_event(
+    seq: int,
+    files: list,
+    *,
+    call_id: str = "call_present",
+    turn: int = 13,
+) -> dict:
+    return event(
+        "deliverables/presented",
+        seq,
+        {"turn": turn, "callId": call_id, "files": files},
+    )
+
+
+def file_tool_events(
+    seq: int,
+    *,
+    call_id: str = "call_write",
+    name: str = "write",
+    meta: dict | None = None,
+    is_error: bool = False,
+    turn: int = 1,
+) -> list:
+    call = event(
+        "tool/call",
+        seq,
+        {
+            "turn": turn,
+            "step": 1,
+            "callId": call_id,
+            "name": name,
+            "arguments": json.dumps({"file_path": "/tmp/out.py"}),
+        },
+    )
+    result = event(
+        "tool/result",
+        seq + 1,
+        {
+            "turn": turn,
+            "step": 1,
+            "toolCallId": call_id,
+            "content": [{"type": "text", "text": "ok" if not is_error else "boom"}],
+            "isError": is_error,
+            "meta": meta,
+        },
+    )
+    return [call, result]
+
+
+@requires_zstd
+class TestTraceEnrichment:
+    def _parse(self, tmp_path, events):
+        return parse_session_file(write_session(tmp_path, events))
+
+    def test_subagent_started_event(self, tmp_path):
+        events = [
+            header(),
+            catalog_event(0),
+            catalog_event(1),  # duplicate catalog entry must not double-emit
+        ]
+        parsed = self._parse(tmp_path, events)
+        subagents = [item for item in parsed.events if item.kind == "subagent.started"]
+        assert len(subagents) == 1
+        envelope = subagents[0].envelope
+        assert envelope["harness"] == "dsh"
+        assert envelope["actor"] == "dsh"
+        assert envelope["source"] == "dsh:session-tail"
+        assert envelope["session_id"] == SESSION_ID
+        assert envelope["project"] == "app"
+        assert envelope["payload"]["fidelity"] == "L3"
+        summary = envelope["payload"]["payload"]
+        assert summary["parent_session_id"] == SESSION_ID
+        assert summary["child_session_id"] == CHILD_ID
+        assert summary["label"] == "Research the spec"
+        assert summary["mode"] == "continuable"
+        assert summary["created_at"] == ms_to_iso(1_793_893_387_561)
+        assert summary["created_at"].endswith("Z")
+
+    def test_subagent_started_requires_child_id(self, tmp_path):
+        events = [header(), event("subagent/catalog", 0, {"mode": "continuable"})]
+        parsed = self._parse(tmp_path, events)
+        assert [item for item in parsed.events if item.kind == "subagent.started"] == []
+
+    def test_team_task_events_and_owner_resolution(self, tmp_path):
+        events = [
+            header(),
+            team_member_event(0),
+            team_task_event(1, revision=1, status="pending"),
+            team_task_event(
+                2,
+                revision=2,
+                status="in_progress",
+                owner_id=MEMBER_ID,
+            ),
+            team_task_event(
+                3,
+                revision=2,
+                status="in_progress",
+                owner_id=MEMBER_ID,
+            ),  # duplicate revision
+        ]
+        parsed = self._parse(tmp_path, events)
+        tasks = [item for item in parsed.events if item.kind == "team.task"]
+        assert len(tasks) == 2
+        first = tasks[0].envelope
+        assert first["payload"]["fidelity"] == "L2"
+        assert first["session_id"] == SESSION_ID
+        summary = first["payload"]["payload"]
+        assert summary["team_id"] == TEAM_ID
+        assert summary["team_task_id"] == "task-1"
+        assert summary["subject"] == "Research the spec"
+        assert summary["status"] == "pending"
+        assert summary["parent_session_id"] == TEAM_ID
+        assert summary["revision"] == 1
+        assert "owner_id" not in summary
+        second = tasks[1].envelope["payload"]["payload"]
+        assert second["status"] == "in_progress"
+        assert second["owner_id"] == MEMBER_ID
+        assert second["owner_name"] == "researcher"
+        assert second["revision"] == 2
+
+    def test_team_task_owner_resolved_when_member_arrives_later(self, tmp_path):
+        events = [
+            header(),
+            team_task_event(0, owner_id=MEMBER_ID, status="in_progress"),
+            team_member_event(1),
+        ]
+        parsed = self._parse(tmp_path, events)
+        task = next(item for item in parsed.events if item.kind == "team.task")
+        assert task.envelope["payload"]["payload"]["owner_name"] == "researcher"
+
+    def test_team_task_blocked_by_and_missing_fields(self, tmp_path):
+        events = [
+            header(),
+            team_task_event(0, blocked_by=["task-2", "task-3"]),
+            event("team/task", 1, {"teamId": TEAM_ID, "task": {"id": "task-9"}}),
+            event("team/task", 2, {"teamId": TEAM_ID, "task": {}}),
+        ]
+        parsed = self._parse(tmp_path, events)
+        tasks = [item for item in parsed.events if item.kind == "team.task"]
+        assert len(tasks) == 2
+        blocked = tasks[0].envelope["payload"]["payload"]
+        assert blocked["blocked_by"] == ["task-2", "task-3"]
+        bare = tasks[1].envelope["payload"]["payload"]
+        assert bare["team_task_id"] == "task-9"
+
+    def test_artifact_created_from_deliverables(self, tmp_path):
+        files = [
+            {"path": "/tmp/report.pdf", "description": "final report"},
+            {"path": "/tmp/data.csv"},
+        ]
+        events = [
+            header(),
+            event("turn/start", 0, {"turn": 13}),
+            deliverables_event(1, files),
+            deliverables_event(2, files),  # exact duplicate must not double-emit
+        ]
+        parsed = self._parse(tmp_path, events)
+        artifacts = [item for item in parsed.events if item.kind == "artifact.created"]
+        assert len(artifacts) == 2
+        first = artifacts[0].envelope
+        assert first["payload"]["fidelity"] == "L3"
+        assert first["payload"]["turn_id"] == "13"
+        assert first["payload"]["tool_use_id"] == "call_present"
+        summary = first["payload"]["payload"]
+        assert summary["path"] == "/tmp/report.pdf"
+        assert summary["description"] == "final report"
+        assert summary["turn"] == 13
+        assert summary["tool_call_id"] == "call_present"
+        assert artifacts[1].envelope["payload"]["payload"]["path"] == "/tmp/data.csv"
+
+    def test_artifact_created_from_write_result(self, tmp_path):
+        events = [
+            header(),
+            *file_tool_events(
+                0, meta={"operation": "create", "path": "/tmp/out.py", "diffs": []}
+            ),
+        ]
+        parsed = self._parse(tmp_path, events)
+        artifacts = [item for item in parsed.events if item.kind == "artifact.created"]
+        assert len(artifacts) == 1
+        summary = artifacts[0].envelope["payload"]["payload"]
+        assert summary["path"] == "/tmp/out.py"
+        assert summary["operation"] == "create"
+        assert summary["turn"] == 1
+        assert summary["tool_call_id"] == "call_write"
+        assert artifacts[0].envelope["payload"]["fidelity"] == "L3"
+
+    def test_failed_write_result_emits_no_artifact(self, tmp_path):
+        events = [
+            header(),
+            *file_tool_events(
+                0,
+                meta={"operation": "create", "path": "/tmp/out.py"},
+                is_error=True,
+            ),
+        ]
+        parsed = self._parse(tmp_path, events)
+        assert [item for item in parsed.events if item.kind == "artifact.created"] == []
+
+    def test_workspace_changed_from_edit_result(self, tmp_path):
+        diff = {
+            "path": "/tmp/edited.py",
+            "oldText": "x" * 5000,
+            "newText": "y" * 5000,
+        }
+        events = [
+            header(),
+            *file_tool_events(
+                0,
+                name="edit",
+                meta={"path": "/tmp/edited.py", "diffs": [diff]},
+            ),
+        ]
+        parsed = self._parse(tmp_path, events)
+        changed = [item for item in parsed.events if item.kind == "workspace.changed"]
+        assert len(changed) == 1
+        summary = changed[0].envelope["payload"]["payload"]
+        assert summary["paths"] == ["/tmp/edited.py"]
+        assert summary["operation"] == "edit"
+        assert summary["diff_count"] == 1
+        # No file contents in the emitted evidence.
+        serialized = json.dumps(changed[0].envelope)
+        assert "x" * 5000 not in serialized
+        assert "y" * 5000 not in serialized
+
+    def test_artifact_deduped_across_write_and_presented(self, tmp_path):
+        events = [
+            header(),
+            *file_tool_events(
+                0,
+                meta={"operation": "create", "path": "/tmp/shared.py", "diffs": []},
+            ),
+            deliverables_event(
+                2,
+                [{"path": "/tmp/shared.py", "description": "final script"}],
+                call_id="call_present",
+                turn=1,
+            ),
+        ]
+        parsed = self._parse(tmp_path, events)
+        artifacts = [item for item in parsed.events if item.kind == "artifact.created"]
+        assert len(artifacts) == 1
+        summary = artifacts[0].envelope["payload"]["payload"]
+        assert summary["path"] == "/tmp/shared.py"
+        assert summary["operation"] == "create"
+        assert summary["description"] == "final script"
+        assert summary["tool_call_id"] == "call_write"
+
+    def test_enrichment_tail_checkpoint_no_duplicates(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        events = [
+            header(),
+            catalog_event(0),
+            team_member_event(1),
+            team_task_event(2, owner_id=MEMBER_ID),
+            deliverables_event(3, [{"path": "/tmp/report.pdf"}]),
+        ]
+        write_session(sessions, events)
+        state_path = tmp_path / "state.json"
+        emitted = []
+        first = tail_once(
+            sessions_dir=sessions, state_path=state_path, emit=emitted.append
+        )
+        kinds = [event["kind"] for event in emitted]
+        assert "subagent.started" in kinds
+        assert "team.task" in kinds
+        assert "artifact.created" in kinds
+        assert kinds.count("subagent.started") == 1
+        assert kinds.count("team.task") == 1
+        assert kinds.count("artifact.created") == 1
+
+        second_emitted = []
+        second = tail_once(
+            sessions_dir=sessions, state_path=state_path, emit=second_emitted.append
+        )
+        assert first.events == len(emitted)
+        assert second.events == 0
+        assert second_emitted == []
+
+    def test_enrichment_missing_fields_tolerated(self, tmp_path):
+        events = [
+            header(),
+            event(
+                "deliverables/presented",
+                0,
+                {"turn": 1, "callId": "c", "files": "not-a-list"},
+            ),
+            event(
+                "deliverables/presented",
+                1,
+                {
+                    "turn": 2,
+                    "callId": "c",
+                    "files": [{"description": "no path"}, "junk"],
+                },
+            ),
+            *file_tool_events(2, meta={"operation": "create"}),
+            *file_tool_events(4, name="edit", meta={}),
+        ]
+        parsed = self._parse(tmp_path, events)
+        assert [item for item in parsed.events if item.kind == "artifact.created"] == []
+        assert [
+            item for item in parsed.events if item.kind == "workspace.changed"
+        ] == []
+
+    def test_session_started_adds_parent_session_id(self, tmp_path):
+        parent = "session-99999999-1111-2222-3333-444444444444"
+        events = [header(origin="subagent", parentSession=parent, delegationDepth=1)]
+        parsed = self._parse(tmp_path, events)
+        summary = parsed.header_event["payload"]["payload"]
+        assert summary["origin"] == "subagent"
+        assert summary["parent_session"] == parent
+        assert summary["parent_session_id"] == parent
+        assert summary["delegation_depth"] == 1
+
+    def test_tail_delivers_all_artifacts_from_one_deliverables_event(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        write_session(
+            sessions,
+            [
+                header(),
+                deliverables_event(
+                    0,
+                    [{"path": "/tmp/a.pdf"}, {"path": "/tmp/b.pdf"}],
+                ),
+            ],
+        )
+        emitted = []
+        result = tail_once(
+            sessions_dir=sessions,
+            state_path=tmp_path / "state.json",
+            emit=emitted.append,
+        )
+        artifacts = [event for event in emitted if event["kind"] == "artifact.created"]
+        assert len(artifacts) == 2
+        assert {event["payload"]["payload"]["path"] for event in artifacts} == {
+            "/tmp/a.pdf",
+            "/tmp/b.pdf",
+        }
+        assert result.events == len(emitted)
+
+    def test_tail_delivers_tool_result_artifact_next_to_tool_event(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        write_session(
+            sessions,
+            [
+                header(),
+                *file_tool_events(
+                    0,
+                    meta={"operation": "create", "path": "/tmp/out.py", "diffs": []},
+                ),
+            ],
+        )
+        emitted = []
+        result = tail_once(
+            sessions_dir=sessions,
+            state_path=tmp_path / "state.json",
+            emit=emitted.append,
+        )
+        kinds = [event["kind"] for event in emitted]
+        assert kinds.count("session.started") == 1
+        assert kinds.count("tool.started") == 1
+        assert kinds.count("tool.completed") == 1
+        assert kinds.count("artifact.created") == 1
+        assert result.events == len(emitted) == 4
+
+    def test_real_log_enrichment_smoke(self):
+        import glob
+
+        files = sorted(
+            glob.glob(
+                os.path.expanduser("~/.dsh/sessions/**/session.v4.jsonl.zstd"),
+                recursive=True,
+            )
+        )
+        if not files:
+            pytest.skip("no real DSH session logs on this host")
+        seen_subagent = 0
+        seen_artifact = 0
+        seen_team_task = 0
+        for path in files[:35]:
+            try:
+                parsed = parse_session_file(Path(path))
+            except DshParseError:
+                continue
+            for item in parsed.events:
+                summary = item.envelope["payload"]["payload"]
+                if item.kind == "subagent.started":
+                    seen_subagent += 1
+                    assert summary["child_session_id"]
+                    assert summary["parent_session_id"]
+                    assert summary["created_at"].endswith("Z")
+                elif item.kind == "artifact.created":
+                    seen_artifact += 1
+                    assert summary["path"]
+                elif item.kind == "team.task":
+                    seen_team_task += 1
+                    assert summary["team_task_id"]
+                    assert summary["status"] in {"pending", "in_progress", "completed"}
+            if seen_subagent and seen_artifact and seen_team_task:
+                break
+        if not (seen_subagent or seen_artifact or seen_team_task):
+            pytest.skip("no enrichment-bearing DSH logs on this host")
+        assert seen_subagent > 0
+        assert seen_artifact > 0
+        assert seen_team_task > 0
