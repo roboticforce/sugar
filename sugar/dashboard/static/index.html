@@ -441,6 +441,114 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .toast.error { border-color: rgba(248, 81, 73, 0.7); color: #ffb3ae; }
+
+  /* Trace Explorer (Phase 1d). A Traces tab with a session list that opens a
+     typed trace: call tree + actor swimlanes + span inspector. Pure DOM/CSS. */
+  .traces-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .traces-pane[hidden] { display: none; }
+  .trace-list-wrap {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+  }
+  .trace-list-wrap[hidden] { display: none; }
+  .trace-head {
+    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+    background: var(--panel-2); color: var(--muted); font-size: 11.5px;
+  }
+  .trace-head b { color: var(--text); font-size: 13px; }
+  .trace-list { flex: 1; min-height: 0; overflow: auto; }
+  .trace-state { color: var(--muted); text-align: center; padding: 40px 16px; font-size: 13px; }
+  .trace-state[hidden] { display: none; }
+  .trace-row {
+    display: flex; align-items: center; gap: 14px; padding: 9px 14px;
+    border-bottom: 1px solid rgba(34, 48, 66, 0.65); cursor: pointer;
+  }
+  .trace-row:hover { background: rgba(88, 166, 255, 0.06); }
+  .trace-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .trace-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .trace-title { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trace-sub { color: var(--muted); font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .trace-metrics { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; justify-content: flex-end; }
+  .trace-metrics b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .trace-status {
+    padding: 0 8px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 11px; line-height: 18px; text-transform: capitalize; white-space: nowrap;
+  }
+  .trace-explorer { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .trace-explorer[hidden] { display: none; }
+  .trace-explorer-head {
+    flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+    padding: 9px 12px; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .trace-explorer-head h3 { margin: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .trace-summary { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; min-width: 0; }
+  .trace-summary b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .trace-summary-item { min-width: 0; overflow-wrap: anywhere; }
+  .trace-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(190px, 240px) minmax(0, 1fr) minmax(230px, 310px); gap: 10px; }
+  .trace-card {
+    min-height: 0; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  }
+  .trace-card-head {
+    flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    border-bottom: 1px solid var(--border); color: var(--muted);
+    font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase;
+  }
+  .trace-card-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; }
+  .trace-lanes { min-width: 620px; }
+  .trace-lane { margin-bottom: 10px; }
+  .trace-lane-title {
+    display: flex; align-items: center; gap: 6px; margin: 0 0 3px;
+    color: var(--accent); font-size: 11.5px; letter-spacing: 0; text-transform: none;
+  }
+  .trace-lane-title .muted { color: var(--muted); }
+  .trace-span-row { display: flex; align-items: center; gap: 6px; height: 19px; }
+  .trace-span-label {
+    flex: none; width: 150px; color: var(--muted); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .trace-span-label .trace-kind-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+  .trace-span-track { position: relative; flex: 1 1 auto; height: 11px; min-width: 0; }
+  .trace-bar { position: absolute; top: 0; height: 11px; border-radius: 3px; min-width: 2px; cursor: pointer; opacity: 0.85; }
+  .trace-bar:hover { opacity: 1; }
+  .trace-bar.selected { outline: 2px solid var(--text); outline-offset: 1px; opacity: 1; }
+  .trace-ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; padding: 3px 0 0 156px; }
+  .trace-tree-row {
+    display: flex; align-items: center; gap: 5px; padding: 1px 4px;
+    border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--muted);
+  }
+  .trace-tree-row:hover { background: var(--bg-alt); color: var(--text); }
+  .trace-tree-row.selected { background: rgba(88, 166, 255, 0.14); color: var(--accent); }
+  .trace-tree-toggle {
+    flex: none; width: 14px; padding: 0; border: none; background: none;
+    color: var(--muted); font-size: 11px; line-height: 1;
+  }
+  .trace-tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trace-inspector-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 24px 10px; }
+  .trace-kv { display: grid; grid-template-columns: 84px 1fr; gap: 3px 8px; font-size: 12px; margin-bottom: 10px; }
+  .trace-kv dt { color: var(--muted); }
+  .trace-kv dd { margin: 0; word-break: break-word; }
+  .trace-inspector h4 { margin: 10px 0 4px; font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); }
+  .trace-json {
+    margin: 0; padding: 8px; background: var(--bg-alt); border: 1px solid var(--border);
+    border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+    max-height: 200px; overflow: auto;
+  }
+  @media (max-width: 1100px) {
+    .trace-grid { grid-template-columns: 1fr; overflow: auto; }
+    .trace-card { min-height: 200px; }
+    .trace-grid .trace-card:nth-child(2) { min-height: 240px; }
+    .trace-metrics { justify-content: flex-start; }
+    .trace-row { flex-wrap: wrap; }
+  }
+  @media (max-width: 600px) {
+    .trace-explorer-head .trace-summary { flex: 1 1 100%; }
+    .trace-summary-item { overflow-wrap: break-word; }
+  }
+
 </style>
 </head>
 <body>
@@ -472,6 +580,7 @@
     <div class="view-switch" id="view-switch" role="tablist" aria-label="View">
       <button type="button" class="active" data-view="tasks" role="tab" aria-selected="true">Tasks</button>
       <button type="button" data-view="activity" role="tab" aria-selected="false">Activity</button>
+      <button type="button" data-view="traces" role="tab" aria-selected="false">Traces</button>
     </div>
     <div class="chips" id="status-chips"></div>
     <select id="type-filter" aria-label="Filter by type"><option value="">All types</option></select>
@@ -542,6 +651,49 @@
       <span class="feed-count" id="feed-count">0 events</span>
     </div>
     <div class="feed" id="feed"></div>
+  </div>
+  <div class="traces-pane" id="traces-pane" hidden>
+    <div class="trace-list-wrap" id="trace-list-wrap">
+      <div class="trace-head">
+        <b>Traces</b>
+        <span id="trace-list-note">loading…</span>
+        <span class="spacer"></span>
+        <button class="btn" id="trace-refresh" type="button">Refresh</button>
+      </div>
+      <div class="trace-list" id="trace-list"></div>
+      <div class="trace-state" id="trace-state">Loading traces…</div>
+    </div>
+    <div class="trace-explorer" id="trace-explorer" hidden>
+      <div class="trace-explorer-head">
+        <button class="btn" id="trace-back" type="button" title="Back to traces (Esc)">← Traces</button>
+        <h3 id="trace-explorer-title">Trace</h3>
+        <div class="trace-summary" id="trace-summary"></div>
+        <span class="muted" id="trace-explorer-note"></span>
+      </div>
+      <div class="trace-grid">
+        <section class="trace-card" aria-label="Span call tree">
+          <div class="trace-card-head"><span>Call tree</span><span class="spacer"></span><span id="trace-tree-count"></span></div>
+          <div class="trace-card-body" id="trace-tree"></div>
+        </section>
+        <section class="trace-card" aria-label="Span swimlanes">
+          <div class="trace-card-head">
+            <span>Swimlanes</span>
+            <span class="spacer"></span>
+            <span id="trace-scale-note"></span>
+            <span id="trace-lane-count"></span>
+          </div>
+          <div class="trace-card-body" id="trace-lanes"></div>
+        </section>
+        <section class="trace-card" aria-label="Span inspector">
+          <div class="trace-card-head">
+            <span>Inspector</span>
+            <span class="spacer"></span>
+            <button class="btn" id="trace-inspector-close" type="button" title="Clear selection">✕</button>
+          </div>
+          <div class="trace-card-body" id="trace-inspector"></div>
+        </section>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -769,7 +921,19 @@
     evidenceError: null,
     evidenceFetchedAt: 0,
     evidenceOpen: false,
-    evidenceApplied: { task_id: "", kind: "", status: "" }
+    evidenceApplied: { task_id: "", kind: "", status: "" },
+    // Trace Explorer (Phase 1d): trace list + typed trace explorer.
+    traces: [],
+    tracesError: null,
+    tracesFetchedAt: 0,
+    tracesLoaded: false,
+    traceExplorerOpen: false,
+    selectedTraceId: null,
+    traceDetail: null,
+    traceSpans: [],
+    traceDetailError: null,
+    traceSelectedSpanId: null,
+    traceCollapsed: new Set()
   };
 
   let eventSource = null;
@@ -786,6 +950,8 @@
   let evidenceLastFocus = null;
   let evidenceInFlight = false;
   let evidenceDebounce = null;
+  let traceInFlight = false;
+  let traceDetailInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -1505,31 +1671,37 @@
 
   function renderView() {
     const activity = state.view === "activity";
+    const traces = state.view === "traces";
     Array.prototype.forEach.call($("view-switch").querySelectorAll("button[data-view]"), function (button) {
       const active = button.dataset.view === state.view;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", active ? "true" : "false");
     });
-    $("status-chips").hidden = activity;
-    $("type-filter").hidden = activity;
-    $("project-filter").hidden = activity;
-    $("search").hidden = activity;
+    $("status-chips").hidden = activity || traces;
+    $("type-filter").hidden = activity || traces;
+    $("project-filter").hidden = activity || traces;
+    $("search").hidden = activity || traces;
     $("activity-filters").hidden = !activity;
-    $("tasks-pane").hidden = activity;
+    $("tasks-pane").hidden = activity || traces;
     $("activity-pane").hidden = !activity;
+    $("traces-pane").hidden = !traces;
     renderRows();
     if (activity) renderFeed();
+    if (traces) renderTracesView();
     renderDrawer();
   }
 
   function setView(view) {
-    const next = view === "activity" ? "activity" : "tasks";
+    const next = view === "activity" ? "activity" : view === "traces" ? "traces" : "tasks";
     const enteringActivity = next === "activity" && state.view !== "activity";
+    const enteringTraces = next === "traces" && state.view !== "traces";
     state.view = next;
     renderView();
     // Usage is a read-only snapshot, not an SSE stream: refresh when the
     // Activity view opens (docs/usage.md).
     if (enteringActivity) loadUsage();
+    // Traces are loaded lazily on first open; Refresh re-reads them.
+    if (enteringTraces && !state.tracesLoaded) loadTraces();
   }
 
   function drawerSection(label, content) {
@@ -1619,9 +1791,9 @@
 
   function renderDrawer() {
     const drawer = $("drawer");
-    // The feed takes the full width; switching back restores the drawer for the
-    // still-selected task (selection itself is never cleared by the view switch).
-    if (state.view === "activity") { drawer.hidden = true; return; }
+    // The feed/traces views take the full width; switching back restores the
+    // drawer for the still-selected task (selection is never cleared).
+    if (state.view === "activity" || state.view === "traces") { drawer.hidden = true; return; }
     if (!state.selectedId) { drawer.hidden = true; return; }
     const task = state.tasks.get(state.selectedId);
     if (!task) { drawer.hidden = true; return; }
@@ -2661,6 +2833,701 @@
     evidenceLastFocus = null;
   }
 
+  // ------------------------------------------------ trace explorer (Phase 1d)
+
+  const TRACE_KIND_STYLE = {
+    session: "var(--accent)",
+    turn: "var(--purple)",
+    tool: "var(--teal)",
+    mcp: "var(--green)",
+    llm: "var(--yellow)",
+    approval: "var(--orange)",
+    artifact: "var(--muted)",
+    subagent: "var(--red)",
+    task: "var(--accent)"
+  };
+  const TRACE_STATUS_STYLE = {
+    passed: "var(--green)", ok: "var(--green)", completed: "var(--green)",
+    running: "var(--yellow)", active: "var(--yellow)", pending: "var(--yellow)",
+    failed: "var(--red)", error: "var(--red)", blocked: "var(--orange)",
+    cancelled: "var(--muted)", skipped: "var(--muted)"
+  };
+  const TRACE_KINDS = ["session", "turn", "tool", "mcp", "llm", "approval", "artifact", "subagent", "task"];
+  const TRACE_LANE_ORDER = ["main", "dsh", "subagent", "user", "system"];
+
+  function traceKind(span) {
+    return String((span && (span.kind || span.span_kind || span.type)) || "span").toLowerCase();
+  }
+
+  function traceKindColor(kind) {
+    return TRACE_KIND_STYLE[String(kind || "").toLowerCase()] || UNKNOWN_COLOR;
+  }
+
+  function traceStatus(record) {
+    return String((record && (record.status || record.outcome || record.state)) || "").trim().toLowerCase();
+  }
+
+  function traceStatusColor(status) {
+    return TRACE_STATUS_STYLE[String(status || "").toLowerCase()] || UNKNOWN_COLOR;
+  }
+
+  function traceTimeMs(value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number") return value > 1e12 ? value : value * 1000;
+    const then = Date.parse(String(value));
+    return Number.isNaN(then) ? null : then;
+  }
+
+  function formatDuration(ms) {
+    const value = Math.max(0, Number(ms) || 0);
+    if (value < 1000) return Math.round(value) + "ms";
+    if (value < 60000) return (value / 1000).toFixed(value < 10000 ? 1 : 0) + "s";
+    const seconds = Math.round(value / 1000);
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + "m" + (seconds % 60 ? " " + (seconds % 60) + "s" : "");
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return hours + "h" + (rest ? " " + rest + "m" : "");
+  }
+
+  function traceId(trace) {
+    return String((trace && (trace.trace_id || trace.id || trace.session_id || trace.traceId)) || "");
+  }
+
+  function traceProject(record) {
+    if (record && record.project) return String(record.project);
+    const attrs = (record && record.attributes) || {};
+    return attrs.project ? String(attrs.project) : "";
+  }
+
+  function traceCwd(record) {
+    if (record && record.cwd) return String(record.cwd);
+    const attrs = (record && record.attributes) || {};
+    return attrs.cwd ? String(attrs.cwd) : "";
+  }
+
+  function traceModels(record, spans) {
+    const models = new Set();
+    const list = record && (record.models || record.model_list);
+    if (Array.isArray(list)) list.forEach(function (model) { if (model) models.add(String(model)); });
+    else if (list) models.add(String(list));
+    if (record && record.model) models.add(String(record.model));
+    (spans || []).forEach(function (span) {
+      if (span && span.model) models.add(String(span.model));
+    });
+    return Array.from(models);
+  }
+
+  function traceTokenTotals(record, spans) {
+    const source = (record && record.tokens) || {};
+    let inTokens = Number(source.in !== undefined ? source.in : record && record.tokens_in) || 0;
+    let outTokens = Number(source.out !== undefined ? source.out : record && record.tokens_out) || 0;
+    let total = Number(source.total !== undefined ? source.total : record && record.tokens_total) || 0;
+    (spans || []).forEach(function (span) {
+      const tokens = span && (span.tokens || (span.attributes && span.attributes.tokens));
+      if (tokens && typeof tokens === "object") {
+        inTokens += Number(tokens.in) || 0;
+        outTokens += Number(tokens.out) || 0;
+        total += Number(tokens.total) || 0;
+      }
+    });
+    if (!total) total = inTokens + outTokens;
+    return { in: inTokens, out: outTokens, total: total };
+  }
+
+  function normalizeTrace(trace) {
+    const record = trace || {};
+    const rawSpans = Array.isArray(record.spans) ? record.spans : [];
+    let startedMs = traceTimeMs(record.started_at || record.start || record.start_time || record.started);
+    let endedMs = traceTimeMs(record.ended_at || record.end || record.end_time || record.ended);
+    let durationMs = Number(record.duration_ms);
+    if (!Number.isFinite(durationMs) || durationMs < 0) {
+      durationMs = startedMs !== null && endedMs !== null ? Math.max(0, endedMs - startedMs) : 0;
+    }
+    if (startedMs === null && endedMs !== null) startedMs = endedMs - durationMs;
+    if (endedMs === null && startedMs !== null) endedMs = startedMs + durationMs;
+    const derivedTurns = rawSpans.filter(function (span) { return traceKind(span) === "turn"; }).length;
+    const derivedTools = rawSpans.filter(function (span) {
+      const kind = traceKind(span);
+      return kind === "tool" || kind === "mcp";
+    }).length;
+    return {
+      raw: record,
+      id: traceId(record),
+      title: String(record.title || record.name || record.session_title || record.trace_id || record.id || "Untitled trace"),
+      project: traceProject(record),
+      cwd: traceCwd(record),
+      status: traceStatus(record),
+      startedMs: startedMs,
+      endedMs: endedMs,
+      durationMs: durationMs,
+      turns: Number(record.turns || record.turn_count) || derivedTurns,
+      toolCalls: Number(record.tool_calls || record.tool_count || record.tools) || derivedTools,
+      models: traceModels(record, rawSpans),
+      tokens: traceTokenTotals(record, rawSpans),
+      spans: rawSpans
+    };
+  }
+
+  function normalizeSpan(span, index) {
+    const record = span || {};
+    const attrs = record.attributes && typeof record.attributes === "object" ? record.attributes : {};
+    let startMs = traceTimeMs(record.started_at || record.start || record.start_time || record.ts);
+    let endMs = traceTimeMs(record.ended_at || record.end || record.end_time);
+    let durationMs = Number(record.duration_ms);
+    if (!Number.isFinite(durationMs) || durationMs < 0) {
+      durationMs = startMs !== null && endMs !== null ? Math.max(0, endMs - startMs) : 0;
+    }
+    if (startMs === null) startMs = 0;
+    if (endMs === null) endMs = startMs + durationMs;
+    const parent = record.parent_span_id || record.parent_id || record.parent_span || record.parent;
+    return {
+      raw: record,
+      id: String(record.span_id || record.id || record.spanId || "span-" + index),
+      parentId: parent === null || parent === undefined || parent === "" ? null : String(parent),
+      name: String(record.name || record.span_name || record.label || record.kind || "span"),
+      kind: traceKind(record),
+      status: traceStatus(record),
+      startMs: startMs,
+      endMs: endMs,
+      durationMs: durationMs,
+      actor: String(record.actor || record.agent || record.actor_id || record.harness ||
+        attrs.actor || attrs.agent || "main"),
+      model: String(record.model || attrs.model || ""),
+      project: traceProject(record),
+      cwd: traceCwd(record),
+      input: record.input !== undefined ? record.input : record.input_payload,
+      output: record.output !== undefined ? record.output : record.output_payload,
+      attributes: attrs
+    };
+  }
+
+  function traceListFrom(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.traces)) return payload.traces;
+    if (payload && Array.isArray(payload.sessions)) return payload.sessions;
+    return [];
+  }
+
+  function traceDetailFrom(payload, fallback) {
+    const list = traceListFrom(payload);
+    const root = (payload && payload.trace) || list[0] || (payload && payload.session) || payload || fallback;
+    let spans = [];
+    if (payload && Array.isArray(payload.spans)) spans = payload.spans;
+    else if (payload && payload.trace && Array.isArray(payload.trace.spans)) spans = payload.trace.spans;
+    else if (root && Array.isArray(root.spans)) spans = root.spans;
+    else if (fallback && Array.isArray(fallback.spans)) spans = fallback.spans;
+    return {
+      trace: normalizeTrace(root || fallback),
+      spans: spans.map(normalizeSpan)
+    };
+  }
+
+  function traceMetric(label, value) {
+    const node = el("span");
+    node.appendChild(el("b", null, value));
+    node.appendChild(document.createTextNode(" " + label));
+    return node;
+  }
+
+  function traceRow(trace) {
+    const row = el("div", "trace-row");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", "Open trace " + trace.title);
+    const main = el("div", "trace-main");
+    main.appendChild(el("div", "trace-title", trace.title));
+    const sub = el("div", "trace-sub");
+    if (trace.project) sub.appendChild(el("span", null, trace.project));
+    if (trace.cwd) {
+      const cwd = el("span", null, trace.cwd);
+      cwd.title = trace.cwd;
+      sub.appendChild(cwd);
+    }
+    if (trace.startedMs !== null) {
+      sub.appendChild(el("span", null, "started " + timeAgo(new Date(trace.startedMs).toISOString())));
+    }
+    if (trace.models.length) sub.appendChild(el("span", null, trace.models.slice(0, 3).join(", ")));
+    main.appendChild(sub);
+    row.appendChild(main);
+    const metrics = el("div", "trace-metrics");
+    metrics.appendChild(traceMetric("duration", formatDuration(trace.durationMs)));
+    metrics.appendChild(traceMetric("turns", trace.turns));
+    metrics.appendChild(traceMetric("tools", trace.toolCalls));
+    if (trace.tokens.total) metrics.appendChild(traceMetric("tokens", formatTokens(trace.tokens.total)));
+    const status = el("span", "trace-status", trace.status || "—");
+    status.style.color = traceStatusColor(trace.status);
+    status.style.borderColor = "color-mix(in srgb, " + traceStatusColor(trace.status) + " 45%, transparent)";
+    metrics.appendChild(status);
+    row.appendChild(metrics);
+    row.addEventListener("click", function () { openTrace(trace); });
+    row.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openTrace(trace);
+      }
+    });
+    return row;
+  }
+
+  function renderTraceList() {
+    const list = $("trace-list");
+    const stateBox = $("trace-state");
+    const note = $("trace-list-note");
+    if (!list || !stateBox) return;
+    if (state.tracesError) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.tracesError;
+      if (note) note.textContent = "unavailable";
+      return;
+    }
+    if (!state.tracesLoaded) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading traces…";
+      if (note) note.textContent = "loading…";
+      return;
+    }
+    const traces = state.traces;
+    list.replaceChildren.apply(list, traces.map(traceRow));
+    if (note) {
+      note.textContent = traces.length + (traces.length === 1 ? " trace" : " traces") +
+        (state.tracesFetchedAt
+          ? " · updated " + timeAgo(new Date(state.tracesFetchedAt).toISOString())
+          : "");
+    }
+    stateBox.hidden = traces.length > 0;
+    stateBox.textContent = traces.length ? "" : "No traces yet.";
+  }
+
+  function renderTracesView() {
+    const listWrap = $("trace-list-wrap");
+    const explorer = $("trace-explorer");
+    if (!listWrap || !explorer) return;
+    listWrap.hidden = state.traceExplorerOpen;
+    explorer.hidden = !state.traceExplorerOpen;
+    if (state.traceExplorerOpen) renderTraceExplorer();
+    else renderTraceList();
+  }
+
+  async function loadTraces() {
+    if (traceInFlight) return;
+    traceInFlight = true;
+    const refresh = $("trace-refresh");
+    if (refresh) refresh.disabled = true;
+    state.tracesError = null;
+    renderTraceList();
+    try {
+      const payload = await api.get("/api/traces?limit=200");
+      state.traces = traceListFrom(payload).map(normalizeTrace);
+      state.tracesLoaded = true;
+      state.tracesFetchedAt = Date.now();
+      renderTraceList();
+    } catch (error) {
+      state.tracesLoaded = true;
+      state.traces = [];
+      if (error && (error.status === 404 || error.status === 405 || error.status === 503)) {
+        state.tracesError = "Traces unavailable on this server";
+      } else {
+        state.tracesError = "Traces failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      renderTraceList();
+    } finally {
+      traceInFlight = false;
+      if (refresh) refresh.disabled = false;
+    }
+  }
+
+  function openTrace(trace) {
+    state.traceExplorerOpen = true;
+    state.selectedTraceId = trace.id;
+    state.traceSelectedSpanId = null;
+    state.traceDetail = trace;
+    state.traceSpans = Array.isArray(trace.spans) ? trace.spans.map(normalizeSpan) : [];
+    state.traceDetailError = null;
+    state.traceCollapsed = new Set();
+    renderTracesView();
+    loadTraceDetail(trace);
+  }
+
+  function closeTraceExplorer() {
+    state.traceExplorerOpen = false;
+    state.traceSelectedSpanId = null;
+    renderTracesView();
+  }
+
+  async function loadTraceDetail(trace) {
+    if (!trace || !trace.id) return;
+    traceDetailInFlight = true;
+    renderTraceExplorer();
+    try {
+      const payload = await api.get("/api/traces/" + encodeURIComponent(trace.id));
+      if (state.selectedTraceId !== trace.id) return;
+      const detail = traceDetailFrom(payload, trace);
+      state.traceDetail = detail.trace;
+      state.traceSpans = detail.spans;
+      state.traceDetailError = detail.spans.length ? null : "No spans recorded for this trace.";
+      renderTraceExplorer();
+    } catch (error) {
+      if (state.selectedTraceId !== trace.id) return;
+      if (state.traceSpans.length) {
+        state.traceDetailError = null;
+        renderTraceExplorer();
+        return;
+      }
+      if (error && (error.status === 404 || error.status === 405 || error.status === 503)) {
+        state.traceDetailError = "Trace details unavailable on this server";
+      } else {
+        state.traceDetailError = "Trace details failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      renderTraceExplorer();
+    } finally {
+      traceDetailInFlight = false;
+      if (state.selectedTraceId === trace.id) {
+        const note = $("trace-explorer-note");
+        if (note) note.textContent = state.traceDetailError || "";
+      }
+    }
+  }
+
+  function traceSpanTree() {
+    const spans = state.traceSpans;
+    const byId = new Map();
+    spans.forEach(function (span) { byId.set(span.id, span); });
+    const children = new Map();
+    const roots = [];
+    spans.forEach(function (span) {
+      if (span.parentId && byId.has(span.parentId)) {
+        const siblings = children.get(span.parentId) || [];
+        siblings.push(span);
+        children.set(span.parentId, siblings);
+      } else {
+        roots.push(span);
+      }
+    });
+    function walk(list, depth) {
+      list.sort(function (a, b) { return a.startMs - b.startMs || a.id.localeCompare(b.id); });
+      list.forEach(function (span) {
+        span.depth = depth;
+        walk(children.get(span.id) || [], depth + 1);
+      });
+    }
+    walk(roots, 0);
+    return { byId: byId, children: children, roots: roots };
+  }
+
+  function renderTraceSummary(trace) {
+    const box = $("trace-summary");
+    if (!box) return;
+    const spans = state.traceSpans;
+    const turns = trace.turns || spans.filter(function (span) { return span.kind === "turn"; }).length;
+    const toolCalls = trace.toolCalls || spans.filter(function (span) {
+      return span.kind === "tool" || span.kind === "mcp";
+    }).length;
+    const models = trace.models && trace.models.length ? trace.models : traceModels(trace, spans);
+    const tokens = trace.tokens && trace.tokens.total ? trace.tokens : traceTokenTotals(trace, spans);
+    const nodes = [];
+    function add(label, value) {
+      if (value === null || value === undefined || value === "") return;
+      const chip = el("span", "trace-summary-item");
+      chip.appendChild(el("b", null, String(value)));
+      chip.appendChild(document.createTextNode(" " + label));
+      nodes.push(chip);
+    }
+    add("project", trace.project);
+    add("cwd", trace.cwd);
+    add("duration", formatDuration(trace.durationMs));
+    add("turns", turns);
+    add("tools", toolCalls);
+    add("models", models.join(", "));
+    if (tokens.total) add("tokens", formatTokens(tokens.total));
+    box.replaceChildren.apply(box, nodes);
+    const status = $("trace-explorer-status");
+    if (status) status.remove();
+    if (trace.status) {
+      const badge = el("span", "trace-status", trace.status);
+      badge.id = "trace-explorer-status";
+      badge.style.color = traceStatusColor(trace.status);
+      badge.style.borderColor = "color-mix(in srgb, " + traceStatusColor(trace.status) + " 45%, transparent)";
+      box.appendChild(badge);
+    }
+  }
+
+  function renderTraceExplorer() {
+    const trace = state.traceDetail || {};
+    const title = $("trace-explorer-title");
+    if (title) title.textContent = trace.title || "Trace";
+    state.traceTree = state.traceSpans.length ? traceSpanTree() : null;
+    renderTraceSummary(trace);
+    const note = $("trace-explorer-note");
+    if (note) {
+      note.textContent = traceDetailInFlight
+        ? "loading spans…"
+        : (state.traceDetailError || "");
+    }
+    const treeCount = $("trace-tree-count");
+    if (treeCount) {
+      treeCount.textContent = state.traceSpans.length +
+        (state.traceSpans.length === 1 ? " span" : " spans");
+    }
+    renderTraceTree();
+    renderTraceLanes();
+    renderTraceInspector();
+  }
+
+  function renderTraceTree() {
+    const box = $("trace-tree");
+    if (!box) return;
+    const scroll = box.scrollTop;
+    box.replaceChildren();
+    const tree = state.traceTree || traceSpanTree();
+    if (!state.traceSpans.length) {
+      box.appendChild(el("div", "trace-inspector-empty",
+        state.traceDetailError || "No spans recorded for this trace."));
+      box.scrollTop = scroll;
+      return;
+    }
+    function walk(list, depth) {
+      list.forEach(function (span) {
+        const kids = tree.children.get(span.id) || [];
+        const row = el("div", "trace-tree-row" +
+          (state.traceSelectedSpanId === span.id ? " selected" : ""));
+        row.style.paddingLeft = (4 + depth * 12) + "px";
+        if (kids.length) {
+          const collapsed = state.traceCollapsed.has(span.id);
+          const toggle = el("button", "trace-tree-toggle", collapsed ? "▸" : "▾");
+          toggle.type = "button";
+          toggle.setAttribute("aria-label",
+            (collapsed ? "Expand " : "Collapse ") + span.name);
+          toggle.addEventListener("click", function (event) {
+            event.stopPropagation();
+            if (state.traceCollapsed.has(span.id)) state.traceCollapsed.delete(span.id);
+            else state.traceCollapsed.add(span.id);
+            renderTraceTree();
+          });
+          row.appendChild(toggle);
+        } else {
+          row.appendChild(el("span", "trace-tree-toggle"));
+        }
+        const dot = el("span", "trace-kind-dot");
+        dot.style.background = traceKindColor(span.kind);
+        row.appendChild(dot);
+        row.appendChild(el("span", "trace-tree-label", span.name));
+        row.title = span.name + " · " + span.kind + " · " + formatDuration(span.durationMs) +
+          (span.status ? " · " + span.status : "");
+        row.setAttribute("role", "button");
+        row.tabIndex = 0;
+        row.addEventListener("click", function () { selectTraceSpan(span.id); });
+        row.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectTraceSpan(span.id);
+          }
+        });
+        box.appendChild(row);
+        if (!state.traceCollapsed.has(span.id)) walk(kids, depth + 1);
+      });
+    }
+    walk(tree.roots, 0);
+    box.scrollTop = scroll;
+  }
+
+  function traceLaneRank(actor) {
+    const index = TRACE_LANE_ORDER.indexOf(actor);
+    return index === -1 ? TRACE_LANE_ORDER.length : index;
+  }
+
+  function renderTraceLanes() {
+    const box = $("trace-lanes");
+    if (!box) return;
+    const scrollLeft = box.scrollLeft;
+    const scrollTop = box.scrollTop;
+    box.replaceChildren();
+    const scaleNote = $("trace-scale-note");
+    const laneCount = $("trace-lane-count");
+    if (!state.traceSpans.length) {
+      box.appendChild(el("div", "trace-inspector-empty",
+        state.traceDetailError || "No spans recorded for this trace."));
+      if (scaleNote) scaleNote.textContent = "";
+      if (laneCount) laneCount.textContent = "";
+      box.scrollLeft = scrollLeft;
+      box.scrollTop = scrollTop;
+      return;
+    }
+    const spans = state.traceSpans;
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
+    spans.forEach(function (span) {
+      minStart = Math.min(minStart, span.startMs);
+      maxEnd = Math.max(maxEnd, span.endMs);
+    });
+    if (!Number.isFinite(minStart)) minStart = 0;
+    if (maxEnd <= minStart) {
+      maxEnd = minStart + Math.max(1, (state.traceDetail && state.traceDetail.durationMs) || 1);
+    }
+    const total = maxEnd - minStart;
+    const lanes = new Map();
+    spans.forEach(function (span) {
+      const actor = span.actor || "main";
+      if (!lanes.has(actor)) lanes.set(actor, []);
+      lanes.get(actor).push(span);
+    });
+    const actors = Array.from(lanes.keys()).sort(function (a, b) {
+      return traceLaneRank(a) - traceLaneRank(b) || a.localeCompare(b);
+    });
+    const wrap = el("div", "trace-lanes");
+    actors.forEach(function (actor) {
+      const lane = el("div", "trace-lane");
+      const laneTitle = el("div", "trace-lane-title", actor);
+      laneTitle.appendChild(el("span", "muted", " · " + lanes.get(actor).length + " spans"));
+      lane.appendChild(laneTitle);
+      lanes.get(actor).slice().sort(function (a, b) {
+        return a.startMs - b.startMs || a.depth - b.depth;
+      }).forEach(function (span) {
+        const row = el("div", "trace-span-row");
+        if ((span.depth || 0) % 2) row.style.background = "rgba(88, 166, 255, 0.04)";
+        const label = el("div", "trace-span-label");
+        label.style.paddingLeft = ((span.depth || 0) * 10) + "px";
+        const dot = el("span", "trace-kind-dot");
+        dot.style.background = traceKindColor(span.kind);
+        label.appendChild(dot);
+        label.appendChild(document.createTextNode(span.name));
+        label.title = span.name;
+        row.appendChild(label);
+        const track = el("div", "trace-span-track");
+        const bar = el("div", "trace-bar" +
+          (state.traceSelectedSpanId === span.id ? " selected" : ""));
+        const left = ((span.startMs - minStart) / total) * 100;
+        const width = Math.max(0.4, (span.durationMs / total) * 100);
+        bar.style.left = left.toFixed(3) + "%";
+        bar.style.width = Math.min(100 - left, width).toFixed(3) + "%";
+        bar.style.background = traceKindColor(span.kind);
+        bar.title = span.name + " · " + span.kind + " · " + formatDuration(span.durationMs) +
+          (span.status ? " · " + span.status : "");
+        bar.setAttribute("role", "button");
+        bar.tabIndex = 0;
+        bar.addEventListener("click", function () { selectTraceSpan(span.id); });
+        bar.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectTraceSpan(span.id);
+          }
+        });
+        track.appendChild(bar);
+        row.appendChild(track);
+        lane.appendChild(row);
+      });
+      const ticks = el("div", "trace-ticks");
+      [0, 0.25, 0.5, 0.75, 1].forEach(function (fraction) {
+        ticks.appendChild(el("span", null, formatDuration(total * fraction)));
+      });
+      lane.appendChild(ticks);
+      wrap.appendChild(lane);
+    });
+    box.appendChild(wrap);
+    if (scaleNote) scaleNote.textContent = formatDuration(total);
+    if (laneCount) laneCount.textContent = actors.length + (actors.length === 1 ? " lane" : " lanes");
+    box.scrollLeft = scrollLeft;
+    box.scrollTop = scrollTop;
+  }
+
+  function traceJsonText(value) {
+    if (value === null || value === undefined || value === "") return "";
+    let text;
+    try {
+      text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    } catch (err) {
+      text = String(value);
+    }
+    if (!text) return "";
+    const max = 4000;
+    return text.length > max
+      ? text.slice(0, max) + "\n… truncated (" + text.length + " chars)"
+      : text;
+  }
+
+  function traceInspectorSection(title, value) {
+    const section = el("div", "trace-inspector");
+    section.appendChild(el("h4", null, title));
+    section.appendChild(el("pre", "trace-json", traceJsonText(value)));
+    return section;
+  }
+
+  function renderTraceInspector() {
+    const box = $("trace-inspector");
+    if (!box) return;
+    const scroll = box.scrollTop;
+    box.replaceChildren();
+    const span = state.traceSpans.find(function (item) {
+      return item.id === state.traceSelectedSpanId;
+    });
+    if (!span) {
+      box.appendChild(el("div", "trace-inspector-empty", state.traceSpans.length
+        ? "Select a span in the tree or swimlanes to inspect it."
+        : (state.traceDetailError || "No spans recorded for this trace.")));
+      box.scrollTop = scroll;
+      return;
+    }
+    const wrap = el("div", "trace-inspector");
+    wrap.appendChild(el("h4", null, "Span"));
+    const kv = el("dl", "trace-kv");
+    function addKV(key, value) {
+      kv.appendChild(el("dt", null, key));
+      kv.appendChild(el("dd", null,
+        value === null || value === undefined || value === "" ? "—" : value));
+    }
+    addKV("Name", span.name);
+    addKV("Kind", span.kind);
+    addKV("Status", span.status);
+    addKV("Start", span.startMs ? fullTime(new Date(span.startMs).toISOString()) : "—");
+    addKV("End", span.endMs ? fullTime(new Date(span.endMs).toISOString()) : "—");
+    addKV("Duration", formatDuration(span.durationMs));
+    addKV("Actor", span.actor);
+    addKV("Model", span.model);
+    addKV("Project", span.project);
+    addKV("CWD", span.cwd);
+    addKV("Span ID", span.id);
+    addKV("Parent", span.parentId);
+    wrap.appendChild(kv);
+    box.appendChild(wrap);
+    if (span.input !== undefined && span.input !== null && span.input !== "") {
+      box.appendChild(traceInspectorSection("Input", span.input));
+    }
+    if (span.output !== undefined && span.output !== null && span.output !== "") {
+      box.appendChild(traceInspectorSection("Output", span.output));
+    }
+    if (Object.keys(span.attributes).length) {
+      box.appendChild(traceInspectorSection("Attributes", span.attributes));
+    }
+    box.scrollTop = scroll;
+  }
+
+  function selectTraceSpan(id) {
+    state.traceSelectedSpanId = id;
+    renderTraceTree();
+    renderTraceLanes();
+    renderTraceInspector();
+  }
+
+  function traceEscape() {
+    if (state.view !== "traces") return false;
+    if (state.traceSelectedSpanId) {
+      state.traceSelectedSpanId = null;
+      renderTraceTree();
+      renderTraceLanes();
+      renderTraceInspector();
+      return true;
+    }
+    if (state.traceExplorerOpen) {
+      closeTraceExplorer();
+      return true;
+    }
+    return false;
+  }
+
   // ------------------------------------------------------------------ form
 
   function populateFormTypeOptions() {
@@ -2894,6 +3761,14 @@
       closeEventModal();
       if (taskId) openTaskFromFeed(taskId);
     });
+    $("trace-refresh").addEventListener("click", function () { loadTraces(); });
+    $("trace-back").addEventListener("click", closeTraceExplorer);
+    $("trace-inspector-close").addEventListener("click", function () {
+      state.traceSelectedSpanId = null;
+      renderTraceTree();
+      renderTraceLanes();
+      renderTraceInspector();
+    });
     $("coverage-open").addEventListener("click", openCoverage);
     $("coverage-close").addEventListener("click", closeCoverage);
     $("coverage-refresh").addEventListener("click", function () { loadCoverage(); });
@@ -2915,6 +3790,7 @@
       if (!$("evidence-modal").hidden) { closeEvidence(); return; }
       if (!$("coverage-modal").hidden) { closeCoverage(); return; }
       if (!$("modal").hidden) { closeForm(); return; }
+      if (traceEscape()) return;
       if (!$("drawer").hidden) {
         state.selectedId = null;
         renderRows();
