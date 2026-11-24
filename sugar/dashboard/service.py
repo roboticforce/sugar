@@ -442,7 +442,11 @@ class DashboardService:
             "priority": priority,
             "status": status,
             "source": "dashboard",
-            "context": {"added_via": "sugar_dashboard"},
+            "context": {
+                "added_via": "sugar_dashboard",
+                "cwd": os.getcwd(),
+                "project": os.path.basename(os.getcwd()),
+            },
             "acceptance_criteria": acceptance_criteria,
             "blocked_by": blocked_by,
         }

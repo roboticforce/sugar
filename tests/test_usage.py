@@ -39,6 +39,12 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_prices(tmp_path, monkeypatch):
+    """Keep estimates deterministic unless a test opts into a price table."""
+    monkeypatch.setenv("SUGAR_MODEL_PRICES", str(tmp_path / "no-prices.json"))
+
+
 _MISSING = object()
 
 
@@ -201,6 +207,8 @@ class TestAggregateUsage:
             "tokens_out": 370,
             "tokens_total": 670,
             "cost_usd": pytest.approx(0.06),
+            "estimated_cost_usd": 0.0,
+            "cost_basis": "reported",
         }
 
     def test_skips_garbage_events(self):
@@ -230,7 +238,7 @@ class TestAggregateUsage:
     def test_every_group_dimension(self, dimension):
         events = [
             make_event(
-                payload={"tokens_in": 100, "cost_usd": 0.5},
+                payload={"tokens_in": 100, "cost_usd": 0.5, "model": "model-a"},
                 actor="alice",
                 harness="claude-code",
                 task_id="t_a",
@@ -238,7 +246,7 @@ class TestAggregateUsage:
                 ts="2026-11-01T10:00:00Z",
             ),
             make_event(
-                payload={"tokens_in": 50, "cost_usd": 0.25},
+                payload={"tokens_in": 50, "cost_usd": 0.25, "model": "model-b"},
                 actor="bob",
                 harness="dsh",
                 task_id="t_b",
@@ -247,7 +255,7 @@ class TestAggregateUsage:
             ),
             make_event(
                 kind="run.ended",
-                payload={"tokens_in": 10, "cost_usd": 0.1},
+                payload={"tokens_in": 10, "cost_usd": 0.1, "model": "model-a"},
                 actor="alice",
                 harness="claude-code",
                 task_id="t_a",
@@ -263,6 +271,7 @@ class TestAggregateUsage:
             "harness": {"claude-code", "dsh"},
             "task": {"t_a", "t_b"},
             "project": {"alpha", "beta"},
+            "model": {"model-a", "model-b"},
             "day": {"2026-11-01", "2026-11-02"},
             "kind": {"usage.reported", "run.ended"},
         }[dimension]
@@ -298,9 +307,10 @@ class TestAggregateUsage:
 
     def test_invalid_group_by(self):
         with pytest.raises(UsageQueryError):
-            aggregate_usage([], group_by="model")
+            aggregate_usage([], group_by="bogus")
         assert validate_group_by(None) is None
         assert validate_group_by("  HARNESS ") == "harness"
+        assert validate_group_by("  MODEL ") == "model"
 
     def test_empty_events(self):
         report = aggregate_usage([])
@@ -487,6 +497,8 @@ class TestUsageReport:
             "tokens_out": 0,
             "tokens_total": 0,
             "cost_usd": 0.0,
+            "estimated_cost_usd": 0.0,
+            "cost_basis": "unavailable",
         }
         assert report["groups"] == []
         assert report["truncated"] is False
@@ -540,6 +552,8 @@ class TestUsageAPI:
             "tokens_out": 60,
             "tokens_total": 660,
             "cost_usd": pytest.approx(0.6),
+            "estimated_cost_usd": 0.0,
+            "cost_basis": "reported",
         }
         assert report["groups"] == []
         assert report["group_by"] is None
@@ -554,6 +568,23 @@ class TestUsageAPI:
         assert [group["key"] for group in groups] == ["dsh", "claude-code"]
         assert groups[0]["cost_usd"] == pytest.approx(0.5)
         assert groups[0]["events"] == 2
+
+    def test_group_by_model(self, client):
+        post_events(
+            client,
+            [
+                make_event(payload={"tokens_in": 10, "model": "model-a"}),
+                make_event(payload={"tokens_in": 20, "model": "model-b"}),
+                make_event(payload={"tokens_in": 5, "model": "model-a"}),
+            ],
+        )
+        report = client.get("/api/usage", params={"group_by": "model"}).json()
+        assert [group["key"] for group in report["groups"]] == [
+            "model-a",
+            "model-b",
+        ]
+        assert report["groups"][0]["events"] == 2
+        assert report["group_by"] == "model"
 
     def test_group_by_day(self, client):
         post_events(client, SPINE_EVENTS)
@@ -584,7 +615,7 @@ class TestUsageAPI:
 
     def test_validation_errors_are_400(self, client):
         for params in (
-            {"group_by": "model"},
+            {"group_by": "bogus"},
             {"since": "not-a-date"},
             {"until": "2026-13-40"},
             {"limit": "abc"},
@@ -661,6 +692,35 @@ class TestUsageCLI:
         assert "events" in result.output and "cost_usd" in result.output
         assert "0.6000" in result.output
 
+    def test_group_by_model_cli(self, runner, tmp_path):
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(payload={"tokens_in": 10, "model": "model-a"}),
+                make_event(payload={"tokens_in": 20, "model": "model-b"}),
+            ],
+            name="models.db",
+        )
+        result = self.invoke(
+            runner, tmp_path, "--db", db, "--group-by", "model", "--json"
+        )
+        assert result.exit_code == 0, result.output
+        report = json.loads(result.output)
+        assert report["group_by"] == "model"
+        assert {group["key"] for group in report["groups"]} == {
+            "model-a",
+            "model-b",
+        }
+
+    def test_table_shows_reported_and_estimated_columns(
+        self, runner, tmp_path, events_db
+    ):
+        result = self.invoke(runner, tmp_path, "--db", events_db)
+        assert result.exit_code == 0, result.output
+        assert "cost_usd" in result.output
+        assert "estimated_cost_usd" in result.output
+        assert "cost_basis" in result.output
+
     def test_grouped_table_and_truncation_note(self, runner, tmp_path, events_db):
         result = self.invoke(
             runner, tmp_path, "--db", events_db, "--group-by", "harness", "--limit", "2"
@@ -698,7 +758,7 @@ class TestUsageCLI:
         assert "invalid timestamp" in result.output
 
     def test_invalid_group_by_is_a_usage_error(self, runner, tmp_path, events_db):
-        result = self.invoke(runner, tmp_path, "--db", events_db, "--group-by", "model")
+        result = self.invoke(runner, tmp_path, "--db", events_db, "--group-by", "bogus")
         assert result.exit_code != 0
 
 
@@ -729,3 +789,183 @@ def test_format_usage_table_without_groups_hint():
 def test_format_usage_table_handles_missing_totals():
     text = format_usage_table({})
     assert "TOTAL" in text
+
+
+# ---------------------------------------------------------------------------
+# Optional pricing estimates
+# ---------------------------------------------------------------------------
+
+
+def write_prices(tmp_path, data):
+    path = tmp_path / "model-prices.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+class TestPricingEstimates:
+    def test_no_price_file_means_no_estimates(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(tmp_path / "missing.json"))
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    payload={
+                        "tokens_in": 1_000_000,
+                        "tokens_out": 500_000,
+                        "model": "m1",
+                    }
+                )
+            ],
+        )
+        report = run(usage_report(db))
+        assert report["totals"]["cost_usd"] == 0.0
+        assert report["totals"]["estimated_cost_usd"] == 0.0
+        assert report["totals"]["cost_basis"] == "unavailable"
+
+    def test_estimated_cost_math_and_model_groups(self, tmp_path, monkeypatch):
+        path = write_prices(
+            tmp_path,
+            {"m1": {"input_per_mtok": 2.0, "output_per_mtok": 4.0}},
+        )
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(path))
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    payload={
+                        "tokens_in": 1_000_000,
+                        "tokens_out": 500_000,
+                        "model": "m1",
+                    }
+                ),
+                make_event(
+                    payload={
+                        "tokens_in": 250_000,
+                        "tokens_out": 250_000,
+                        "model": "m1",
+                    }
+                ),
+            ],
+        )
+        report = run(usage_report(db, group_by="model"))
+        # 1M*2 + 0.5M*4 = 4.0; 0.25M*2 + 0.25M*4 = 1.5
+        assert report["totals"]["estimated_cost_usd"] == pytest.approx(5.5)
+        assert report["totals"]["cost_usd"] == 0.0
+        assert report["totals"]["cost_basis"] == "estimated"
+        assert len(report["groups"]) == 1
+        group = report["groups"][0]
+        assert group["key"] == "m1"
+        assert group["estimated_cost_usd"] == pytest.approx(5.5)
+        assert group["cost_basis"] == "estimated"
+
+    def test_reported_cost_is_never_overwritten(self, tmp_path, monkeypatch):
+        path = write_prices(
+            tmp_path,
+            {"m1": {"input_per_mtok": 2.0, "output_per_mtok": 4.0}},
+        )
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(path))
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    payload={
+                        "tokens_in": 1_000_000,
+                        "tokens_out": 0,
+                        "model": "m1",
+                        "cost_usd": 0.42,
+                    }
+                )
+            ],
+        )
+        report = run(usage_report(db))
+        assert report["totals"]["cost_usd"] == pytest.approx(0.42)
+        assert report["totals"]["estimated_cost_usd"] == pytest.approx(2.0)
+        assert report["totals"]["cost_basis"] == "mixed"
+
+    def test_partial_model_coverage(self, tmp_path, monkeypatch):
+        path = write_prices(
+            tmp_path,
+            {"priced": {"input_per_mtok": 2.0, "output_per_mtok": 4.0}},
+        )
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(path))
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    payload={
+                        "tokens_in": 1_000_000,
+                        "tokens_out": 0,
+                        "model": "priced",
+                    }
+                ),
+                make_event(
+                    payload={
+                        "tokens_in": 1_000_000,
+                        "tokens_out": 0,
+                        "model": "unpriced",
+                    }
+                ),
+            ],
+        )
+        report = run(usage_report(db, group_by="model"))
+        assert report["totals"]["estimated_cost_usd"] == pytest.approx(2.0)
+        assert report["totals"]["cost_basis"] == "estimated"
+        groups = {group["key"]: group for group in report["groups"]}
+        assert groups["priced"]["estimated_cost_usd"] == pytest.approx(2.0)
+        assert groups["priced"]["cost_basis"] == "estimated"
+        assert groups["unpriced"]["estimated_cost_usd"] == 0.0
+        assert groups["unpriced"]["cost_basis"] == "unavailable"
+
+    def test_malformed_price_file_is_ignored(self, tmp_path, monkeypatch):
+        path = tmp_path / "model-prices.json"
+        path.write_text("{not json", encoding="utf-8")
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(path))
+        db = make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    payload={
+                        "tokens_in": 1000,
+                        "model": "m1",
+                        "cost_usd": 0.25,
+                    }
+                )
+            ],
+        )
+        report = run(usage_report(db))
+        assert report["totals"]["cost_usd"] == pytest.approx(0.25)
+        assert report["totals"]["estimated_cost_usd"] == 0.0
+        assert report["totals"]["cost_basis"] == "reported"
+
+    def test_invalid_entries_are_ignored(self):
+        from sugar.dashboard.pricing import parse_price_table
+
+        parsed = parse_price_table(
+            {
+                "good": {"input_per_mtok": 1, "output_per_mtok": 2},
+                "missing_output": {"input_per_mtok": 1},
+                "negative": {"input_per_mtok": -1, "output_per_mtok": 1},
+                "garbage": "nope",
+                "": {"input_per_mtok": 1, "output_per_mtok": 1},
+            }
+        )
+        assert set(parsed) == {"good"}
+        assert parsed["good"].input_per_mtok == 1.0
+        assert parsed["good"].output_per_mtok == 2.0
+
+    def test_resolve_and_estimate_helpers(self, tmp_path, monkeypatch):
+        from sugar.dashboard import pricing
+
+        path = write_prices(
+            tmp_path,
+            {"m1": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}},
+        )
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(path))
+        assert pricing.resolve_price_path() == path
+        table = pricing.load_price_table()
+        assert table.get("M1") is not None  # case-insensitive fallback
+        assert table.estimate_cost("m1", 1_000_000, 500_000) == pytest.approx(2.0)
+        assert table.estimate_cost("unknown", 1_000_000, 0) is None
+        assert pricing.estimate_cost("m1", 1_000_000, 0, table=table) == pytest.approx(
+            1.0
+        )
