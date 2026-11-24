@@ -39,6 +39,7 @@ from .security import (
     forbidden_scope_response,
 )
 from ..evidence.query import EvidenceQueryError, query_evidence
+from .traces import TraceQueryError, trace_detail_report, trace_list_report
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
 from ..telemetry import otlp as otlp_mod
@@ -240,6 +241,44 @@ async def activity(request: Request) -> JSONResponse:
         task_id=(params.get("task_id") or "").strip() or None,
     )
     return JSONResponse({"events": events, "last_id": last_id})
+
+
+async def traces(request: Request) -> JSONResponse:
+    """List session traces (``GET /api/traces``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await trace_list_report(
+            spine.db_path,
+            limit=params.get("limit"),
+            project=params.get("project"),
+            harness=params.get("harness"),
+            since=params.get("since"),
+        )
+    except TraceQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
+async def trace_detail(request: Request) -> JSONResponse:
+    """Session trace + flat spans (``GET /api/traces/{trace_id}``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    trace_id = request.path_params["trace_id"]
+    try:
+        report = await trace_detail_report(spine.db_path, trace_id)
+    except TraceQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    if report is None:
+        raise DashboardError(404, "not_found")
+    return JSONResponse(report)
 
 
 async def usage(request: Request) -> JSONResponse:
@@ -636,6 +675,8 @@ def create_app(
         Route("/api/stats", stats, methods=["GET"]),
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
+        Route("/api/traces", traces, methods=["GET"]),
+        Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),
         Route("/api/trends", trends, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
