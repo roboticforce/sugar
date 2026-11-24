@@ -6,9 +6,12 @@ State is a small JSON checkpoint file (default ``~/.sugar/dsh-tail-state.json``)
         {"session_id": "...", "last_seq": 42, "size": 123456, "updated_at": "..."}}}
 
 The checkpoint is written atomically after each cycle. Delivery is fail-open and
-at-most-once per DSH sequence number: a board outage never blocks the tail, and
-successfully processed events are not replayed (the DSH log itself is the source
-of truth if you need to re-ingest; delete the state file to replay from scratch).
+at-most-once per (DSH sequence number, canonical event): a board outage never
+blocks the tail, and successfully processed events are not replayed (the DSH log
+itself is the source of truth if you need to re-ingest; delete the state file to
+replay from scratch). One raw DSH event can validly map to several canonical
+events (e.g. ``tool.completed`` + ``artifact.created``), so dedupe is by event
+identity, not by sequence number alone.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from ..integrations.client import SugarTelemetryClient
 from .discover import DiscoveredSession, default_sessions_dir, discover_sessions
 from .parse import (
     DshParseError,
+    ParsedEvent,
     SessionParseResult,
     normalize_since,
     parse_session_file,
@@ -169,6 +173,24 @@ def _session_size(session: DiscoveredSession) -> Optional[int]:
         return None
 
 
+def _event_identity(item: ParsedEvent) -> tuple:
+    """Stable dedupe key for one parsed canonical event.
+
+    A single raw DSH event may yield several events with the same DSH sequence
+    number (trace enrichment adds e.g. artifacts next to a tool result), so the
+    sequence number alone must not collapse them. Identical duplicate log lines
+    still produce identical envelopes and are deduped.
+    """
+    payload = item.envelope.get("payload")
+    try:
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), default=str
+        )
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        encoded = repr(payload)
+    return (item.seq, item.kind, encoded)
+
+
 def _entry_reset_needed(
     entry: Optional[Dict[str, Any]], session: DiscoveredSession, size: int
 ) -> bool:
@@ -292,10 +314,11 @@ def tail_once(
 
         seen = set()
         for item in parsed.events:
-            if item.seq in seen:
+            identity = _event_identity(item)
+            if identity in seen:
                 result.skipped += 1
                 continue
-            seen.add(item.seq)
+            seen.add(identity)
             _emit_one(emitter, item.envelope, result)
             result.events += 1
 
