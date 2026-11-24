@@ -36,6 +36,7 @@ against one board:
 
 - **[Mission Control](mission-control.md)** - Dashboard, native macOS app, provenance and the event spine: the whole control plane in one place
 - **[Web Mission Control](web-mission-control.md)** - The browser dashboard on any OS: Tasks, live Activity over SSE, Coverage, Evidence, near-real-time latency and team access, with screenshots and a live clip
+- **[Live web demo](https://roboticforce.io/sugar/demo)** - Interactive, simulated dashboard: Tasks, live Activity, Coverage and Evidence with clickable task details (no install)
 - **[Local Dashboard API](local-dashboard.md)** - Frozen REST/SSE contract, board sources (`--board sugar|kanban`), provenance fields, event-spine schema
 - **[Sugar as a Team Bus](agent-teams.md)** - Code-grounded analysis: what Sugar already does for multi-agent coordination, the gaps, and the phased plan
 - **[Agent Teams: Architecture & Domain Boundaries](agent-teams-architecture.md)** - Wardley map (build vs. adopt vs. commodity), C4-style architecture, DDD bounded contexts, trust boundaries, and the investment split
