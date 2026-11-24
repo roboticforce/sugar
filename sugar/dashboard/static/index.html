@@ -3119,7 +3119,7 @@
     state.tracesError = null;
     renderTraceList();
     try {
-      const payload = await api.get("/api/traces?limit=200");
+      const payload = await api.get("/api/traces?limit=100");
       state.traces = traceListFrom(payload).map(normalizeTrace);
       state.tracesLoaded = true;
       state.tracesFetchedAt = Date.now();
