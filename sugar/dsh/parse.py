@@ -15,6 +15,17 @@ Event shapes seen in real logs (v4):
 - ``tool/result`` has ``data.toolCallId`` or nests it in
   ``data.message.{toolCallId,source.callId}`` and reports failure via
   ``data.isError`` / ``data.message.isError`` / ``data.error``.
+- ``assistant/message`` (and ``assistant/attempt`` when it carries usage)
+  includes ``data.usage`` = ``{inputTokens, outputTokens, cacheReadTokens,
+  cacheWriteTokens, totalTokens}``. These are **per-response incremental**
+  counters for that single model call (input + output + cache read + cache
+  write == totalTokens), not cumulative session sums — so one
+  ``usage.reported`` is emitted per record (deduped by a usage fingerprint)
+  and summing them is correct. ``tokens_in`` is the full prompt side (fresh
+  input + cache read + cache write) so ``tokens_in + tokens_out`` equals the
+  provider's ``totalTokens``; the fresh slice is kept as ``input_tokens``.
+  ``compaction/summary`` usage is a separate compaction call and is
+  intentionally not counted here.
 """
 
 from __future__ import annotations
@@ -40,6 +51,30 @@ MAX_RESULT_TEXT = 4000
 _MODEL_PATTERN = re.compile(r"['\"]model['\"]\s*:\s*['\"]([^'\"]{1,200})['\"]")
 _PROVIDER_PATTERN = re.compile(r"['\"]provider['\"]\s*:\s*['\"]([^'\"]{1,200})['\"]")
 
+#: DSH usage object keys -> canonical token buckets (camelCase first, snake_case
+#: tolerated for generated/future logs).
+_USAGE_INPUT_KEYS = ("inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
+_USAGE_OUTPUT_KEYS = (
+    "outputTokens",
+    "output_tokens",
+    "completionTokens",
+    "completion_tokens",
+)
+_USAGE_CACHE_READ_KEYS = (
+    "cacheReadTokens",
+    "cache_read_tokens",
+    "cache_read_input_tokens",
+)
+_USAGE_CACHE_WRITE_KEYS = (
+    "cacheWriteTokens",
+    "cache_write_tokens",
+    "cache_creation_input_tokens",
+)
+_USAGE_TOTAL_KEYS = ("totalTokens", "total_tokens")
+
+#: Event types that can carry an assistant-response usage object.
+_USAGE_EVENT_TYPES = ("assistant/message", "assistant/attempt")
+
 _IGNORED_TYPES = frozenset(
     {
         "session/title",
@@ -48,7 +83,6 @@ _IGNORED_TYPES = frozenset(
         "agent/inbox/spliced",
         "system/message",
         "user/message",
-        "assistant/message",
         "todo/write",
         "request/context",
         "job/registered",
@@ -279,6 +313,136 @@ def _parse_arguments(value: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str
     return None, text[:2000]
 
 
+def _first_int(data: Mapping[str, Any], keys: Sequence[str]) -> Optional[int]:
+    for key in keys:
+        value = _as_int(data.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _project_from_cwd(cwd: Optional[str]) -> Optional[str]:
+    """Project label for usage grouping: basename of the session cwd."""
+    if not isinstance(cwd, str) or not cwd.strip():
+        return None
+    text = cwd.strip().rstrip("/\\")
+    if not text:
+        return None
+    name = text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].strip()
+    return name or None
+
+
+def _usage_summary(data: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Normalize one DSH assistant ``usage`` object to canonical token buckets.
+
+    DSH reports ``inputTokens`` (fresh/uncached prompt), ``outputTokens``,
+    ``cacheReadTokens``/``cacheWriteTokens`` and ``totalTokens``, where
+    ``totalTokens == input + output + cache read + cache write`` for that one
+    model call. ``tokens_in`` is the **full prompt side** (fresh input + cache
+    read/write) so the aggregator's ``tokens_total`` (in + out) equals DSH's
+    own ``totalTokens`` — i.e. /api/usage reports the same token volume the
+    provider counted. The fresh-input slice stays available as
+    ``input_tokens`` and the cache slices as ``cache_read_tokens`` /
+    ``cache_write_tokens`` for future cost mapping.
+
+    Each record is per-response incremental (never cumulative), so no
+    delta/cumulative arithmetic is applied; duplicates are deduped by the
+    caller's fingerprint.
+    """
+    usage = data.get("usage")
+    if not isinstance(usage, Mapping):
+        message = data.get("message")
+        if isinstance(message, Mapping) and isinstance(message.get("usage"), Mapping):
+            usage = message.get("usage")
+        else:
+            return None
+
+    input_tokens = _first_int(usage, _USAGE_INPUT_KEYS)
+    tokens_out = _first_int(usage, _USAGE_OUTPUT_KEYS)
+    cache_read = _first_int(usage, _USAGE_CACHE_READ_KEYS)
+    cache_write = _first_int(usage, _USAGE_CACHE_WRITE_KEYS)
+    provider_total = _first_int(usage, _USAGE_TOTAL_KEYS)
+    cache_total = max(cache_read or 0, 0) + max(cache_write or 0, 0)
+    if tokens_out is None and provider_total is not None and input_tokens is not None:
+        tokens_out = max(provider_total - input_tokens - cache_total, 0)
+    if input_tokens is None and provider_total is not None and tokens_out is not None:
+        input_tokens = max(provider_total - tokens_out - cache_total, 0)
+    if input_tokens is None and tokens_out is None:
+        return None
+    input_tokens = max(input_tokens or 0, 0)
+    tokens_out = max(tokens_out or 0, 0)
+    tokens_in = input_tokens + cache_total
+
+    summary: Dict[str, Any] = {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "tokens_total": tokens_in + tokens_out,
+        "input_tokens": input_tokens,
+        "usage_source": "assistant/usage",
+    }
+    if cache_read is not None and cache_read >= 0:
+        summary["cache_read_tokens"] = cache_read
+    if cache_write is not None and cache_write >= 0:
+        summary["cache_write_tokens"] = cache_write
+    if provider_total is not None and provider_total >= 0:
+        summary["provider_total_tokens"] = provider_total
+    return summary
+
+
+def _usage_event(
+    data: Mapping[str, Any],
+    context: _Context,
+    *,
+    ts: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    summary = _usage_summary(data)
+    if summary is None:
+        return None
+    turn = data.get("turn")
+    step = _as_int(data.get("step"))
+    if step is not None:
+        summary["step"] = step
+    project = _project_from_cwd(context.cwd)
+    if project:
+        summary["project"] = project
+    fingerprint = (
+        str(turn),
+        step,
+        summary.get("tokens_in"),
+        summary.get("tokens_out"),
+        summary.get("cache_read_tokens"),
+        summary.get("cache_write_tokens"),
+        summary.get("provider_total_tokens"),
+    )
+    if fingerprint in context.usage_seen:
+        return None
+    context.usage_seen.add(fingerprint)
+
+    envelope = _envelope(
+        "usage.reported",
+        summary=summary,
+        session_id=context.session_id,
+        cwd=context.cwd,
+        turn_id=str(turn) if turn not in (None, "") else None,
+        model=context.model,
+        project=project,
+        status="completed",
+        ts=ts,
+    )
+    # Compatibility bridge: /api/usage reads the spine event's top-level
+    # ``payload`` object (sugar/dashboard/usage.py), while canonical envelopes
+    # keep the summary under payload.payload. Mirror the aggregator-accepted
+    # fields at the top level so DSH usage appears in /api/usage too.
+    payload = envelope.get("payload")
+    if isinstance(payload, dict):
+        for key in ("tokens_in", "tokens_out", "tokens_total"):
+            if key in summary:
+                payload[key] = summary[key]
+        if context.model:
+            payload["model"] = context.model
+    return envelope
+
+
 def _tool_call_summary(data: Mapping[str, Any]) -> Dict[str, Any]:
     summary: Dict[str, Any] = {}
     arguments, raw = _parse_arguments(data.get("arguments"))
@@ -361,6 +525,8 @@ def _result_text(data: Mapping[str, Any]) -> Optional[str]:
 def _fidelity(kind: str) -> str:
     if kind == "session.started" or kind.startswith("turn."):
         return "L1"
+    if kind == "usage.reported":
+        return "L2"
     return "L3"
 
 
@@ -376,6 +542,7 @@ def _envelope(
     status: Optional[str] = None,
     duration_ms: Optional[int] = None,
     model: Optional[str] = None,
+    project: Optional[str] = None,
     ts: Optional[str] = None,
 ) -> Dict[str, Any]:
     safe_summary = redact.redact_payload(
@@ -400,7 +567,7 @@ def _envelope(
         fidelity=_fidelity(kind),
         ts=ts,
         source=SOURCE,
-        project=None,
+        project=project,
     )
 
 
@@ -410,6 +577,9 @@ class _Context:
     cwd: Optional[str] = None
     model: Optional[str] = None
     calls: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    #: Exact usage records already emitted (assistant/attempt + assistant/message
+    #: can mirror the same record; a retry never repeats a successful request).
+    usage_seen: set = field(default_factory=set)
 
 
 def _header_event(
@@ -472,6 +642,8 @@ def _map_event(
             model=context.model,
             ts=ts,
         )
+    if event_type in _USAGE_EVENT_TYPES:
+        return _usage_event(data, context, ts=ts)
     if event_type == "approval/policy":
         return _envelope(
             "policy.decision",
