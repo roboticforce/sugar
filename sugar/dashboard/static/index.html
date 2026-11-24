@@ -129,6 +129,9 @@
   .creator-hint { flex: none; display: inline-flex; align-items: baseline; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
   .creator-hint .kind-icon { font-size: 10.5px; }
   .title-sub { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .title-context { display: flex; gap: 8px; font-size: 11px; color: var(--muted); margin-top: 1px; overflow: hidden; }
+  .title-context .task-project { color: var(--accent); flex: none; }
+  .title-context .task-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .type { color: var(--muted); white-space: nowrap; }
   .num { font-variant-numeric: tabular-nums; }
   .time { color: var(--muted); white-space: nowrap; font-size: 12.5px; }
@@ -148,7 +151,7 @@
   .view-switch button.active { background: rgba(88, 166, 255, 0.16); color: var(--accent); }
   .view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  .activity-filters { display: flex; align-items: center; gap: 8px; }
+  .activity-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .activity-filters[hidden] { display: none; }
   .activity-filters input[type="search"] { min-width: 230px; }
 
@@ -271,6 +274,15 @@
   .usage-key { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .usage-nums { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
   .usage-empty { color: var(--muted); font-size: 12px; }
+  .usage-head select {
+    padding: 1px 7px; font-size: 11px; letter-spacing: normal; text-transform: none;
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 7px;
+  }
+  .usage-group-row { flex-direction: column; align-items: stretch; gap: 1px; }
+  .usage-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+  .usage-cost { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+  .usage-est { color: var(--yellow); }
+  .usage-detail { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
   /* Coverage matrix (Phase 0). The header trigger opens a read-only overlay fed
      by GET /api/coverage; it auto-refreshes while open and never touches SSE. */
@@ -463,6 +475,7 @@
     </div>
     <div class="chips" id="status-chips"></div>
     <select id="type-filter" aria-label="Filter by type"><option value="">All types</option></select>
+    <select id="project-filter" aria-label="Filter by project"><option value="">All projects</option></select>
     <input type="search" id="search" placeholder="Search title, description or id…" autocomplete="off">
     <div class="activity-filters" id="activity-filters" hidden>
       <select id="activity-kind" aria-label="Filter activity by kind group">
@@ -507,6 +520,15 @@
     <section class="usage-panel" id="usage-panel" aria-label="Usage and cost summary">
       <div class="usage-head">
         <span>Usage</span>
+        <label for="usage-group" class="usage-group-label">Group by</label>
+        <select id="usage-group" aria-label="Group usage by">
+          <option value="harness" selected>harness</option>
+          <option value="actor">actor</option>
+          <option value="project">project</option>
+          <option value="task">task</option>
+          <option value="model">model</option>
+          <option value="day">day</option>
+        </select>
         <span class="usage-scope muted" id="usage-scope"></span>
         <span class="usage-live muted" id="usage-live"></span>
       </div>
@@ -724,6 +746,11 @@
     connected: false,
     gotSnapshot: false,
     view: "tasks",
+    // Task project/cwd provenance (context.project / context.cwd).
+    projectFilter: "",
+    // Usage/cost panel dimension + last report (docs/usage.md).
+    usageGroup: "harness",
+    usage: null,
     // Event spine feed (§11): newest first, capped in memory.
     feed: [],
     feedIds: new Set(),
@@ -879,6 +906,28 @@
     return single.length > length ? single.slice(0, length - 1) + "…" : single;
   }
 
+  // Task provenance from the queue context (task-29). Both fields are optional:
+  // older backends only send the legacy context keys, so every consumer falls
+  // back gracefully instead of showing "undefined".
+  function taskContext(task) {
+    const context = task && task.context;
+    return context && typeof context === "object" ? context : {};
+  }
+
+  function taskCwd(task) {
+    const cwd = taskContext(task).cwd;
+    return cwd ? String(cwd) : "";
+  }
+
+  function taskProject(task) {
+    const project = taskContext(task).project;
+    if (project) return String(project);
+    const cwd = taskCwd(task);
+    if (!cwd) return "";
+    const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : cwd;
+  }
+
   const api = {
     async request(method, path, body) {
       const options = { method: method, headers: {} };
@@ -1002,11 +1051,31 @@
     select.value = current;
   }
 
+  function renderTaskProjectFilter() {
+    const select = $("project-filter");
+    if (!select) return;
+    const current = state.projectFilter;
+    const projects = new Set();
+    Array.from(state.tasks.values()).forEach(function (task) {
+      const project = taskProject(task);
+      if (project) projects.add(project);
+    });
+    if (current) projects.add(current);
+    select.replaceChildren();
+    select.appendChild(new Option("All projects", ""));
+    Array.from(projects).sort().forEach(function (project) {
+      select.appendChild(new Option(project, project));
+    });
+    select.value = current;
+  }
+
   function matchesFilters(task) {
     if (state.statusFilter !== "all" && task.status !== state.statusFilter) return false;
     if (state.typeFilter && task.type !== state.typeFilter) return false;
+    if (state.projectFilter && taskProject(task) !== state.projectFilter) return false;
     if (state.query) {
-      const haystack = [task.title, task.description, task.id, task.type, task.assigned_agent]
+      const haystack = [task.title, task.description, task.id, task.type, task.assigned_agent,
+        taskProject(task), taskCwd(task)]
         .filter(Boolean).join(" ").toLowerCase();
       if (haystack.indexOf(state.query) === -1) return false;
     }
@@ -1051,6 +1120,18 @@
       if (hint) titleLine.appendChild(hint);
       title.appendChild(titleLine);
       if (task.description) title.appendChild(el("div", "title-sub", truncate(task.description, 110)));
+      const project = taskProject(task);
+      const cwd = taskCwd(task);
+      if (project || cwd) {
+        const contextLine = el("div", "title-context");
+        if (project) contextLine.appendChild(el("span", "task-project", project));
+        if (cwd) {
+          const path = el("span", "task-cwd", cwd);
+          path.title = cwd;
+          contextLine.appendChild(path);
+        }
+        title.appendChild(contextLine);
+      }
       row.appendChild(title);
 
       const attempts = el("td", "num", task.attempts || 0);
@@ -1431,6 +1512,7 @@
     });
     $("status-chips").hidden = activity;
     $("type-filter").hidden = activity;
+    $("project-filter").hidden = activity;
     $("search").hidden = activity;
     $("activity-filters").hidden = !activity;
     $("tasks-pane").hidden = activity;
@@ -1588,6 +1670,10 @@
     addKV("Verification", task.verification_status);
     if (task.parent_task_id) addKV("Parent", task.parent_task_id);
     if (task.stage) addKV("Stage", task.stage);
+    const project = taskProject(task);
+    if (project) addKV("Project", project);
+    const cwd = taskCwd(task);
+    if (cwd) addKV("CWD", cwd);
     const context = task.context || {};
     // Top-level provenance wins; kanban-sourced rows may only carry the legacy
     // context fields, so fall back to those and don't render the row twice.
@@ -1651,6 +1737,7 @@
     $("f-type-label").textContent = facetLabel();
     renderChips();
     renderTypeFilter();
+    renderTaskProjectFilter();
     renderRows();
     if (state.view === "activity") renderFeed();
     renderDrawer();
@@ -1699,6 +1786,7 @@
       if (!task || !task.id) return;
       state.tasks.set(task.id, task);
       renderTypeFilter();
+      renderTaskProjectFilter();
       renderRows();
       renderChips();
       // A new/updated task may make previously-dead feed rows clickable.
@@ -1713,6 +1801,7 @@
       state.tasks.delete(id);
       state.activity.delete(id);
       if (state.selectedId === id) state.selectedId = null;
+      renderTaskProjectFilter();
       renderRows();
       renderChips();
       scheduleFeedRender();
@@ -1789,6 +1878,7 @@
       const data = await api.get("/api/task-types");
       state.types = data.types || [];
       renderTypeFilter();
+      renderTaskProjectFilter();
       populateFormTypeOptions();
     } catch (error) {
       reportError(error);
@@ -1863,17 +1953,51 @@
     return metric;
   }
 
+  const USAGE_GROUP_LABELS = {
+    harness: "harness", actor: "actor", project: "project",
+    task: "task", model: "model", day: "day"
+  };
+
+  function usageEstimate(metrics) {
+    const value = metrics ? metrics.estimated_cost_usd : null;
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function usageCostNode(group) {
+    const node = el("span", "usage-cost");
+    node.appendChild(document.createTextNode(formatCost(group.cost_usd) + " reported"));
+    const estimate = usageEstimate(group);
+    if (estimate !== null) {
+      const est = el("span", "usage-est", " · " + formatCost(estimate) + " est.");
+      est.title = "estimated cost" +
+        (group.cost_basis ? " (basis: " + group.cost_basis + ")" : " (no cost_basis reported)");
+      node.appendChild(est);
+    }
+    node.title = "reported $" + Number(group.cost_usd || 0).toFixed(4) +
+      (estimate !== null
+        ? ", estimated $" + estimate.toFixed(4) +
+          (group.cost_basis ? " (" + group.cost_basis + ")" : "")
+        : ", no estimated cost reported");
+    return node;
+  }
+
   function usageGroupRow(group) {
-    const row = el("div", "usage-row");
+    const row = el("div", "usage-row usage-group-row");
+    const top = el("div", "usage-top");
     const key = el("span", "usage-key", group.key || "unknown");
     key.title = "key: " + (group.key || "unknown");
-    const nums = el("span", "usage-nums",
-      formatCost(group.cost_usd) + " · " + formatTokens(group.tokens_total) + " tok · " +
-      (group.events || 0) + (group.events === 1 ? " event" : " events"));
-    nums.title = "tokens in " + (group.tokens_in || 0) + ", tokens out " +
-      (group.tokens_out || 0) + ", cost $" + Number(group.cost_usd || 0).toFixed(4);
-    row.appendChild(key);
-    row.appendChild(nums);
+    top.appendChild(key);
+    top.appendChild(usageCostNode(group));
+    row.appendChild(top);
+    const detail = el("div", "usage-detail",
+      formatTokens(group.tokens_in) + " in · " + formatTokens(group.tokens_out) + " out · " +
+      formatTokens(group.tokens_total) + " total · " + (group.events || 0) +
+      (group.events === 1 ? " event" : " events"));
+    detail.title = "tokens in " + (group.tokens_in || 0) + ", tokens out " +
+      (group.tokens_out || 0) + ", total " + (group.tokens_total || 0);
+    row.appendChild(detail);
     return row;
   }
 
@@ -1885,65 +2009,99 @@
       column.appendChild(el("div", "usage-empty", "no usage in range"));
       return column;
     }
-    items.slice(0, 5).forEach(function (group) {
+    items.slice(0, 10).forEach(function (group) {
       column.appendChild(usageGroupRow(group));
     });
-    if (items.length > 5) {
-      column.appendChild(el("div", "usage-empty", "+" + (items.length - 5) + " more"));
+    if (items.length > 10) {
+      column.appendChild(el("div", "usage-empty", "+" + (items.length - 10) + " more"));
     }
     return column;
   }
 
-  function renderUsage(byHarness, byActor) {
-    const totals = (byHarness && byHarness.totals) || {};
+  function usageMetricNodes(totals) {
+    const metrics = totals || {};
+    const nodes = [
+      usageMetric("usage events", String(metrics.events || 0)),
+      usageMetric("tokens in", formatTokens(metrics.tokens_in)),
+      usageMetric("tokens out", formatTokens(metrics.tokens_out)),
+      usageMetric("tokens total", formatTokens(metrics.tokens_total)),
+      usageMetric("reported cost", formatCost(metrics.cost_usd))
+    ];
+    const estimate = usageEstimate(metrics);
+    if (estimate !== null) {
+      const metric = el("span", "usage-metric usage-est");
+      metric.appendChild(el("b", null, formatCost(estimate)));
+      metric.appendChild(document.createTextNode(" estimated cost"));
+      metric.title = "estimated cost" +
+        (metrics.cost_basis ? " (basis: " + metrics.cost_basis + ")" : " (no cost_basis reported)");
+      nodes.push(metric);
+    }
+    return nodes;
+  }
+
+  function renderUsage(report) {
+    const totals = (report && report.totals) || {};
     const scope = $("usage-scope");
     if (scope) {
-      const since = byHarness && byHarness.since;
-      const until = byHarness && byHarness.until;
+      const since = report && report.since;
+      const until = report && report.until;
       const parts = [];
       if (since) parts.push("from " + fullTime(since));
       if (until) parts.push("to " + fullTime(until));
-      if (byHarness && byHarness.truncated) parts.push("scan truncated");
+      if (report && report.truncated) parts.push("scan truncated");
       scope.textContent = parts.length ? parts.join(" ") : "all time";
     }
     const live = $("usage-live");
     if (live) live.textContent = "";
     const totalsBox = $("usage-totals");
-    if (totalsBox) {
-      totalsBox.replaceChildren(
-        usageMetric("usage events", String(totals.events || 0)),
-        usageMetric("tokens in", formatTokens(totals.tokens_in)),
-        usageMetric("tokens out", formatTokens(totals.tokens_out)),
-        usageMetric("tokens total", formatTokens(totals.tokens_total)),
-        usageMetric("reported cost", formatCost(totals.cost_usd))
+    if (totalsBox) totalsBox.replaceChildren.apply(totalsBox, usageMetricNodes(totals));
+    const groups = $("usage-cols");
+    const dimension = state.usageGroup || "harness";
+    if (groups) {
+      groups.replaceChildren(
+        usageColumn("By " + (USAGE_GROUP_LABELS[dimension] || dimension), report && report.groups)
       );
     }
-    const columns = $("usage-cols");
-    if (columns) {
-      columns.replaceChildren(
-        usageColumn("By harness", byHarness && byHarness.groups),
-        usageColumn("By actor", byActor && byActor.groups)
-      );
-    }
+  }
+
+  function renderUsageUnavailable(message) {
+    const live = $("usage-live");
+    if (live) live.textContent = "unavailable";
+    const totalsBox = $("usage-totals");
+    if (totalsBox) totalsBox.replaceChildren();
+    const groups = $("usage-cols");
+    if (groups) groups.replaceChildren(el("div", "usage-empty", message));
   }
 
   async function loadUsage() {
     const panel = $("usage-panel");
     if (!panel) return;
     const live = $("usage-live");
+    const dimension = state.usageGroup || "harness";
     if (live) live.textContent = "loading…";
     try {
-      // Two small bounded reads: the panel is a summary, not an analytics tool.
-      const [byHarness, byActor] = await Promise.all([
-        api.get("/api/usage?group_by=harness&limit=5000"),
-        api.get("/api/usage?group_by=actor&limit=5000")
-      ]);
+      // One bounded read for the selected dimension: the panel is a summary,
+      // not an analytics tool.
+      const report = await api.get(
+        "/api/usage?group_by=" + encodeURIComponent(dimension) + "&limit=5000"
+      );
+      state.usage = report;
       panel.hidden = false;
-      renderUsage(byHarness, byActor);
+      renderUsage(report);
     } catch (error) {
       // Older/smaller servers do not expose /api/usage: hide the panel quietly.
       if (error && (error.status === 404 || error.status === 503)) {
         panel.hidden = true;
+        return;
+      }
+      // A dimension can be selectable before the backend supports it (model
+      // groups land with task-29); say so locally instead of raising a toast.
+      if (error && error.status === 400) {
+        panel.hidden = false;
+        state.usage = null;
+        renderUsageUnavailable(
+          "grouping by " + dimension + " is unavailable on this server"
+        );
         return;
       }
       if (live) live.textContent = "unavailable";
@@ -2600,6 +2758,7 @@
         const activity = task.context && task.context.activity;
         if (activity) state.activity.set(task.id, activity);
         renderTypeFilter();
+        renderTaskProjectFilter();
         renderRows();
         renderDrawer();
       }
@@ -2677,6 +2836,14 @@
     $("type-filter").addEventListener("change", function (event) {
       state.typeFilter = event.target.value;
       renderRows();
+    });
+    $("project-filter").addEventListener("change", function (event) {
+      state.projectFilter = event.target.value;
+      renderRows();
+    });
+    $("usage-group").addEventListener("change", function (event) {
+      state.usageGroup = event.target.value || "harness";
+      loadUsage();
     });
     $("btn-new").addEventListener("click", function () { openForm(null); });
     $("view-switch").addEventListener("click", function (event) {
