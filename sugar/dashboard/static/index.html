@@ -549,6 +549,44 @@
     .trace-summary-item { overflow-wrap: break-word; }
   }
 
+  /* Trace graph (Phase 1d/3). Layered SVG architecture/artifact graph rendered
+     from spans in the Trace Explorer; vanilla SVG, horizontally scrollable. */
+  .trace-mode-switch {
+    display: inline-flex; align-items: center; gap: 2px; padding: 1px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    text-transform: none; letter-spacing: 0;
+  }
+  .trace-mode-switch button {
+    border: none; background: transparent; color: var(--muted);
+    padding: 1px 8px; border-radius: 6px; font-size: 11px; line-height: 16px;
+  }
+  .trace-mode-switch button:hover { color: var(--text); }
+  .trace-mode-switch button.active { background: rgba(88, 166, 255, 0.16); color: var(--accent); }
+  .trace-mode-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .trace-graph-body { display: flex; flex-direction: column; gap: 6px; }
+  .trace-graph-body[hidden] { display: none; }
+  .trace-graph-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  .trace-graph-note[hidden] { display: none; }
+  .trace-graph-scroll { flex: 1; min-height: 220px; overflow: auto; }
+  .trace-graph-svg { display: block; }
+  .trace-graph-arrow { fill: var(--border); }
+  .trace-graph-edge { fill: none; stroke: var(--border); stroke-width: 1.3; }
+  .trace-graph-edge.artifact { stroke: var(--orange); stroke-dasharray: 5 4; }
+  .trace-graph-edge.subagent { stroke: var(--red); stroke-dasharray: 2 4; }
+  .trace-graph-node { cursor: pointer; }
+  .trace-graph-node rect { fill: var(--bg-alt); stroke: var(--border); stroke-width: 1; }
+  .trace-graph-node:hover rect { fill: var(--panel-2); }
+  .trace-graph-node.selected rect { stroke: var(--accent); stroke-width: 2; }
+  .trace-graph-node:focus { outline: none; }
+  .trace-graph-node:focus-visible rect { stroke: var(--accent); stroke-width: 2; }
+  .trace-graph-node text { fill: var(--text); font-size: 11.5px; }
+  .trace-graph-node .trace-graph-node-sub { fill: var(--muted); font-size: 9.5px; }
+  .trace-graph-badge { fill: var(--muted); font-size: 10px; }
+  .trace-graph-layer { fill: var(--muted); font-size: 10px; letter-spacing: 0.9px; }
+  @media (max-width: 600px) {
+    .trace-graph-scroll { min-height: 200px; }
+  }
+
 </style>
 </head>
 <body>
@@ -675,14 +713,24 @@
           <div class="trace-card-head"><span>Call tree</span><span class="spacer"></span><span id="trace-tree-count"></span></div>
           <div class="trace-card-body" id="trace-tree"></div>
         </section>
-        <section class="trace-card" aria-label="Span swimlanes">
+        <section class="trace-card" aria-label="Trace visualisation">
           <div class="trace-card-head">
-            <span>Swimlanes</span>
+            <span id="trace-visual-title">Timeline</span>
+            <div class="trace-mode-switch" id="trace-mode-switch" role="tablist" aria-label="Trace visualisation mode">
+              <button type="button" id="trace-mode-timeline" data-trace-mode="timeline" class="active" role="tab" aria-selected="true">Timeline</button>
+              <button type="button" id="trace-mode-graph" data-trace-mode="graph" role="tab" aria-selected="false">Graph</button>
+            </div>
             <span class="spacer"></span>
             <span id="trace-scale-note"></span>
             <span id="trace-lane-count"></span>
           </div>
           <div class="trace-card-body" id="trace-lanes"></div>
+          <div class="trace-card-body trace-graph-body" id="trace-graph-body" hidden>
+            <div class="trace-graph-note" id="trace-graph-note" hidden></div>
+            <div class="trace-graph-scroll" id="trace-graph-scroll">
+              <svg id="trace-graph" class="trace-graph-svg" role="img" aria-label="Trace architecture and artifact graph"></svg>
+            </div>
+          </div>
         </section>
         <section class="trace-card" aria-label="Span inspector">
           <div class="trace-card-head">
@@ -933,7 +981,9 @@
     traceSpans: [],
     traceDetailError: null,
     traceSelectedSpanId: null,
-    traceCollapsed: new Set()
+    traceCollapsed: new Set(),
+    traceVisual: "timeline",
+    traceGraph: null
   };
 
   let eventSource = null;
@@ -2922,7 +2972,9 @@
     const source = (record && record.tokens) || {};
     let inTokens = Number(source.in !== undefined ? source.in : record && record.tokens_in) || 0;
     let outTokens = Number(source.out !== undefined ? source.out : record && record.tokens_out) || 0;
-    let total = Number(source.total !== undefined ? source.total : record && record.tokens_total) || 0;
+    let total = Number(
+      source.total !== undefined ? source.total : record && record.tokens_total
+    ) || 0;
     (spans || []).forEach(function (span) {
       const tokens = span && (span.tokens || (span.attributes && span.attributes.tokens));
       if (tokens && typeof tokens === "object") {
@@ -3274,7 +3326,7 @@
         (state.traceSpans.length === 1 ? " span" : " spans");
     }
     renderTraceTree();
-    renderTraceLanes();
+    renderTraceVisual();
     renderTraceInspector();
   }
 
@@ -3434,6 +3486,383 @@
     box.scrollTop = scrollTop;
   }
 
+  // ------------------------------------------------ trace graph (Phase 1d/3)
+
+  const TRACE_GRAPH_LAYERS = [
+    { title: "Inputs" },
+    { title: "Models" },
+    { title: "Outputs / Artifacts" },
+    { title: "Verification / Approvals" }
+  ];
+  const TRACE_SVG_NS = "http:" + "//www.w3.org/2000/svg";
+  const TRACE_GRAPH_NODE_CAP = 80;
+  const TRACE_GRAPH_COL_W = 236;
+  const TRACE_GRAPH_NODE_W = 176;
+  const TRACE_GRAPH_NODE_H = 38;
+  const TRACE_GRAPH_ROW_H = 54;
+  const TRACE_GRAPH_PAD_X = 22;
+  const TRACE_GRAPH_PAD_Y = 54;
+
+  function traceBaseName(path) {
+    const text = String(path || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const parts = text.split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : text;
+  }
+
+  function traceLayerForKind(kind) {
+    const value = String(kind || "").toLowerCase();
+    if (value === "session" || value === "turn" || value === "task") return 0;
+    if (value === "artifact") return 2;
+    if (value === "approval" || value === "verification" || value === "policy" ||
+        value === "check") return 3;
+    // llm / tool / mcp / subagent / unknown agent spans sit in the agent layer.
+    return 1;
+  }
+
+  function traceArtifactPaths(span) {
+    const attrs = (span && span.attributes) || {};
+    const raw = attrs.paths !== undefined ? attrs.paths : attrs.artifacts;
+    if (raw === null || raw === undefined) return [];
+    const list = Array.isArray(raw) ? raw : [raw];
+    return list.map(function (item) {
+      if (typeof item === "string") return item.trim();
+      if (item && typeof item === "object") {
+        return String(item.path || item.file || item.name || item.artifact || "").trim();
+      }
+      return "";
+    }).filter(Boolean);
+  }
+
+  function traceGraphModel() {
+    const spans = state.traceSpans;
+    const nodes = [];
+    const edges = [];
+    const nodeBySpan = new Map();
+    const toolGroups = new Map();
+    let aggregatedCalls = 0;
+
+    spans.forEach(function (span) {
+      const kind = span.kind;
+      if (kind === "tool" || kind === "mcp") {
+        // Repeated tool/MCP calls collapse into one node with a count badge.
+        const key = kind + "|" + span.name;
+        const group = toolGroups.get(key);
+        if (group) {
+          group.count += 1;
+          group.spanIds.push(span.id);
+        } else {
+          toolGroups.set(key, { span: span, count: 1, spanIds: [span.id], kind: kind });
+        }
+        return;
+      }
+      const node = {
+        id: "span:" + span.id,
+        spanId: span.id,
+        spanIds: [span.id],
+        kind: kind,
+        layer: traceLayerForKind(kind),
+        label: span.name,
+        sub: span.kind + (span.model ? " · " + span.model : ""),
+        count: 1,
+        artifact: false,
+        path: ""
+      };
+      nodeBySpan.set(span.id, node.id);
+      nodes.push(node);
+    });
+
+    toolGroups.forEach(function (group) {
+      const node = {
+        id: "agg:" + group.kind + ":" + group.span.name,
+        spanId: group.span.id,
+        spanIds: group.spanIds.slice(),
+        kind: group.kind,
+        layer: 1,
+        label: group.span.name,
+        sub: group.kind + (group.count > 1 ? " ×" + group.count : ""),
+        count: group.count,
+        artifact: false,
+        path: ""
+      };
+      aggregatedCalls += group.count - 1;
+      group.spanIds.forEach(function (id) { nodeBySpan.set(id, node.id); });
+      nodes.push(node);
+    });
+
+    // Artifact nodes from attributes.paths / attributes.artifacts, linked to
+    // the span that produced them.
+    const artifactIds = new Set();
+    spans.forEach(function (span) {
+      traceArtifactPaths(span).forEach(function (path) {
+        const id = "artifact:" + path;
+        if (!artifactIds.has(id)) {
+          artifactIds.add(id);
+          nodes.push({
+            id: id,
+            spanId: span.id,
+            spanIds: [span.id],
+            kind: "artifact",
+            layer: 2,
+            label: traceBaseName(path),
+            sub: "artifact · " + path,
+            count: 1,
+            artifact: true,
+            path: path
+          });
+        }
+        edges.push({ from: nodeBySpan.get(span.id) || null, to: id, kind: "artifact" });
+      });
+    });
+
+    // Parent → child span edges (aggregated tool groups included); subagent
+    // links get their own dashed style.
+    spans.forEach(function (span) {
+      const childId = nodeBySpan.get(span.id);
+      if (!childId || !span.parentId) return;
+      const parentId = nodeBySpan.get(span.parentId);
+      if (!parentId) return;
+      edges.push({
+        from: parentId,
+        to: childId,
+        kind: span.kind === "subagent" ? "subagent" : "parent"
+      });
+    });
+
+    const seen = new Set();
+    const deduped = [];
+    edges.forEach(function (edge) {
+      if (!edge.from || !edge.to || edge.from === edge.to) return;
+      const key = edge.from + "→" + edge.to + ":" + edge.kind;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(edge);
+    });
+
+    // Node cap: keep a per-layer slice so every layer stays represented.
+    const totalNodes = nodes.length;
+    let kept = nodes;
+    let truncated = 0;
+    if (totalNodes > TRACE_GRAPH_NODE_CAP) {
+      const perLayer = TRACE_GRAPH_LAYERS.map(function () { return []; });
+      nodes.forEach(function (node) { perLayer[node.layer].push(node); });
+      const quota = Math.max(1, Math.floor(TRACE_GRAPH_NODE_CAP / TRACE_GRAPH_LAYERS.length));
+      const picked = [];
+      perLayer.forEach(function (list) {
+        picked.push.apply(picked, list.slice(0, quota));
+      });
+      let remaining = TRACE_GRAPH_NODE_CAP - picked.length;
+      perLayer.forEach(function (list) {
+        if (remaining <= 0) return;
+        const extra = list.slice(quota, quota + remaining);
+        picked.push.apply(picked, extra);
+        remaining -= extra.length;
+      });
+      truncated = totalNodes - picked.length;
+      kept = picked;
+    }
+    const keptIds = new Set(kept.map(function (node) { return node.id; }));
+    return {
+      nodes: kept,
+      edges: deduped.filter(function (edge) {
+        return keptIds.has(edge.from) && keptIds.has(edge.to);
+      }),
+      totalNodes: totalNodes,
+      truncated: truncated,
+      aggregatedCalls: aggregatedCalls,
+      hasArtifacts: kept.some(function (node) { return node.layer === 2; })
+    };
+  }
+
+  function traceSvgEl(tag) {
+    return document.createElementNS(TRACE_SVG_NS, tag);
+  }
+
+  function renderTraceGraph() {
+    const note = $("trace-graph-note");
+    const svg = $("trace-graph");
+    if (!note || !svg) return;
+    const model = traceGraphModel();
+    state.traceGraph = model;
+    const notes = [];
+    if (!model.nodes.length) {
+      notes.push(state.traceDetailError || "No spans recorded for this trace.");
+    } else if (!model.hasArtifacts) {
+      notes.push("No artifact or path metadata recorded for this trace — showing span flow only.");
+    }
+    if (model.aggregatedCalls > 0) {
+      notes.push(model.aggregatedCalls +
+        " repeated tool call(s) aggregated by name/kind.");
+    }
+    if (model.truncated > 0) {
+      notes.push("Showing " + model.nodes.length + " of " + model.totalNodes +
+        " nodes (cap " + TRACE_GRAPH_NODE_CAP + ").");
+    }
+    note.hidden = !notes.length;
+    note.textContent = notes.join(" ");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (!model.nodes.length) {
+      svg.style.display = "none";
+      return;
+    }
+    svg.style.display = "";
+    const layers = TRACE_GRAPH_LAYERS.map(function () { return []; });
+    model.nodes.forEach(function (node) { layers[node.layer].push(node); });
+    let maxRows = 1;
+    layers.forEach(function (list) { maxRows = Math.max(maxRows, list.length); });
+    const width = TRACE_GRAPH_PAD_X * 2 +
+      TRACE_GRAPH_COL_W * TRACE_GRAPH_LAYERS.length;
+    const height = TRACE_GRAPH_PAD_Y + maxRows * TRACE_GRAPH_ROW_H + 16;
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", String(width));
+    svg.setAttribute("height", String(height));
+
+    const defs = traceSvgEl("defs");
+    const marker = traceSvgEl("marker");
+    marker.setAttribute("id", "trace-graph-arrow");
+    marker.setAttribute("viewBox", "0 0 8 8");
+    marker.setAttribute("refX", "7");
+    marker.setAttribute("refY", "4");
+    marker.setAttribute("markerWidth", "7");
+    marker.setAttribute("markerHeight", "7");
+    marker.setAttribute("orient", "auto-start-reverse");
+    const arrow = traceSvgEl("path");
+    arrow.setAttribute("d", "M 0 0 L 8 4 L 0 8 z");
+    arrow.setAttribute("class", "trace-graph-arrow");
+    marker.appendChild(arrow);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    layers.forEach(function (list, index) {
+      const label = traceSvgEl("text");
+      label.setAttribute("x", String(TRACE_GRAPH_PAD_X + index * TRACE_GRAPH_COL_W));
+      label.setAttribute("y", "22");
+      label.setAttribute("class", "trace-graph-layer");
+      label.textContent = TRACE_GRAPH_LAYERS[index].title.toUpperCase() +
+        " (" + list.length + ")";
+      svg.appendChild(label);
+    });
+
+    const positions = new Map();
+    layers.forEach(function (list, layerIndex) {
+      list.forEach(function (node, rowIndex) {
+        positions.set(node.id, {
+          x: TRACE_GRAPH_PAD_X + layerIndex * TRACE_GRAPH_COL_W,
+          y: TRACE_GRAPH_PAD_Y + rowIndex * TRACE_GRAPH_ROW_H
+        });
+      });
+    });
+
+    model.edges.forEach(function (edge) {
+      const from = positions.get(edge.from);
+      const to = positions.get(edge.to);
+      if (!from || !to) return;
+      const x1 = from.x + TRACE_GRAPH_NODE_W;
+      const y1 = from.y + TRACE_GRAPH_NODE_H / 2;
+      const x2 = to.x;
+      const y2 = to.y + TRACE_GRAPH_NODE_H / 2;
+      const mid = (x1 + x2) / 2;
+      const path = traceSvgEl("path");
+      path.setAttribute("d", "M " + x1 + " " + y1 + " C " + mid + " " + y1 +
+        ", " + mid + " " + y2 + ", " + x2 + " " + y2);
+      path.setAttribute("class", "trace-graph-edge " + edge.kind);
+      path.setAttribute("marker-end", "url(#trace-graph-arrow)");
+      svg.appendChild(path);
+    });
+
+    model.nodes.forEach(function (node) {
+      const position = positions.get(node.id);
+      if (!position) return;
+      const selected = !!state.traceSelectedSpanId &&
+        node.spanIds.indexOf(state.traceSelectedSpanId) !== -1;
+      const group = traceSvgEl("g");
+      group.setAttribute("class", "trace-graph-node" + (selected ? " selected" : ""));
+      group.setAttribute("transform",
+        "translate(" + position.x + "," + position.y + ")");
+      group.setAttribute("tabindex", "0");
+      group.setAttribute("role", "button");
+      group.setAttribute("aria-label", node.label + " (" + node.kind + ")");
+      const rect = traceSvgEl("rect");
+      rect.setAttribute("width", String(TRACE_GRAPH_NODE_W));
+      rect.setAttribute("height", String(TRACE_GRAPH_NODE_H));
+      rect.setAttribute("rx", "8");
+      group.appendChild(rect);
+      const stripe = traceSvgEl("rect");
+      stripe.setAttribute("width", "3");
+      stripe.setAttribute("height", String(TRACE_GRAPH_NODE_H - 12));
+      stripe.setAttribute("x", "0");
+      stripe.setAttribute("y", "6");
+      stripe.setAttribute("rx", "1.5");
+      stripe.style.fill = traceKindColor(node.kind);
+      group.appendChild(stripe);
+      const label = traceSvgEl("text");
+      label.setAttribute("x", "10");
+      label.setAttribute("y", "15");
+      label.textContent = truncate(node.label, 26);
+      group.appendChild(label);
+      const sub = traceSvgEl("text");
+      sub.setAttribute("x", "10");
+      sub.setAttribute("y", "29");
+      sub.setAttribute("class", "trace-graph-node-sub");
+      sub.textContent = truncate(node.sub, 30);
+      group.appendChild(sub);
+      if (node.count > 1) {
+        const badge = traceSvgEl("text");
+        badge.setAttribute("x", String(TRACE_GRAPH_NODE_W - 8));
+        badge.setAttribute("y", "15");
+        badge.setAttribute("text-anchor", "end");
+        badge.setAttribute("class", "trace-graph-badge");
+        badge.textContent = "×" + node.count;
+        group.appendChild(badge);
+      }
+      const title = traceSvgEl("title");
+      title.textContent = node.label + " · " + node.kind +
+        (node.count > 1 ? " · " + node.count + " spans" : "") +
+        (node.artifact ? " · " + node.path : "");
+      group.appendChild(title);
+      group.addEventListener("click", function () { selectTraceSpan(node.spanId); });
+      group.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectTraceSpan(node.spanId);
+        }
+      });
+      svg.appendChild(group);
+    });
+  }
+
+  function applyTraceVisualState() {
+    const graph = state.traceVisual === "graph";
+    const lanes = $("trace-lanes");
+    const graphBody = $("trace-graph-body");
+    if (lanes) lanes.hidden = graph;
+    if (graphBody) graphBody.hidden = !graph;
+    const title = $("trace-visual-title");
+    if (title) title.textContent = graph ? "Graph" : "Timeline";
+    const scaleNote = $("trace-scale-note");
+    const laneCount = $("trace-lane-count");
+    if (scaleNote) scaleNote.hidden = graph;
+    if (laneCount) laneCount.hidden = graph;
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#trace-mode-switch button[data-trace-mode]"),
+      function (button) {
+        const active = button.dataset.traceMode === state.traceVisual;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      }
+    );
+  }
+
+  function renderTraceVisual() {
+    applyTraceVisualState();
+    if (state.traceVisual === "graph") renderTraceGraph();
+    else renderTraceLanes();
+  }
+
+  function setTraceVisual(mode) {
+    state.traceVisual = mode === "graph" ? "graph" : "timeline";
+    renderTraceVisual();
+  }
+
   function traceJsonText(value) {
     if (value === null || value === undefined || value === "") return "";
     let text;
@@ -3508,7 +3937,7 @@
   function selectTraceSpan(id) {
     state.traceSelectedSpanId = id;
     renderTraceTree();
-    renderTraceLanes();
+    renderTraceVisual();
     renderTraceInspector();
   }
 
@@ -3517,7 +3946,7 @@
     if (state.traceSelectedSpanId) {
       state.traceSelectedSpanId = null;
       renderTraceTree();
-      renderTraceLanes();
+      renderTraceVisual();
       renderTraceInspector();
       return true;
     }
@@ -3763,6 +4192,10 @@
     });
     $("trace-refresh").addEventListener("click", function () { loadTraces(); });
     $("trace-back").addEventListener("click", closeTraceExplorer);
+    $("trace-mode-switch").addEventListener("click", function (event) {
+      const button = event.target.closest("button[data-trace-mode]");
+      if (button) setTraceVisual(button.dataset.traceMode);
+    });
     $("trace-inspector-close").addEventListener("click", function () {
       state.traceSelectedSpanId = null;
       renderTraceTree();

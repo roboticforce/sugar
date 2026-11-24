@@ -71,6 +71,17 @@ def client(tmp_path):
 
 
 @pytest.fixture
+def spine_client(tmp_path):
+    """Dashboard with an opted-in event spine (needed by GET /api/traces)."""
+    app = create_app(
+        str(tmp_path / "sugar.db"),
+        events_db=str(tmp_path / "events.db"),
+    )
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
 def html(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -213,8 +224,8 @@ def test_existing_views_and_dependencies_are_preserved(html):
     assert "<link " not in html
 
 
-def test_traces_endpoint_contract_when_available(client):
-    response = client.get("/api/traces?limit=100")
+def test_traces_endpoint_contract_when_available(spine_client, client):
+    response = spine_client.get("/api/traces?limit=100")
     if response.status_code in (404, 405, 503):
         pytest.skip("GET /api/traces lands with a parallel trace-backend change")
     assert response.status_code == 200
@@ -226,9 +237,12 @@ def test_traces_endpoint_contract_when_available(client):
         assert "started_at" in trace or "start" in trace
         assert isinstance(trace.get("spans", []), list)
 
+    # An unknown/malformed trace id is a 404 on the detail endpoint.
+    assert spine_client.get("/api/traces/does-not-exist").status_code == 404
+
     if traces:
         trace_id = traces[0].get("trace_id") or traces[0].get("id")
-        detail = client.get(f"/api/traces/{trace_id}")
+        detail = spine_client.get(f"/api/traces/{trace_id}")
         assert detail.status_code == 200
         detail_payload = detail.json()
         assert "spans" in detail_payload or "trace" in detail_payload
@@ -237,3 +251,107 @@ def test_traces_endpoint_contract_when_available(client):
 def test_trace_list_respects_api_limit(html):
     assert "/api/traces?limit=100" in html
     assert "/api/traces?limit=200" not in html
+
+
+# ---------------------------------------------------------------------------
+# Architecture / artifact graph mode (Phase 1d/3)
+# ---------------------------------------------------------------------------
+
+
+def test_trace_graph_mode_toggle_hooks(html):
+    assert 'id="trace-mode-switch"' in html
+    assert 'role="tablist"' in html
+    assert 'id="trace-mode-timeline"' in html
+    assert 'id="trace-mode-graph"' in html
+    assert 'data-trace-mode="timeline"' in html
+    assert 'data-trace-mode="graph"' in html
+    # Swimlanes/timeline remain the default mode.
+    assert 'id="trace-mode-timeline" data-trace-mode="timeline" class="active"' in html
+    assert 'aria-selected="true"' in html
+    assert 'id="trace-visual-title"' in html
+    assert 'id="trace-graph-body"' in html
+    assert 'id="trace-graph-note"' in html
+    assert 'id="trace-graph-scroll"' in html
+    assert 'id="trace-graph"' in html
+    assert 'aria-label="Trace architecture and artifact graph"' in html
+
+
+def test_trace_graph_layers_and_builders(html):
+    for layer in (
+        "Inputs",
+        "Models",
+        "Outputs / Artifacts",
+        "Verification / Approvals",
+    ):
+        assert layer in html, f"missing graph layer {layer}"
+    assert "TRACE_GRAPH_LAYERS" in html
+    assert "function traceLayerForKind" in html
+    assert "function traceGraphModel" in html
+    assert "function renderTraceGraph" in html
+    assert "TRACE_GRAPH_NODE_CAP = 80" in html
+    # The backend summary field is tokens_total; the UI falls back to it.
+    assert "tokens_total" in html
+    assert "function setTraceVisual" in html
+    assert "function renderTraceVisual" in html
+
+
+def test_trace_graph_artifact_and_parent_edges(html):
+    # Artifact nodes come from artifact spans and attributes.paths/artifacts.
+    assert "attrs.paths" in html
+    assert "attrs.artifacts" in html
+    assert "function traceArtifactPaths" in html
+    assert '"artifact:" + path' in html
+    assert "nodeBySpan" in html
+    # Parent -> child and artifact/subagent edge styling is present.
+    assert ".trace-graph-edge.artifact" in html
+    assert ".trace-graph-edge.subagent" in html
+    assert "marker-start" not in html  # arrowhead only, no stray markers
+
+
+def test_trace_graph_aggregates_and_caps_nodes(html):
+    assert "toolGroups" in html
+    assert "aggregatedCalls" in html
+    assert "repeated tool call(s) aggregated by name/kind." in html
+    assert "Showing " in html
+    assert "nodes (cap " in html
+    assert "truncated" in html
+    assert "perLayer" in html
+
+
+def test_trace_graph_click_selects_span(html):
+    assert "selectTraceSpan(node.spanId)" in html
+    assert html.count("selectTraceSpan(node.spanId)") >= 2
+    assert 'group.setAttribute("role", "button")' in html
+    assert 'group.setAttribute("tabindex", "0")' in html
+    assert 'traceSvgEl("title")' in html
+    assert "node.spanIds.indexOf(state.traceSelectedSpanId)" in html
+
+
+def test_trace_graph_empty_state_copy(html):
+    assert (
+        "No artifact or path metadata recorded for this trace — showing span flow only."
+        in html
+    )
+    assert "No spans recorded for this trace." in html
+
+
+def test_trace_graph_is_vanilla_svg_and_scrollable(html):
+    assert "document.createElementNS" in html
+    assert "TRACE_SVG_NS" in html
+    assert "http://" not in html
+    assert "trace-graph-edge" in html
+    assert ".trace-graph-scroll { flex: 1; min-height: 220px; overflow: auto; }" in html
+    assert ".trace-graph-node.selected rect" in html
+
+
+def test_trace_graph_does_not_regress_existing_explorer(html):
+    assert 'id="trace-lanes"' in html
+    assert 'id="trace-tree"' in html
+    assert 'id="trace-inspector"' in html
+    assert "renderTraceLanes" in html
+    assert "renderTraceTree" in html
+    assert "renderTraceInspector" in html
+    assert "traceEscape" in html
+    assert 'id="trace-back"' in html
+    # Timeline stays the default; graph is opt-in only.
+    assert 'state.traceVisual = mode === "graph" ? "graph" : "timeline"' in html
