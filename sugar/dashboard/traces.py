@@ -49,6 +49,8 @@ TOOL_END_KINDS = ("tool.completed", "tool.failed")
 USAGE_KINDS = ("usage.reported", "run.ended")
 APPROVAL_KINDS = ("approval.granted", "approval.denied", "policy.decision")
 ARTIFACT_KINDS = ("artifact.created", "commit.linked")
+SUBAGENT_KINDS = ("subagent.started",)
+TEAM_TASK_KINDS = ("team.task",)
 TASK_KINDS = ("task.created", "task.updated", "task.completed", "task.failed")
 
 TRACE_STATUSES = ("ok", "failed", "running")
@@ -198,6 +200,233 @@ def _event_ts(event: Mapping[str, Any]) -> Optional[str]:
 def _event_id(event: Mapping[str, Any]) -> Optional[int]:
     value = event.get("id")
     return value if isinstance(value, int) else None
+
+
+_PATH_KEYS = frozenset(
+    {"path", "file", "file_path", "filepath", "artifact_path", "artifactpath"}
+)
+_PATH_LIST_KEYS = frozenset(
+    {
+        "paths",
+        "files",
+        "artifacts",
+        "diffs",
+        "diff",
+        "write_scopes",
+        "writescopes",
+    }
+)
+_PATH_WALK_KEYS = frozenset(
+    {"meta", "payload", "result", "output", "data", "arguments", "input", "summary"}
+)
+
+
+def _normalize_session_key(value: Any) -> Optional[str]:
+    """Canonical session key for graph joins (strip DSH's ``session-`` prefix)."""
+    text = _first_text(value, limit=MAX_ID)
+    if not text:
+        return None
+    return text[8:] if text.startswith("session-") else text
+
+
+def _add_path(out: List[str], value: Any) -> None:
+    if not isinstance(value, str):
+        return
+    text = value.strip()[:MAX_STRING]
+    if text and text not in out and len(out) < MAX_ITEMS:
+        out.append(text)
+
+
+def _collect_paths(
+    value: Any, *, depth: int = 0, out: Optional[List[str]] = None
+) -> List[str]:
+    """Extract bounded file paths from tool/artifact payload shapes."""
+    paths = out if out is not None else []
+    if depth > MAX_DEPTH or len(paths) >= MAX_ITEMS:
+        return paths
+    if isinstance(value, Mapping):
+        for key, item in list(value.items())[:MAX_ITEMS]:
+            lower = str(key).lower()
+            if lower in _PATH_KEYS:
+                if isinstance(item, str):
+                    _add_path(paths, item)
+                elif isinstance(item, Mapping):
+                    for path_key in ("path", "file", "file_path", "filepath", "name"):
+                        _add_path(paths, item.get(path_key))
+                elif isinstance(item, (list, tuple)):
+                    for entry in item[:MAX_ITEMS]:
+                        if isinstance(entry, str):
+                            _add_path(paths, entry)
+                        elif isinstance(entry, Mapping):
+                            for path_key in (
+                                "path",
+                                "file",
+                                "file_path",
+                                "filepath",
+                            ):
+                                _add_path(paths, entry.get(path_key))
+            elif lower in _PATH_LIST_KEYS:
+                if isinstance(item, str):
+                    _add_path(paths, item)
+                elif isinstance(item, (list, tuple)):
+                    for entry in item[:MAX_ITEMS]:
+                        if isinstance(entry, str):
+                            _add_path(paths, entry)
+                        elif isinstance(entry, Mapping):
+                            for path_key in (
+                                "path",
+                                "file",
+                                "file_path",
+                                "filepath",
+                            ):
+                                _add_path(paths, entry.get(path_key))
+            elif lower in _PATH_WALK_KEYS:
+                _collect_paths(item, depth=depth + 1, out=paths)
+    elif isinstance(value, (list, tuple)):
+        for item in value[:MAX_ITEMS]:
+            _collect_paths(item, depth=depth + 1, out=paths)
+    return paths
+
+
+def _event_paths(event: Mapping[str, Any]) -> List[str]:
+    paths: List[str] = []
+    _collect_paths(_summary(event), out=paths)
+    _collect_paths(_payload(event), out=paths)
+    return paths
+
+
+def _artifact_key(event: Mapping[str, Any]) -> str:
+    paths = _event_paths(event)
+    description = _first_text(_field(event, "description"), limit=MAX_STRING) or ""
+    sha = _first_text(_field(event, "sha256", "digest"), limit=MAX_STRING) or ""
+    commit = _first_text(_field(event, "commit", "sha"), limit=MAX_STRING) or ""
+    if event.get("kind") == "commit.linked":
+        return "commit:" + (commit or str(_event_id(event) or ""))
+    if paths:
+        # One graph node per file path (plus content hash), even if a producer
+        # re-emits the same artifact with a different description.
+        return "artifact:" + "|".join(paths) + "|" + sha
+    return "artifact:" + description + "|" + sha
+
+
+def _artifact_records(
+    event: Mapping[str, Any], paths: Sequence[str]
+) -> List[Dict[str, Any]]:
+    description = _first_text(_field(event, "description"), limit=MAX_STRING)
+    sha = _first_text(_field(event, "sha256", "digest"), limit=MAX_STRING)
+    tool_call_id = _first_text(
+        _field(event, "tool_call_id", "tool_use_id", "call_id"), limit=MAX_ID
+    )
+    records: List[Dict[str, Any]] = []
+    for path in paths[:MAX_ITEMS]:
+        record: Dict[str, Any] = {"path": path}
+        if description:
+            record["description"] = description
+        if sha:
+            record["sha256"] = sha
+        if tool_call_id:
+            record["tool_call_id"] = tool_call_id
+        records.append(record)
+    return records
+
+
+def _team_task_fields(event: Mapping[str, Any]) -> Dict[str, Any]:
+    nested_task = _field(event, "task")
+    task_map = nested_task if isinstance(nested_task, Mapping) else {}
+    nested_team = _field(event, "team")
+    team_map = nested_team if isinstance(nested_team, Mapping) else {}
+    team_id = _first_text(
+        _field(event, "team_id", "teamId"), team_map.get("id"), limit=MAX_ID
+    )
+    team_task_id = _first_text(
+        _field(event, "team_task_id", "teamTaskId", "task_id"),
+        task_map.get("id"),
+        limit=MAX_ID,
+    )
+    subject = _first_text(
+        _field(event, "subject", "title", "name"),
+        task_map.get("subject"),
+        task_map.get("title"),
+        limit=MAX_SPAN_NAME,
+    )
+    status = (
+        _first_text(_event_status(event), task_map.get("status"), limit=MAX_SPAN_NAME)
+        or "ok"
+    ).lower()
+    owner_id = _first_text(
+        _field(event, "owner_id", "ownerId"), task_map.get("ownerId"), limit=MAX_ID
+    )
+    owner_name = _first_text(
+        _field(event, "owner_name", "ownerName"), limit=MAX_SPAN_NAME
+    )
+    parent_session = _first_text(
+        _field(event, "parent_session_id", "parent_session"),
+        team_map.get("teamId"),
+        limit=MAX_ID,
+    )
+    blocked_raw = _field(event, "blocked_by", "blockedBy")
+    if blocked_raw is None:
+        blocked_raw = task_map.get("blockedBy") or task_map.get("blocked_by")
+    blocked_by: List[str] = []
+    if isinstance(blocked_raw, (list, tuple)):
+        for item in blocked_raw[:MAX_ITEMS]:
+            value = _first_text(item, limit=MAX_ID)
+            if value and value not in blocked_by:
+                blocked_by.append(value)
+    elif blocked_raw not in (None, ""):
+        value = _first_text(blocked_raw, limit=MAX_ID)
+        if value:
+            blocked_by.append(value)
+    return {
+        "team_id": team_id,
+        "team_task_id": team_task_id,
+        "subject": subject,
+        "status": status,
+        "owner_id": owner_id,
+        "owner_name": owner_name,
+        "parent_session_id": parent_session,
+        "blocked_by": blocked_by,
+    }
+
+
+def _team_task_status(value: str) -> str:
+    if value in ("failed", "error", "rejected"):
+        return "failed"
+    if value == "blocked":
+        return "blocked"
+    if value in ("running", "active", "in_progress", "in-progress"):
+        return "running"
+    return "ok"
+
+
+def _subagent_fields(event: Mapping[str, Any]) -> Dict[str, Any]:
+    parent_session = _first_text(
+        _field(event, "parent_session_id", "parent_session", "parentSession"),
+        limit=MAX_ID,
+    )
+    child_session = _first_text(
+        _field(
+            event,
+            "child_session_id",
+            "child_session",
+            "childSessionId",
+            "child_id",
+            "childId",
+        ),
+        limit=MAX_ID,
+    )
+    label = _first_text(_field(event, "label", "name", "title"), limit=MAX_SPAN_NAME)
+    mode = _first_text(_field(event, "mode"), limit=MAX_SPAN_NAME)
+    created_at = _first_text(
+        _field(event, "created_at", "createdAt", "child_created_at"), limit=MAX_STRING
+    )
+    return {
+        "parent_session_id": parent_session,
+        "child_session_id": child_session,
+        "label": label,
+        "mode": mode,
+        "created_at": created_at,
+    }
 
 
 def _tokens(event: Mapping[str, Any]) -> int:
@@ -569,7 +798,7 @@ def _build_tool_spans(
     session_harness: str,
     session_project: Optional[str],
     session_cwd: Optional[str],
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     starts: List[Mapping[str, Any]] = []
     completions: List[Mapping[str, Any]] = []
     for event in events:
@@ -632,6 +861,7 @@ def _build_tool_spans(
     )
 
     spans: List[Dict[str, Any]] = []
+    tool_ids: Dict[str, str] = {}
     for start, completion in pairs:
         reference = start or completion
         if reference is None:
@@ -697,6 +927,18 @@ def _build_tool_spans(
                 ),
             },
         )
+        paths = _event_paths(start) if start is not None else []
+        if completion is not None:
+            for path in _event_paths(completion):
+                if path not in paths:
+                    paths.append(path)
+        if paths:
+            attributes["path"] = paths[0]
+            attributes["paths"] = paths[:MAX_ITEMS]
+            attributes["artifacts"] = [{"path": path} for path in paths[:MAX_ITEMS]]
+        tool_id = _event_tool_use_id(reference)
+        if tool_id:
+            tool_ids.setdefault(_normalize_session_key(tool_id) or tool_id, span_id)
         spans.append(
             _span(
                 span_id=span_id,
@@ -719,21 +961,87 @@ def _build_tool_spans(
                 attributes=attributes,
             )
         )
-    return spans
+    return spans, tool_ids
+
+
+def _build_explicit_subagent_spans(
+    events: Sequence[Mapping[str, Any]],
+    session_span_id: str,
+    ids: _SpanIds,
+    session_harness: str,
+    session_project: Optional[str],
+    session_cwd: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """Build subagent spans from ``subagent.started`` events in this session."""
+    spans: List[Dict[str, Any]] = []
+    child_ids: Dict[str, str] = {}
+    for event in events:
+        if event.get("kind") not in SUBAGENT_KINDS:
+            continue
+        fields = _subagent_fields(event)
+        child_key = (
+            _normalize_session_key(fields["child_session_id"])
+            or fields["child_session_id"]
+        )
+        if child_key and child_key in child_ids:
+            continue
+        span_id = ids.make(
+            _event_span_id(event), f"subagent:{_event_id(event) or len(spans)}"
+        )
+        if child_key:
+            child_ids[child_key] = span_id
+        attributes = _span_attributes(event)
+        for key in ("parent_session_id", "child_session_id", "label", "mode"):
+            if fields.get(key):
+                attributes[key] = fields[key]
+        if fields.get("created_at"):
+            attributes["created_at"] = fields["created_at"]
+        spans.append(
+            _span(
+                span_id=span_id,
+                parent_span_id=session_span_id,
+                kind="subagent",
+                name=fields["label"] or fields["child_session_id"] or "subagent",
+                actor=_first_text(event.get("actor"), limit=MAX_ID),
+                harness=_harness(event) or session_harness,
+                model=None,
+                status=(_event_status(event) or "running").lower(),
+                start=_event_ts(event),
+                end=None,
+                duration_ms=None,
+                project=_project(event) or session_project,
+                cwd=_cwd(event) or session_cwd,
+                input_value=_bounded_mapping(_summary(event)),
+                output_value={},
+                attributes=attributes,
+            )
+        )
+    return spans, child_ids
 
 
 def _build_simple_spans(
     events: Sequence[Mapping[str, Any]],
     session_span_id: str,
     turn_ids: Mapping[str, str],
+    tool_ids: Mapping[str, str],
+    subagent_ids: Mapping[str, str],
     ids: _SpanIds,
     session_harness: str,
     session_project: Optional[str],
     session_cwd: Optional[str],
 ) -> List[Dict[str, Any]]:
     spans: List[Dict[str, Any]] = []
+    seen_artifacts: set = set()
     for event in events:
         kind = event.get("kind")
+        span_kind = "task"
+        parent = session_span_id
+        status = "ok"
+        model: Optional[str] = None
+        input_value: Dict[str, Any] = {}
+        output_value: Dict[str, Any] = {}
+        attributes: Dict[str, Any] = {}
+        name = "span"
         if kind in USAGE_KINDS:
             span_kind = "llm"
             model = _model(event)
@@ -743,23 +1051,25 @@ def _build_simple_spans(
             input_value = {"tokens_in": tokens_in} if tokens_in is not None else {}
             output_value = {"tokens_out": tokens_out} if tokens_out is not None else {}
             attributes = _span_attributes(event, extra={"tokens_total": _tokens(event)})
-            status = "ok"
+            parent = turn_ids.get(_event_turn_id(event) or "", session_span_id)
         elif kind in APPROVAL_KINDS:
             span_kind = "approval"
             nested = _summary(event)
+            payload = _payload(event)
             name = (
                 _first_text(
                     nested.get("policy"),
                     nested.get("approval"),
                     nested.get("name"),
+                    payload.get("policy"),
+                    payload.get("approval"),
+                    payload.get("name"),
                     "approval" if kind != "policy.decision" else "policy",
                     limit=MAX_SPAN_NAME,
                 )
                 or "approval"
             )
-            model = None
-            input_value = _bounded_mapping(nested)
-            output_value = {}
+            input_value = _bounded_mapping(nested or payload)
             attributes = _span_attributes(event)
             approval_status = (_event_status(event) or "").lower()
             if kind == "approval.denied" or approval_status in (
@@ -770,49 +1080,108 @@ def _build_simple_spans(
                 status = "failed"
             elif approval_status == "blocked":
                 status = "blocked"
-            else:
-                status = "ok"
+            parent = turn_ids.get(_event_turn_id(event) or "", session_span_id)
         elif kind in ARTIFACT_KINDS:
+            key = _artifact_key(event)
+            if key in seen_artifacts:
+                continue
+            seen_artifacts.add(key)
             span_kind = "artifact"
             nested = _summary(event)
+            payload = _payload(event)
+            paths = _event_paths(event)
+            description = _first_text(_field(event, "description"), limit=MAX_STRING)
+            sha = _first_text(_field(event, "sha256", "digest"), limit=MAX_STRING)
+            tool_call_id = _first_text(
+                _field(event, "tool_call_id", "tool_use_id", "call_id"),
+                limit=MAX_ID,
+            )
             name = (
                 _first_text(
+                    description,
+                    paths[0] if paths else None,
+                    nested.get("commit"),
+                    payload.get("commit"),
                     nested.get("commit"),
                     nested.get("artifact"),
-                    nested.get("path"),
                     nested.get("name"),
                     kind,
                     limit=MAX_SPAN_NAME,
                 )
                 or "artifact"
             )
-            model = None
-            input_value = _bounded_mapping(nested)
-            output_value = {}
+            input_value = _bounded_mapping(nested or payload)
             attributes = _span_attributes(event)
-            status = "ok"
+            if paths:
+                attributes["path"] = paths[0]
+                attributes["paths"] = paths[:MAX_ITEMS]
+            records = _artifact_records(event, paths)
+            if records:
+                attributes["artifacts"] = records
+            if description:
+                attributes["description"] = description
+            if sha:
+                attributes["sha256"] = sha
+            if tool_call_id:
+                attributes["tool_call_id"] = tool_call_id
+            parent = tool_ids.get(
+                _normalize_session_key(tool_call_id) or tool_call_id or ""
+            ) or turn_ids.get(_event_turn_id(event) or "", session_span_id)
+        elif kind in TEAM_TASK_KINDS:
+            span_kind = "task"
+            fields = _team_task_fields(event)
+            name = fields["subject"] or fields["team_task_id"] or "task"
+            status = _team_task_status(fields["status"])
+            nested = _summary(event)
+            payload = _payload(event)
+            input_value = _bounded_mapping(nested or payload)
+            attributes = _span_attributes(event)
+            for key in (
+                "team_id",
+                "team_task_id",
+                "owner_id",
+                "owner_name",
+                "parent_session_id",
+            ):
+                if fields.get(key):
+                    attributes[key] = fields[key]
+            attributes["blocked_by"] = fields["blocked_by"]
+            owner_key = _normalize_session_key(fields["owner_id"]) or fields["owner_id"]
+            parent = (
+                turn_ids.get(_event_turn_id(event) or "")
+                or (subagent_ids.get(owner_key) if owner_key else None)
+                or session_span_id
+            )
         elif kind in TASK_KINDS:
             span_kind = "task"
             nested = _summary(event)
+            payload = _payload(event)
             name = (
                 _first_text(
                     nested.get("title"),
                     nested.get("task"),
+                    payload.get("title"),
+                    payload.get("task"),
                     event.get("task_id"),
                     "task",
                     limit=MAX_SPAN_NAME,
                 )
                 or "task"
             )
-            model = None
-            input_value = _bounded_mapping(nested)
-            output_value = {}
+            input_value = _bounded_mapping(nested or payload)
             attributes = _span_attributes(event)
             status = "failed" if kind == "task.failed" else "ok"
+            parent = turn_ids.get(_event_turn_id(event) or "", session_span_id)
         else:
             continue
-        turn_id = _event_turn_id(event)
-        parent = turn_ids.get(turn_id or "", session_span_id)
+        if "paths" not in attributes:
+            event_paths = _event_paths(event)
+            if event_paths:
+                attributes["path"] = event_paths[0]
+                attributes["paths"] = event_paths[:MAX_ITEMS]
+                attributes["artifacts"] = [
+                    {"path": path} for path in event_paths[:MAX_ITEMS]
+                ]
         span_id = ids.make(
             _event_span_id(event),
             f"{span_kind}:{_event_id(event) or len(spans)}",
@@ -847,6 +1216,8 @@ def _build_subagent_span(
     session_harness: str,
     session_project: Optional[str],
     session_cwd: Optional[str],
+    *,
+    skip_child_ids: Optional[set] = None,
 ) -> Optional[Dict[str, Any]]:
     for event in events:
         if event.get("kind") != "session.started":
@@ -854,7 +1225,15 @@ def _build_subagent_span(
         nested = _summary(event)
         origin = _first_text(nested.get("origin"), limit=MAX_SPAN_NAME)
         parent_session = _first_text(nested.get("parent_session"), limit=MAX_ID)
+        child_session = _first_text(
+            event.get("session_id"),
+            nested.get("child_session_id"),
+            limit=MAX_ID,
+        )
         if not origin and not parent_session:
+            continue
+        child_key = _normalize_session_key(child_session)
+        if skip_child_ids and child_key and child_key in skip_child_ids:
             continue
         span_id = ids.make(None, f"subagent:{_event_id(event) or 'session'}")
         return _span(
@@ -875,7 +1254,16 @@ def _build_subagent_span(
             output_value={},
             attributes=_span_attributes(
                 event,
-                extra={"origin": origin, "parent_session": parent_session},
+                extra={
+                    "origin": origin,
+                    "parent_session": parent_session,
+                    "parent_session_id": parent_session,
+                    "child_session_id": child_session,
+                    "label": _first_text(
+                        nested.get("label"), origin, limit=MAX_SPAN_NAME
+                    ),
+                    "mode": _first_text(nested.get("mode"), limit=MAX_SPAN_NAME),
+                },
             ),
         )
     return None
@@ -928,6 +1316,39 @@ def _session_title(
         if cleaned:
             return cleaned.rsplit("/", 1)[-1].rsplit("\\", 1)[-1][:MAX_SPAN_NAME]
     return trace_id[:MAX_SPAN_NAME]
+
+
+def _enriched_counts(events: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
+    subagent_keys: set = set()
+    has_subagent_header = False
+    artifact_keys: set = set()
+    for event in events:
+        kind = event.get("kind")
+        if kind in SUBAGENT_KINDS:
+            fields = _subagent_fields(event)
+            key = (
+                _normalize_session_key(fields["child_session_id"])
+                or fields["child_session_id"]
+                or fields["label"]
+                or _event_id(event)
+            )
+            subagent_keys.add(str(key))
+        elif kind == "session.started":
+            nested = _summary(event)
+            payload = _payload(event)
+            if (
+                nested.get("origin")
+                or nested.get("parent_session")
+                or payload.get("origin")
+                or payload.get("parent_session")
+            ):
+                has_subagent_header = True
+        elif kind in ARTIFACT_KINDS:
+            artifact_keys.add(_artifact_key(event))
+    return {
+        "subagents": len(subagent_keys) + (1 if has_subagent_header else 0),
+        "artifacts": len(artifact_keys),
+    }
 
 
 def summarize_trace(
@@ -1007,6 +1428,7 @@ def summarize_trace(
         "models": models,
         "tokens_total": tokens_total,
         "status": status,
+        **_enriched_counts(ordered),
     }
 
 
@@ -1037,10 +1459,18 @@ def build_trace(
         summary["project"],
         summary["cwd"],
     )
-    tool_spans = _build_tool_spans(
+    tool_spans, tool_ids = _build_tool_spans(
         ordered,
         session_span_id,
         turn_ids,
+        ids,
+        summary["harness"],
+        summary["project"],
+        summary["cwd"],
+    )
+    explicit_subagents, subagent_ids = _build_explicit_subagent_spans(
+        ordered,
+        session_span_id,
         ids,
         summary["harness"],
         summary["project"],
@@ -1050,6 +1480,8 @@ def build_trace(
         ordered,
         session_span_id,
         turn_ids,
+        tool_ids,
+        subagent_ids,
         ids,
         summary["harness"],
         summary["project"],
@@ -1062,9 +1494,17 @@ def build_trace(
         summary["harness"],
         summary["project"],
         summary["cwd"],
+        skip_child_ids=set(subagent_ids),
     )
     summary["turns"] = len(turn_spans)
     summary["tool_calls"] = len(tool_spans)
+    all_subagents = [*explicit_subagents]
+    if subagent is not None:
+        all_subagents.append(subagent)
+    summary["subagents"] = len(all_subagents)
+    summary["artifacts"] = sum(
+        1 for span in simple_spans if span.get("kind") == "artifact"
+    )
 
     session_start = next(
         (event for event in ordered if event.get("kind") == "session.started"), None
@@ -1108,7 +1548,7 @@ def build_trace(
     spans: List[Tuple[str, int, Dict[str, Any]]] = [
         (session_span["start"] or "", 0, session_span)
     ]
-    for span in [*turn_spans, *tool_spans, *simple_spans]:
+    for span in [*turn_spans, *tool_spans, *explicit_subagents, *simple_spans]:
         spans.append((span.get("start") or "", len(spans), span))
     if subagent is not None:
         spans.append((subagent.get("start") or "", len(spans), subagent))

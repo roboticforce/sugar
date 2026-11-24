@@ -577,3 +577,343 @@ class TestPureBuilders:
         listed, detail = asyncio.run(go())
         assert listed == {"traces": []}
         assert detail is None
+
+
+# ---------------------------------------------------------------------------
+# Enriched subagent / team task / artifact spans (task-36)
+# ---------------------------------------------------------------------------
+
+
+def parent_events():
+    return [
+        event(
+            "session.started",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:00Z",
+            payload=nested({"title": "Parent session", "cwd": "/repo"}),
+            project="sugar",
+        ),
+        event(
+            "subagent.started",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:01Z",
+            payload=nested(
+                {
+                    "parent_session_id": "session-parent",
+                    "child_session_id": "child-1",
+                    "label": "researcher",
+                    "mode": "continuable",
+                }
+            ),
+        ),
+        event(
+            "team.task",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:02Z",
+            payload=nested(
+                {
+                    "team_id": "session-parent",
+                    "team_task_id": "task-1",
+                    "subject": "Research login",
+                    "status": "running",
+                    "owner_id": "child-1",
+                    "owner_name": "Researcher",
+                    "blocked_by": ["task-0"],
+                    "parent_session_id": "session-parent",
+                }
+            ),
+        ),
+        event(
+            "tool.started",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:03Z",
+            payload={
+                "tool_use_id": "call-1",
+                "tool_name": "write",
+                "payload": {"arguments": {"path": "/repo/foo.py"}},
+            },
+        ),
+        event(
+            "tool.completed",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:04Z",
+            payload={
+                "tool_use_id": "call-1",
+                "tool_name": "write",
+                "payload": {"result": {"path": "/repo/foo.py"}},
+            },
+        ),
+        event(
+            "artifact.created",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:05Z",
+            payload=nested(
+                {
+                    "path": "/repo/foo.py",
+                    "description": "add foo",
+                    "sha256": "sha123",
+                    "turn": 1,
+                    "tool_call_id": "call-1",
+                }
+            ),
+        ),
+        event(
+            "session.ended",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:06Z",
+        ),
+    ]
+
+
+class TestEnrichedSpans:
+    def test_subagent_started_span_attributes_and_parent(self, client):
+        seed(client, parent_events())
+        trace = client.get("/api/traces/dsh:s-parent").json()
+        subagent = [span for span in trace["spans"] if span["kind"] == "subagent"][0]
+        session_span = [span for span in trace["spans"] if span["kind"] == "session"][0]
+        assert subagent["name"] == "researcher"
+        assert subagent["parent_span_id"] == session_span["span_id"]
+        assert subagent["status"] == "running"
+        attributes = subagent["attributes"]
+        assert attributes["parent_session_id"] == "session-parent"
+        assert attributes["child_session_id"] == "child-1"
+        assert attributes["label"] == "researcher"
+        assert attributes["mode"] == "continuable"
+        assert trace["trace"]["subagents"] == 1
+
+    def test_child_subagent_session_is_a_separate_trace(self, client):
+        seed(
+            client,
+            [
+                *parent_events(),
+                event(
+                    "session.started",
+                    session_id="child-1",
+                    ts="2026-01-01T10:00:07Z",
+                    payload=nested(
+                        {
+                            "title": "Child researcher",
+                            "parent_session": "session-parent",
+                            "origin": "subagent",
+                        }
+                    ),
+                ),
+                event(
+                    "session.ended",
+                    session_id="child-1",
+                    ts="2026-01-01T10:00:08Z",
+                ),
+            ],
+        )
+        listed = client.get("/api/traces").json()["traces"]
+        trace_ids = {trace["trace_id"] for trace in listed}
+        assert trace_ids == {"dsh:s-parent", "dsh:child-1"}
+        parent_detail = client.get("/api/traces/dsh:s-parent").json()
+        subagent = [
+            span for span in parent_detail["spans"] if span["kind"] == "subagent"
+        ][0]
+        assert subagent["attributes"]["child_session_id"] == "child-1"
+        child_detail = client.get("/api/traces/dsh:child-1").json()
+        assert child_detail["trace"]["trace_id"] == "dsh:child-1"
+        header_subagent = [
+            span for span in child_detail["spans"] if span["kind"] == "subagent"
+        ][0]
+        assert header_subagent["attributes"]["parent_session_id"] == "session-parent"
+        assert header_subagent["attributes"]["child_session_id"] == "child-1"
+
+    def test_team_task_span_attributes_and_subagent_parent(self, client):
+        seed(client, parent_events())
+        trace = client.get("/api/traces/dsh:s-parent").json()
+        task = [span for span in trace["spans"] if span["kind"] == "task"][0]
+        subagent = [span for span in trace["spans"] if span["kind"] == "subagent"][0]
+        assert task["name"] == "Research login"
+        assert task["parent_span_id"] == subagent["span_id"]
+        assert task["status"] == "running"
+        assert task["attributes"]["team_id"] == "session-parent"
+        assert task["attributes"]["team_task_id"] == "task-1"
+        assert task["attributes"]["owner_id"] == "child-1"
+        assert task["attributes"]["blocked_by"] == ["task-0"]
+
+    def test_team_task_without_subagent_parents_session(self, client):
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "team"}),
+                event(
+                    "team.task",
+                    ts="2026-01-01T10:00:01Z",
+                    payload={
+                        "team_task_id": "task-2",
+                        "subject": "Done",
+                        "status": "completed",
+                    },
+                ),
+                event("session.ended", ts="2026-01-01T10:00:02Z"),
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        task = [span for span in trace["spans"] if span["kind"] == "task"][0]
+        session_span = [span for span in trace["spans"] if span["kind"] == "session"][0]
+        assert task["parent_span_id"] == session_span["span_id"]
+        assert task["status"] == "ok"
+
+    def test_artifact_span_graph_attributes_and_tool_parent(self, client):
+        seed(client, parent_events())
+        trace = client.get("/api/traces/dsh:s-parent").json()
+        artifact = [span for span in trace["spans"] if span["kind"] == "artifact"][0]
+        tool = [span for span in trace["spans"] if span["kind"] == "tool"][0]
+        assert artifact["parent_span_id"] == tool["span_id"]
+        assert artifact["name"] == "add foo"
+        attributes = artifact["attributes"]
+        assert attributes["path"] == "/repo/foo.py"
+        assert attributes["paths"] == ["/repo/foo.py"]
+        assert attributes["description"] == "add foo"
+        assert attributes["sha256"] == "sha123"
+        assert attributes["tool_call_id"] == "call-1"
+        assert attributes["artifacts"] == [
+            {
+                "path": "/repo/foo.py",
+                "description": "add foo",
+                "sha256": "sha123",
+                "tool_call_id": "call-1",
+            }
+        ]
+        assert tool["attributes"]["paths"] == ["/repo/foo.py"]
+        assert trace["trace"]["artifacts"] == 1
+
+    def test_duplicate_artifacts_are_deduped(self, client):
+        artifact = event(
+            "artifact.created",
+            ts="2026-01-01T10:00:01Z",
+            payload={"path": "/repo/a.py", "description": "a"},
+        )
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "dedupe"}),
+                artifact,
+                {**artifact, "id": None, "ts": "2026-01-01T10:00:02Z"},
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        artifacts = [span for span in trace["spans"] if span["kind"] == "artifact"]
+        assert len(artifacts) == 1
+        assert trace["trace"]["artifacts"] == 1
+
+    def test_paths_are_bounded(self, client):
+        many_paths = [f"/repo/file-{index}.py" for index in range(50)]
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "paths"}),
+                event(
+                    "tool.started",
+                    ts="2026-01-01T10:00:01Z",
+                    payload={
+                        "tool_use_id": "call-many",
+                        "tool_name": "write",
+                        "payload": {"arguments": {"paths": many_paths}},
+                    },
+                ),
+                event(
+                    "tool.completed",
+                    ts="2026-01-01T10:00:02Z",
+                    payload={
+                        "tool_use_id": "call-many",
+                        "tool_name": "write",
+                        "payload": {"result": {"paths": many_paths}},
+                    },
+                ),
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        tool = [span for span in trace["spans"] if span["kind"] == "tool"][0]
+        assert len(tool["attributes"]["paths"]) <= 20
+        assert all(len(path) <= 1000 for path in tool["attributes"]["paths"])
+
+    def test_flat_enriched_payloads_are_tolerated(self, client):
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "flat"}),
+                event(
+                    "subagent.started",
+                    ts="2026-01-01T10:00:01Z",
+                    payload={
+                        "parent_session_id": "s1",
+                        "child_session_id": "child-flat",
+                        "label": "flat child",
+                    },
+                ),
+                event(
+                    "team.task",
+                    ts="2026-01-01T10:00:02Z",
+                    payload={
+                        "team_id": "s1",
+                        "team_task_id": "task-flat",
+                        "subject": "Flat task",
+                        "status": "blocked",
+                        "owner_id": "child-flat",
+                    },
+                ),
+                event(
+                    "artifact.created",
+                    ts="2026-01-01T10:00:03Z",
+                    payload={
+                        "path": "/repo/flat.py",
+                        "description": "flat artifact",
+                        "sha256": "flat-sha",
+                    },
+                ),
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        subagent = [span for span in trace["spans"] if span["kind"] == "subagent"][0]
+        task = [span for span in trace["spans"] if span["kind"] == "task"][0]
+        artifact = [span for span in trace["spans"] if span["kind"] == "artifact"][0]
+        assert subagent["attributes"]["label"] == "flat child"
+        assert task["status"] == "blocked"
+        assert task["parent_span_id"] == subagent["span_id"]
+        assert artifact["attributes"]["paths"] == ["/repo/flat.py"]
+
+    def test_duplicate_subagent_events_are_deduped(self, client):
+        subagent = event(
+            "subagent.started",
+            ts="2026-01-01T10:00:01Z",
+            payload={"child_session_id": "child-1", "label": "child"},
+        )
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "subagents"}),
+                subagent,
+                {**subagent, "id": None, "ts": "2026-01-01T10:00:02Z"},
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        spans = [span for span in trace["spans"] if span["kind"] == "subagent"]
+        assert len(spans) == 1
+        assert trace["trace"]["subagents"] == 1
+
+    def test_artifact_parents_turn_without_tool(self, client):
+        seed(
+            client,
+            [
+                event("session.started", payload={"title": "turn artifact"}),
+                event(
+                    "turn.started", ts="2026-01-01T10:00:01Z", payload={"turn_id": "1"}
+                ),
+                event(
+                    "artifact.created",
+                    ts="2026-01-01T10:00:02Z",
+                    payload={"path": "/repo/t.py", "turn": 1},
+                ),
+                event(
+                    "turn.ended", ts="2026-01-01T10:00:03Z", payload={"turn_id": "1"}
+                ),
+            ],
+        )
+        trace = client.get("/api/traces/dsh:s1").json()
+        artifact = [span for span in trace["spans"] if span["kind"] == "artifact"][0]
+        turn = [span for span in trace["spans"] if span["kind"] == "turn"][0]
+        assert artifact["parent_span_id"] == turn["span_id"]
