@@ -116,12 +116,12 @@ def test_trace_list_renders_session_columns(html):
         assert label in html
     for field in ("trace-title", "trace-sub", "trace-metrics", "trace-status"):
         assert field in html
-    assert 'get("/api/traces?limit=200")' in html
+    assert 'get("/api/traces?limit=100")' in html
     assert "started " in html
 
 
 def test_trace_api_wiring(html):
-    assert "/api/traces?limit=200" in html
+    assert "/api/traces?limit=100" in html
     assert '"/api/traces/"' in html
     assert "encodeURIComponent(trace.id)" in html
     assert "function loadTraces" in html
@@ -214,7 +214,7 @@ def test_existing_views_and_dependencies_are_preserved(html):
 
 
 def test_traces_endpoint_contract_when_available(client):
-    response = client.get("/api/traces?limit=200")
+    response = client.get("/api/traces?limit=100")
     if response.status_code in (404, 405, 503):
         pytest.skip("GET /api/traces lands with a parallel trace-backend change")
     assert response.status_code == 200
@@ -232,3 +232,8 @@ def test_traces_endpoint_contract_when_available(client):
         assert detail.status_code == 200
         detail_payload = detail.json()
         assert "spans" in detail_payload or "trace" in detail_payload
+
+
+def test_trace_list_respects_api_limit(html):
+    assert "/api/traces?limit=100" in html
+    assert "/api/traces?limit=200" not in html
