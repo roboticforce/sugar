@@ -127,7 +127,7 @@ The lease contract is now enforced at runtime, not just in the store:
 ### Non-goals still open
 
 - **No Postgres implementation yet** — waiting for the team/hosted validation signal (see
-  [agent-teams-market.md](agent-teams-market.md)).
+  the internal market/validation notes (not public).
 - **Event emission is not in the store** — the dashboard's spine/observers capture transitions. When the store
   learns to append events, it must do so in the same transaction as the mutation.
 - **Single-process concurrency only.** `BEGIN IMMEDIATE` protects within one process/host; cross-machine claims
