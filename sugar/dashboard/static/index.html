@@ -165,6 +165,20 @@
   }
   .feed-head .dot { width: 8px; height: 8px; flex: none; }
   .feed-head .feed-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: normal; text-transform: none; }
+  .model-summary {
+    display: flex; flex-direction: column; gap: 4px; flex: none;
+    padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .model-summary[hidden] { display: none; }
+  .model-row {
+    display: flex; align-items: center; gap: 12px; font-size: 11.5px;
+    color: var(--muted); cursor: pointer; padding: 4px 0;
+  }
+  .model-row:hover { color: var(--text); }
+  .model-row b { color: var(--text); font-size: 12px; min-width: 110px; }
+  .model-row .model-count { font-variant-numeric: tabular-nums; }
+  .model-row .model-when { margin-left: auto; white-space: nowrap; }
+  .model-row .model-projects { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .feed { flex: 1; min-height: 0; overflow: auto; }
   .feed-row {
     display: flex; align-items: center; gap: 12px;
@@ -465,6 +479,9 @@
       <select id="activity-project" aria-label="Filter activity by project">
         <option value="">All projects</option>
       </select>
+      <select id="activity-model" aria-label="Filter activity by model">
+        <option value="">All models</option>
+      </select>
       <input type="search" id="activity-search" placeholder="Filter actor, project, task or kind…" autocomplete="off">
     </div>
     <span class="spacer"></span>
@@ -496,6 +513,7 @@
       <div class="usage-totals" id="usage-totals"></div>
       <div class="usage-cols" id="usage-cols"></div>
     </section>
+    <section class="model-summary" id="model-summary" aria-label="Model usage summary" hidden></section>
     <div class="feed-head">
       <span class="dot" id="feed-dot"></span>
       <span id="feed-live-label">connecting…</span>
@@ -711,6 +729,7 @@
     feedIds: new Set(),
     feedKind: "",
     feedProject: "",
+    feedModel: "",
     feedQuery: "",
     feedUnavailable: false,
     // Coverage matrix (Phase 0): read-only snapshot, refreshed while open.
@@ -1088,6 +1107,13 @@
     return parts.length ? parts[parts.length - 1] : cwd;
   }
 
+  function eventModel(event) {
+    const payload = eventPayload(event);
+    const nested = payload.payload && typeof payload.payload === "object" ? payload.payload : {};
+    const value = payload.model || nested.model || "";
+    return value ? String(value) : "";
+  }
+
   function eventTitle(event) {
     const payload = eventPayload(event);
     if (payload.title) return String(payload.title);
@@ -1101,14 +1127,83 @@
   function activityHaystack(event) {
     const payload = eventPayload(event);
     return [event.actor, event.task_id, event.kind, payload.title, event.harness,
-      event.project, eventProject(event), eventCwd(event)]
+      event.project, eventProject(event), eventCwd(event), eventModel(event)]
       .filter(function (value) { return value !== null && value !== undefined && value !== ""; })
       .join(" ").toLowerCase();
+  }
+
+  function renderModelFilter() {
+    const select = $("activity-model");
+    if (!select) return;
+    const current = state.feedModel;
+    const models = new Set();
+    state.feed.forEach(function (event) {
+      const model = eventModel(event);
+      if (model) models.add(model);
+    });
+    if (current) models.add(current);
+    select.replaceChildren();
+    select.appendChild(new Option("All models", ""));
+    Array.from(models).sort().forEach(function (model) {
+      select.appendChild(new Option(model, model));
+    });
+    select.value = current;
+  }
+
+  function renderModelSummary() {
+    const panel = $("model-summary");
+    if (!panel) return;
+    const groups = new Map();
+    state.feed.forEach(function (event) {
+      const model = eventModel(event);
+      if (!model) return;
+      let group = groups.get(model);
+      if (!group) {
+        group = { events: 0, tools: 0, projects: new Set(), first: null, last: null };
+        groups.set(model, group);
+      }
+      group.events += 1;
+      if (activityCategory(event.kind) === "tool") group.tools += 1;
+      const project = eventProject(event);
+      if (project) group.projects.add(project);
+      const time = eventTime(event);
+      if (time) {
+        if (!group.first || time < group.first) group.first = time;
+        if (!group.last || time > group.last) group.last = time;
+      }
+    });
+    if (!groups.size) {
+      panel.hidden = true;
+      panel.replaceChildren();
+      return;
+    }
+    panel.hidden = false;
+    const rows = Array.from(groups.entries()).sort(function (a, b) {
+      return b[1].events - a[1].events;
+    }).map(function (entry) {
+      const model = entry[0];
+      const group = entry[1];
+      const row = el("div", "model-row");
+      row.title = "Filter activity to " + model;
+      row.addEventListener("click", function () {
+        state.feedModel = state.feedModel === model ? "" : model;
+        renderModelFilter();
+        renderFeed();
+      });
+      row.appendChild(el("b", null, model));
+      row.appendChild(el("span", "model-count", group.events + " events · " + group.tools + " tools"));
+      const projects = Array.from(group.projects).slice(0, 3).join(", ");
+      row.appendChild(el("span", "model-projects", projects || "—"));
+      row.appendChild(el("span", "model-when", (group.first || "—") + " → " + (group.last || "—")));
+      return row;
+    });
+    panel.replaceChildren.apply(panel, rows);
   }
 
   function matchesActivityFilters(event) {
     if (state.feedKind && activityCategory(event.kind) !== state.feedKind) return false;
     if (state.feedProject && eventProject(event) !== state.feedProject) return false;
+    if (state.feedModel && eventModel(event) !== state.feedModel) return false;
     if (state.feedQuery && activityHaystack(event).indexOf(state.feedQuery) === -1) return false;
     return true;
   }
@@ -1211,6 +1306,12 @@
       chip.title = "harness: " + event.harness;
       chips.appendChild(chip);
     }
+    const model = eventModel(event);
+    if (model) {
+      const modelChip = el("span", "mini-chip", model);
+      modelChip.title = "model: " + model;
+      chips.appendChild(modelChip);
+    }
     const project = eventProject(event);
     if (project) {
       const chip = el("span", "mini-chip", project);
@@ -1246,6 +1347,8 @@
     const feed = $("feed");
     if (!feed) return;
     renderProjectFilter();
+    renderModelFilter();
+    renderModelSummary();
     const filtered = state.feed.filter(matchesActivityFilters);
     const count = $("feed-count");
     if (count) {
@@ -1290,6 +1393,7 @@
       ["task", taskId || "—"],
       ["project", eventProject(event) || "—"],
       ["cwd", eventCwd(event) || "—"],
+      ["model", eventModel(event) || "—"],
       ["time", eventTime(event) || "—"],
       ["source", event.source || "—"],
       ["event id", event.id != null ? String(event.id) : "—"],
@@ -2585,6 +2689,10 @@
     });
     $("activity-project").addEventListener("change", function (event) {
       state.feedProject = event.target.value;
+      renderFeed();
+    });
+    $("activity-model").addEventListener("change", function (event) {
+      state.feedModel = event.target.value;
       renderFeed();
     });
     $("activity-search").addEventListener("input", function (event) {

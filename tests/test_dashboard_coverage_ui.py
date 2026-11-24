@@ -35,6 +35,14 @@ def html(client):
     return response.text
 
 
+def test_activity_feed_can_filter_and_summarize_by_model(html):
+    assert 'id="activity-model"' in html
+    assert 'id="model-summary"' in html
+    assert "function eventModel(" in html
+    assert "function renderModelSummary(" in html
+    assert "renderModelFilter" in html
+
+
 def test_activity_feed_can_filter_by_project_and_all_kind_groups(html):
     assert 'id="activity-project"' in html
     for value in ("turn", "session", "tool", "evidence", "usage"):
