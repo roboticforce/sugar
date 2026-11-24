@@ -1451,6 +1451,7 @@ def summarize_trace(
         "cwd": cwd,
         "title": _session_title(ordered, resolved_trace_id, project, cwd),
         "started_at": started_at,
+        "last_event_at": max(started_candidates) if started_candidates else None,
         "ended_at": ended_at,
         "duration_ms": _duration_between(started_at, ended_at),
         "events": len(ordered),

@@ -39,6 +39,7 @@ from ..telemetry.coverage import coverage_report
 logger = logging.getLogger(__name__)
 
 DEFAULT_ATTENTION_LIMIT = 50
+STALE_AFTER_SECONDS = 1800
 MAX_ATTENTION_LIMIT = 200
 LONG_RUNNING_ENV = "SUGAR_ATTENTION_LONG_RUNNING_SECONDS"
 DEFAULT_LONG_RUNNING_SECONDS = 2 * 60 * 60
@@ -294,6 +295,15 @@ def _long_running_items(
             continue
         age = (now - started).total_seconds()
         if age < threshold:
+            continue
+        # A session with no end event is only "running" when its last event is
+        # recent. Old tailed sessions without an end marker must not stay in the
+        # attention queue forever.
+        last_event = _parse_iso(trace.get("last_event_at"))
+        if (
+            last_event is not None
+            and (now - last_event).total_seconds() > STALE_AFTER_SECONDS
+        ):
             continue
         hours = max(1, int(age // 3600))
         title = _text(trace.get("title"), 200) or trace_id
