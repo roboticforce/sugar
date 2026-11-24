@@ -38,7 +38,6 @@ against one board:
 - **[Web Mission Control](web-mission-control.md)** - The browser dashboard on any OS: Tasks, live Activity over SSE, Coverage, Evidence, near-real-time latency and team access, with screenshots and a live clip
 - **[Local Dashboard API](local-dashboard.md)** - Frozen REST/SSE contract, board sources (`--board sugar|kanban`), provenance fields, event-spine schema
 - **[Sugar as a Team Bus](agent-teams.md)** - Code-grounded analysis: what Sugar already does for multi-agent coordination, the gaps, and the phased plan
-- **[Agent Teams: Market & Validation](agent-teams-market.md)** - Landscape (Claude Agent Teams, Vibe Kanban, A2A), Sugar's honest gaps, positioning, and the experiments that tell us whether teams actually want this
 - **[Agent Teams: Architecture & Domain Boundaries](agent-teams-architecture.md)** - Wardley map (build vs. adopt vs. commodity), C4-style architecture, DDD bounded contexts, trust boundaries, and the investment split
 - **[Adapters](adapters.md)** - The adapter playbook: taxonomy, catalog, non-negotiable rules, canonical mapping, conformance kit and the order to build them in
 - **[Storage Port](storage-port.md)** - `TaskStore` contract, the backend-agnostic conformance suite, SQLite-specific semantics, and what a Postgres backend must implement
@@ -50,7 +49,6 @@ against one board:
 - **[Trends](trends.md)** - Time-bucketed work analytics (`/api/trends`, `sugar trends`): throughput, failures, cycle time and spend by agent, harness or project
 - **[Evidence Ledger](evidence.md)** - First-class verification records: `POST/GET /api/evidence`, `sugar evidence record|list|summary`, the browser Evidence panel, verification/policy/approval/artifact kinds and how they export with audit
 - **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
-- **[Business Strategy](business-strategy.md)** - Positioning, ICP, open-core monetization (tiers, pricing hypotheses, dual licensing), growth engine, revenue-tied roadmap and 30/60/90 plan
 
 ### 🛠️ Developer Documentation (`docs/dev/`)
 Documentation for developers who want to **contribute** to Sugar:

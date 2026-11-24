@@ -1,7 +1,6 @@
 # Adapter architecture: how Sugar gets everywhere without building everything
 
-*Companion to [agent-teams-architecture.md](agent-teams-architecture.md) (Wardley map, bounded contexts) and
-[agent-teams-market.md](agent-teams-market.md) (positioning, validation).*
+*Companion to [agent-teams-architecture.md](agent-teams-architecture.md) (Wardley map, bounded contexts).*
 
 ---
 

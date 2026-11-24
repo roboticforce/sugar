@@ -10,10 +10,10 @@
   "plugins": [
     {
       "name": "sugar",
-      "displayName": "Sugar - Autonomous Development",
-      "tagline": "Transform Claude Code into an autonomous AI development powerhouse",
-      "description": "Sugar brings true autonomous development to Claude Code. Create comprehensive tasks with rich context, assign specialized agents, and let AI handle complex multi-step development work while you focus on strategy and planning.",
-      "version": "3.10.2",
+      "displayName": "Sugar - Mission Control for Agent Fleets",
+      "tagline": "One control plane for every coding agent: live telemetry, coordination, cost and evidence",
+      "description": "Sugar puts Claude Code and your other harnesses on one board with atomic claims, live telemetry and coverage, cost attribution, verification evidence and tamper-evident audit exports.",
+      "version": "3.11.1",
       "author": {
         "name": "Steven Leggett",
         "email": "contact@roboticforce.io",
@@ -126,14 +126,14 @@
         "Audit trails and execution history"
       ],
       "highlights": [
-        "🤖 First true autonomous development platform for Claude Code",
-        "🏢 Enterprise-ready with persistent task management",
-        "🎯 Intelligent agent selection and coordination",
-        "🔍 Automatic work discovery from errors, code quality, and GitHub",
-        "📊 Real-time monitoring and comprehensive analytics",
-        "🛡️ Production-grade safety with dry-run and validation",
-        "🚀 Scales from individual developers to large teams",
-        "✅ Comprehensive test coverage and quality assurance"
+        "\ud83e\udd16 First true autonomous development platform for Claude Code",
+        "\ud83c\udfe2 Enterprise-ready with persistent task management",
+        "\ud83c\udfaf Intelligent agent selection and coordination",
+        "\ud83d\udd0d Automatic work discovery from errors, code quality, and GitHub",
+        "\ud83d\udcca Real-time monitoring and comprehensive analytics",
+        "\ud83d\udee1\ufe0f Production-grade safety with dry-run and validation",
+        "\ud83d\ude80 Scales from individual developers to large teams",
+        "\u2705 Comprehensive test coverage and quality assurance"
       ],
       "useCases": [
         {
