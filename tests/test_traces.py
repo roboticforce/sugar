@@ -831,6 +831,118 @@ class TestEnrichedSpans:
         assert len(tool["attributes"]["paths"]) <= 20
         assert all(len(path) <= 1000 for path in tool["attributes"]["paths"])
 
+    def test_exact_task35_canonical_envelope_shape(self, client):
+        seed(
+            client,
+            [
+                event(
+                    "session.started",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:00Z",
+                    project="sugar",
+                    payload=nested({"title": "Lead", "cwd": "/repo"}),
+                ),
+                event(
+                    "subagent.started",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:01Z",
+                    project="sugar",
+                    payload={
+                        "schema": "sugar.telemetry.v1",
+                        "fidelity": "L3",
+                        "status": "started",
+                        "cwd": "/repo",
+                        "model": None,
+                        "payload": {
+                            "parent_session_id": "session-parent",
+                            "child_session_id": "child-uuid",
+                            "label": "security-reviewer",
+                            "mode": "continuable",
+                            "created_at": "2026-01-01T10:00:01Z",
+                        },
+                    },
+                ),
+                event(
+                    "team.task",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:02Z",
+                    project="sugar",
+                    payload=nested(
+                        {
+                            "team_id": "session-parent",
+                            "team_task_id": "task-7",
+                            "subject": "Review auth flow",
+                            "status": "in_progress",
+                            "owner_id": "child-uuid",
+                            "owner_name": "security-reviewer",
+                            "blocked_by": ["task-2"],
+                            "parent_session_id": "session-parent",
+                            "revision": 2,
+                        },
+                        fidelity="L2",
+                        cwd="/repo",
+                    ),
+                ),
+                event(
+                    "tool.started",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:03Z",
+                    payload={
+                        "tool_use_id": "call_w1",
+                        "tool_name": "write",
+                        "payload": {"arguments": {"path": "/repo/report.md"}},
+                    },
+                ),
+                event(
+                    "tool.completed",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:04Z",
+                    payload={
+                        "tool_use_id": "call_w1",
+                        "tool_name": "write",
+                        "payload": {"result": {"path": "/repo/report.md"}},
+                    },
+                ),
+                event(
+                    "artifact.created",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:05Z",
+                    project="sugar",
+                    payload={
+                        "schema": "sugar.telemetry.v1",
+                        "fidelity": "L3",
+                        "cwd": "/repo",
+                        "turn_id": "1",
+                        "tool_use_id": "call_w1",
+                        "payload": {
+                            "path": "/repo/report.md",
+                            "description": "review report",
+                            "operation": "create",
+                            "turn": 1,
+                            "tool_call_id": "call_w1",
+                            "sha256": "sha-report",
+                        },
+                    },
+                ),
+                event(
+                    "session.ended",
+                    session_id="session-parent",
+                    ts="2026-01-01T10:00:06Z",
+                ),
+            ],
+        )
+        trace = client.get("/api/traces/dsh:session-parent").json()
+        subagent = [span for span in trace["spans"] if span["kind"] == "subagent"][0]
+        task = [span for span in trace["spans"] if span["kind"] == "task"][0]
+        artifact = [span for span in trace["spans"] if span["kind"] == "artifact"][0]
+        assert subagent["status"] == "running"
+        assert subagent["attributes"]["created_at"] == "2026-01-01T10:00:01Z"
+        assert task["status"] == "running"
+        assert task["attributes"]["revision"] == 2
+        assert task["parent_span_id"] == subagent["span_id"]
+        assert artifact["attributes"]["operation"] == "create"
+        assert artifact["attributes"]["sha256"] == "sha-report"
+
     def test_flat_enriched_payloads_are_tolerated(self, client):
         seed(
             client,

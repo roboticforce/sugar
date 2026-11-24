@@ -317,6 +317,7 @@ def _artifact_records(
     tool_call_id = _first_text(
         _field(event, "tool_call_id", "tool_use_id", "call_id"), limit=MAX_ID
     )
+    operation = _first_text(_field(event, "operation"), limit=MAX_SPAN_NAME)
     records: List[Dict[str, Any]] = []
     for path in paths[:MAX_ITEMS]:
         record: Dict[str, Any] = {"path": path}
@@ -326,6 +327,8 @@ def _artifact_records(
             record["sha256"] = sha
         if tool_call_id:
             record["tool_call_id"] = tool_call_id
+        if operation:
+            record["operation"] = operation
         records.append(record)
     return records
 
@@ -387,6 +390,24 @@ def _team_task_fields(event: Mapping[str, Any]) -> Dict[str, Any]:
         "parent_session_id": parent_session,
         "blocked_by": blocked_by,
     }
+
+
+def _span_status(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in ("failed", "error", "denied"):
+        return "failed"
+    if text == "blocked":
+        return "blocked"
+    if text in (
+        "started",
+        "running",
+        "active",
+        "in_progress",
+        "in-progress",
+        "pending",
+    ):
+        return "running"
+    return "ok"
 
 
 def _team_task_status(value: str) -> str:
@@ -1005,7 +1026,7 @@ def _build_explicit_subagent_spans(
                 actor=_first_text(event.get("actor"), limit=MAX_ID),
                 harness=_harness(event) or session_harness,
                 model=None,
-                status=(_event_status(event) or "running").lower(),
+                status=_span_status(_event_status(event) or "running"),
                 start=_event_ts(event),
                 end=None,
                 duration_ms=None,
@@ -1124,6 +1145,9 @@ def _build_simple_spans(
                 attributes["sha256"] = sha
             if tool_call_id:
                 attributes["tool_call_id"] = tool_call_id
+            operation = _first_text(_field(event, "operation"), limit=MAX_SPAN_NAME)
+            if operation:
+                attributes["operation"] = operation
             parent = tool_ids.get(
                 _normalize_session_key(tool_call_id) or tool_call_id or ""
             ) or turn_ids.get(_event_turn_id(event) or "", session_span_id)
@@ -1146,6 +1170,9 @@ def _build_simple_spans(
                 if fields.get(key):
                     attributes[key] = fields[key]
             attributes["blocked_by"] = fields["blocked_by"]
+            revision = _field(event, "revision")
+            if revision is not None:
+                attributes["revision"] = _bounded(revision)
             owner_key = _normalize_session_key(fields["owner_id"]) or fields["owner_id"]
             parent = (
                 turn_ids.get(_event_turn_id(event) or "")
@@ -1224,7 +1251,11 @@ def _build_subagent_span(
             continue
         nested = _summary(event)
         origin = _first_text(nested.get("origin"), limit=MAX_SPAN_NAME)
-        parent_session = _first_text(nested.get("parent_session"), limit=MAX_ID)
+        parent_session = _first_text(
+            nested.get("parent_session"),
+            nested.get("parent_session_id"),
+            limit=MAX_ID,
+        )
         child_session = _first_text(
             event.get("session_id"),
             nested.get("child_session_id"),
