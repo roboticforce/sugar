@@ -324,7 +324,7 @@ claim work.
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
 - [Harness verification](docs/harness-verification.md) — real CLI/config checks for the installed harnesses
 - [Memory System](docs/user/memory.md) · [CLI Reference](docs/user/cli-reference.md) · [Quick Start](docs/user/quick-start.md)
-- [Agent Teams: market & validation](docs/agent-teams-market.md) · [Business strategy](docs/business-strategy.md)
+- [Agent Teams: architecture](docs/agent-teams-architecture.md)
 
 ## Status and roadmap
 
