@@ -39,6 +39,11 @@ from .security import (
     forbidden_scope_response,
 )
 from ..evidence.query import EvidenceQueryError, query_evidence
+from .attention import (
+    AttentionQueryError,
+    attention_report,
+    trace_insights,
+)
 from .traces import TraceQueryError, trace_detail_report, trace_list_report
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
@@ -243,6 +248,33 @@ async def activity(request: Request) -> JSONResponse:
     return JSONResponse({"events": events, "last_id": last_id})
 
 
+async def attention(request: Request) -> JSONResponse:
+    """Derive what needs human attention (``GET /api/attention``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    service = _service(request)
+    tasks = []
+    try:
+        task_page = await service.list_tasks({"limit": "1000", "status": "all"})
+        tasks = list(task_page.get("tasks") or [])
+    except Exception:  # tasks are one signal; attention still works from the spine
+        logger.debug("attention: tasks unavailable", exc_info=True)
+    params = request.query_params
+    try:
+        report = await attention_report(
+            spine.db_path,
+            tasks=tasks,
+            project=params.get("project"),
+            limit=params.get("limit"),
+        )
+    except AttentionQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
 async def traces(request: Request) -> JSONResponse:
     """List session traces (``GET /api/traces``)."""
     spine = getattr(request.app.state, "spine", None)
@@ -278,6 +310,16 @@ async def trace_detail(request: Request) -> JSONResponse:
         raise DashboardError(400, "validation_error", str(exc)) from exc
     if report is None:
         raise DashboardError(404, "not_found")
+    try:
+        report["insights"] = await trace_insights(spine.db_path, trace_id, report)
+    except Exception:  # additive insight must never break the trace response
+        logger.debug("attention: trace insights unavailable", exc_info=True)
+        report["insights"] = {
+            "risk": "watch",
+            "headline": "Insights unavailable",
+            "bullets": [],
+            "flags": [],
+        }
     return JSONResponse(report)
 
 
@@ -675,6 +717,7 @@ def create_app(
         Route("/api/stats", stats, methods=["GET"]),
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
+        Route("/api/attention", attention, methods=["GET"]),
         Route("/api/traces", traces, methods=["GET"]),
         Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),

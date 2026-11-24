@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from starlette.testclient import TestClient
@@ -1029,3 +1030,191 @@ class TestEnrichedSpans:
         artifact = [span for span in trace["spans"] if span["kind"] == "artifact"][0]
         turn = [span for span in trace["spans"] if span["kind"] == "turn"][0]
         assert artifact["parent_span_id"] == turn["span_id"]
+
+
+# ---------------------------------------------------------------------------
+# Additive trace insights (task-38)
+# ---------------------------------------------------------------------------
+
+
+def now_iso(offset_seconds=0):
+    moment = datetime.now(timezone.utc) + timedelta(seconds=offset_seconds)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def post_event(client, body):
+    response = client.post("/api/events", json=body)
+    assert response.status_code == 201, response.text
+    return response.json()["event"]
+
+
+@pytest.fixture
+def clean_insight_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUGAR_ADAPTERS_FILE", str(tmp_path / "no-adapters.json"))
+    monkeypatch.setenv("SUGAR_MODEL_PRICES", str(tmp_path / "no-prices.json"))
+
+
+class TestTraceInsights:
+    def _session(self, client, session_id="s-insight", *, failed=False, ended=True):
+        post_event(
+            client,
+            {
+                "kind": "session.started",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": session_id,
+                "ts": now_iso(),
+                "payload": nested({"title": "insight"}),
+            },
+        )
+        if failed:
+            post_event(
+                client,
+                {
+                    "kind": "tool.failed",
+                    "actor": "dsh",
+                    "harness": "dsh",
+                    "session_id": session_id,
+                    "ts": now_iso(),
+                    "payload": {"tool_name": "Bash", "status": "failed"},
+                },
+            )
+        if ended:
+            post_event(
+                client,
+                {
+                    "kind": "session.ended",
+                    "actor": "dsh",
+                    "harness": "dsh",
+                    "session_id": session_id,
+                    "ts": now_iso(),
+                    "payload": {},
+                },
+            )
+
+    def test_failed_trace_insights(self, client, clean_insight_env):
+        self._session(client, failed=True)
+        insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
+        assert insights["risk"] == "failed"
+        assert insights["headline"]
+        assert any(flag["kind"] == "failure" for flag in insights["flags"])
+        assert insights["bullets"]
+
+    def test_policy_denied_insights(self, client, clean_insight_env):
+        self._session(client, "s-policy")
+        post_event(
+            client,
+            {
+                "kind": "approval.denied",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-policy",
+                "ts": now_iso(),
+                "payload": {"payload": {"approval": "deploy"}},
+            },
+        )
+        insights = client.get("/api/traces/dsh:s-policy").json()["insights"]
+        assert insights["risk"] == "failed"
+        assert any(flag["kind"] == "policy" for flag in insights["flags"])
+
+    def test_unverified_insights(self, client, clean_insight_env):
+        self._session(client)
+        insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
+        assert insights["risk"] == "unverified"
+        assert any(flag["kind"] == "unverified" for flag in insights["flags"])
+
+    def test_ok_insights_with_verification(self, client, clean_insight_env):
+        self._session(client)
+        post_event(
+            client,
+            {
+                "kind": "verification.check_result",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-insight",
+                "ts": now_iso(),
+                "payload": {"status": "passed", "check": "pytest"},
+            },
+        )
+        insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
+        assert insights["risk"] == "ok"
+        assert insights["flags"] == []
+
+    def test_running_long_insights(self, client, clean_insight_env):
+        post_event(
+            client,
+            {
+                "kind": "session.started",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-long",
+                "ts": now_iso(-3 * 3600),
+                "payload": nested({"title": "long"}),
+            },
+        )
+        insights = client.get("/api/traces/dsh:s-long").json()["insights"]
+        assert insights["risk"] == "watch"
+        assert any(flag["kind"] == "long_running" for flag in insights["flags"])
+
+    def test_spend_insights(self, client, clean_insight_env):
+        self._session(client)
+        post_event(
+            client,
+            {
+                "kind": "verification.check_result",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-insight",
+                "ts": now_iso(),
+                "payload": {"status": "passed"},
+            },
+        )
+        post_event(
+            client,
+            {
+                "kind": "usage.reported",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-insight",
+                "ts": now_iso(),
+                "payload": {"tokens_in": 100, "tokens_out": 50},
+            },
+        )
+        insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
+        assert insights["risk"] == "watch"
+        assert any(flag["kind"] == "spend" for flag in insights["flags"])
+
+    def test_coverage_insights(self, client, tmp_path, monkeypatch):
+        adapters = tmp_path / "adapters.json"
+        adapters.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "adapters": {
+                        "dsh": {
+                            "display_name": "DeepSeek Harness",
+                            "installed": True,
+                            "fidelity": "L1",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("SUGAR_ADAPTERS_FILE", str(adapters))
+        monkeypatch.setenv("SUGAR_MODEL_PRICES", str(tmp_path / "no-prices.json"))
+        self._session(client)
+        post_event(
+            client,
+            {
+                "kind": "verification.check_result",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "s-insight",
+                "ts": now_iso(),
+                "payload": {"status": "passed"},
+            },
+        )
+        insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
+        assert insights["risk"] == "watch"
+        assert any(flag["kind"] == "coverage" for flag in insights["flags"])
