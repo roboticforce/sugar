@@ -322,6 +322,34 @@ class TestAttentionItems:
         items = get_items(client)
         assert not any(item.get("trace_id") == "dsh:s-stale" for item in items)
 
+    def test_doctor_probe_is_not_running_attention(self, client):
+        post_event(
+            client,
+            {
+                "kind": "session.started",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "sugar-doctor-probe",
+                "project": "alpha",
+                "ts": iso(-3 * 3600),
+                "payload": {"payload": {"title": "doctor"}},
+            },
+        )
+        post_event(
+            client,
+            {
+                "kind": "turn.started",
+                "actor": "dsh",
+                "harness": "dsh",
+                "session_id": "sugar-doctor-probe",
+                "project": "alpha",
+                "turn_id": "1",
+                "ts": iso(-60),
+            },
+        )
+        items = get_items(client)
+        assert not any("sugar-doctor" in (item.get("trace_id") or "") for item in items)
+
     def test_project_filter(self, client):
         seed_session(client, "s-alpha", project="alpha", failed=True)
         seed_session(client, "s-beta", project="beta", failed=True)

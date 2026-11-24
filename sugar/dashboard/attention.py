@@ -290,6 +290,9 @@ def _long_running_items(
         if str(trace.get("status") or "") != "running":
             continue
         trace_id = _text(trace.get("trace_id"), 300)
+        # sugar-doctor probes are synthetic sessions, not user work.
+        if "sugar-doctor-" in trace_id:
+            continue
         started = _parse_iso(trace.get("started_at"))
         if not trace_id or started is None:
             continue
