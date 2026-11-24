@@ -166,6 +166,8 @@ def create_task_mcp_server() -> "FastMCP":
         acceptance_criteria: Optional[str] = None,
         orchestrate: bool = False,
         skip_stages: Optional[str] = None,
+        project: Optional[str] = None,
+        cwd: Optional[str] = None,
         ctx: Optional[Context] = None,
     ) -> Dict[str, Any]:
         """
@@ -187,6 +189,10 @@ def create_task_mcp_server() -> "FastMCP":
                 complex, multi-part features.
             skip_stages: Comma-separated orchestration stages to skip
                 (e.g. "research,review"). Only meaningful when orchestrate=true.
+            project: Optional project label for spend attribution; defaults to
+                the basename of the server cwd.
+            cwd: Optional absolute working directory for spend attribution;
+                defaults to the MCP server's current directory.
             ctx: Injected by FastMCP; carries the MCP handshake so the task
                 records which client created it. Not part of the tool schema.
 
@@ -231,7 +237,19 @@ def create_task_mcp_server() -> "FastMCP":
                     # Treat as single criterion
                     criteria_list = [{"description": acceptance_criteria}]
 
-            context = {"added_via": "sugar_mcp_tasks"}
+            effective_cwd = str(cwd).strip() if cwd is not None else ""
+            effective_cwd = effective_cwd or os.getcwd()
+            effective_project = str(project).strip() if project is not None else ""
+            effective_project = (
+                effective_project
+                or os.path.basename(effective_cwd.rstrip(os.sep))
+                or effective_cwd
+            )
+            context = {
+                "added_via": "sugar_mcp_tasks",
+                "cwd": effective_cwd,
+                "project": effective_project,
+            }
             if orchestrate:
                 context["orchestrate"] = True
                 if skip_stages:

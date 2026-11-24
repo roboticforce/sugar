@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -553,6 +554,8 @@ def add(
             "context": {
                 "added_via": "sugar_cli",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "cwd": os.getcwd(),
+                "project": os.path.basename(os.getcwd()),
             },
         }
         # Provenance: who asked for this work (see sugar/identity.py).
@@ -5075,7 +5078,7 @@ def dashboard(
 @click.option(
     "--group-by",
     type=click.Choice(
-        ["actor", "harness", "task", "project", "day", "kind"],
+        ["actor", "harness", "task", "project", "model", "day", "kind"],
         case_sensitive=False,
     ),
     default=None,
