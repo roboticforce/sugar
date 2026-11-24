@@ -5152,6 +5152,83 @@ def usage(events_db, since, until, group_by, limit, as_json):
     click.echo(format_usage_table(report))
 
 
+@cli.command("aibom")
+@click.option(
+    "--db",
+    "--events-db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option("--project", default=None, help="Only inventory events for this project")
+@click.option(
+    "--since", default=None, help="Only events at/after this ISO-8601 timestamp"
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 50000)",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def aibom(events_db, project, since, limit, as_json):
+    """Show the observed AIBOM inventory from the event spine (v0)
+
+    This is an **observed runtime inventory** derived from telemetry that
+    reached the event spine: models named by usage/run telemetry, harnesses,
+    tools, MCP servers that follow the ``mcp__<server>__`` tool-name
+    convention, and artifacts that were created. It is read-only, bounded, and
+    not a standards-complete AIBOM (no CycloneDX/SPDX conformance claim).
+
+    Examples:
+
+        sugar aibom
+
+        sugar aibom --project sugar --since 2026-11-01
+
+        sugar aibom --json
+
+    The same inventory is served by ``GET /api/aibom``. Requires the dashboard
+    extra (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.aibom import (
+            AibomQueryError,
+            aibom_report,
+            format_aibom_table,
+        )
+        from .dashboard.spine import default_events_db_path
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the aibom command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        report = asyncio.run(
+            aibom_report(
+                db_path,
+                project=project,
+                since=since,
+                limit=limit,
+            )
+        )
+    except AibomQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(format_aibom_table(report))
+
+
 # =============================================================================
 # MCP Server Commands
 # =============================================================================
