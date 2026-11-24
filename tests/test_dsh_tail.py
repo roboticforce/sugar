@@ -24,6 +24,7 @@ from click.testing import CliRunner
 from sugar.connect import detect, installers, registry
 from sugar.connect.doctor import run_doctor
 from sugar.dashboard.spine import EventSpine
+from sugar.dashboard.usage import aggregate_usage
 from sugar.dsh.discover import decode_workspace, discover_sessions
 from sugar.dsh.parse import (
     DshConfigError,
@@ -1048,3 +1049,371 @@ class TestTailCLI:
             "--quiet",
         ):
             assert option in result.output
+
+
+# ---------------------------------------------------------------------------
+# DSH usage / token mapping
+# ---------------------------------------------------------------------------
+
+
+def usage_request_header(seq: int, model: str) -> dict:
+    return event(
+        "request/header",
+        seq,
+        {
+            "header": "{'config': {'provider': 'deepseek-account', "
+            f"'model': '{model}'}}",
+            "reason": "initial",
+        },
+    )
+
+
+def assistant_usage(
+    seq: int,
+    *,
+    turn: int = 1,
+    step: int = 1,
+    input_tokens: int = 100,
+    output_tokens: int = 20,
+    cache_read: int = 0,
+    cache_write: int = 0,
+    total: int | None = None,
+    event_type: str = "assistant/message",
+) -> dict:
+    usage = {
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "cacheReadTokens": cache_read,
+        "cacheWriteTokens": cache_write,
+        "totalTokens": (
+            total
+            if total is not None
+            else input_tokens + output_tokens + cache_read + cache_write
+        ),
+    }
+    return event(event_type, seq, {"turn": turn, "step": step, "usage": usage})
+
+
+def usage_session(
+    cwd: str = "/Users/me/Dev/app", model: str = "deepseek-flash"
+) -> list:
+    return [
+        header(cwd=cwd),
+        usage_request_header(0, model),
+        event("turn/start", 1, {"turn": 1}),
+        assistant_usage(
+            2,
+            step=1,
+            input_tokens=100,
+            output_tokens=20,
+            total=120,
+        ),
+        assistant_usage(
+            3,
+            step=2,
+            input_tokens=50,
+            output_tokens=10,
+            cache_read=200,
+            cache_write=5,
+            total=265,
+        ),
+        event("turn/end", 4, {"turn": 1, "reason": {"kind": "completed"}}),
+    ]
+
+
+@requires_zstd
+class TestUsageMapping:
+    def test_usage_reported_event_shape(self, tmp_path):
+        parsed = parse_session_file(write_session(tmp_path, usage_session()))
+        usage = [item for item in parsed.events if item.kind == "usage.reported"]
+        assert len(usage) == 2
+
+        envelope = usage[0].envelope
+        assert envelope["kind"] == "usage.reported"
+        assert envelope["harness"] == "dsh"
+        assert envelope["actor"] == "dsh"
+        assert envelope["actor_kind"] == "agent"
+        assert envelope["source"] == "dsh:session-tail"
+        assert envelope["session_id"] == SESSION_ID
+        assert envelope["project"] == "app"
+        assert envelope["ts"].endswith("Z")
+
+        payload = envelope["payload"]
+        assert payload["fidelity"] == "L2"
+        assert payload["cwd"] == "/Users/me/Dev/app"
+        assert payload["model"] == "deepseek-flash"
+        assert payload["turn_id"] == "1"
+        # Flat fields make the event visible to /api/usage's aggregator.
+        assert payload["tokens_in"] == 100
+        assert payload["tokens_out"] == 20
+        assert payload["tokens_total"] == 120
+        # Canonical summary stays under payload.payload.
+        summary = payload["payload"]
+        assert summary["tokens_in"] == 100
+        assert summary["tokens_out"] == 20
+        assert summary["tokens_total"] == 120
+        assert summary["input_tokens"] == 100
+        assert summary["step"] == 1
+        assert summary["project"] == "app"
+        assert summary["usage_source"] == "assistant/usage"
+
+    def test_cached_prompt_tokens_are_included_in_tokens_in(self, tmp_path):
+        parsed = parse_session_file(write_session(tmp_path, usage_session()))
+        usage = [
+            item.envelope for item in parsed.events if item.kind == "usage.reported"
+        ]
+
+        cached = usage[1]["payload"]["payload"]
+        # tokens_in = fresh input + cache read + cache write so that
+        # tokens_in + tokens_out == the provider's totalTokens.
+        assert cached["input_tokens"] == 50
+        assert cached["cache_read_tokens"] == 200
+        assert cached["cache_write_tokens"] == 5
+        assert cached["tokens_in"] == 255
+        assert cached["tokens_out"] == 10
+        assert cached["tokens_total"] == 265
+        assert cached["provider_total_tokens"] == 265
+        assert cached["tokens_total"] == cached["provider_total_tokens"]
+
+    def test_usage_is_incremental_and_sums_to_provider_total(self, tmp_path):
+        parsed = parse_session_file(write_session(tmp_path, usage_session()))
+        usage = [
+            item.envelope for item in parsed.events if item.kind == "usage.reported"
+        ]
+        totals = aggregate_usage(usage)["totals"]
+
+        assert totals["events"] == 2
+        assert totals["tokens_in"] == 100 + 255
+        assert totals["tokens_out"] == 20 + 10
+        assert totals["tokens_total"] == 120 + 265
+        provider_sum = sum(
+            envelope["payload"]["payload"]["provider_total_tokens"]
+            for envelope in usage
+        )
+        assert totals["tokens_total"] == provider_sum
+
+    def test_usage_events_appear_in_usage_aggregator(self, tmp_path):
+        parsed = parse_session_file(write_session(tmp_path, usage_session()))
+        usage = [
+            item.envelope for item in parsed.events if item.kind == "usage.reported"
+        ]
+        report = aggregate_usage(usage, group_by="actor")
+        assert report["totals"]["events"] == 2
+        assert report["totals"]["tokens_total"] == 385
+        assert report["groups"][0]["key"] == "dsh"
+        assert report["groups"][0]["tokens_total"] == 385
+
+    def test_usage_is_not_emitted_twice_for_attempt_and_message(self, tmp_path):
+        events = [
+            header(),
+            usage_request_header(0, "deepseek-flash"),
+            event("turn/start", 1, {"turn": 1}),
+            # Retried/completed attempt and final message mirror the same usage.
+            assistant_usage(2, step=1, total=120, event_type="assistant/attempt"),
+            assistant_usage(3, step=1, total=120, event_type="assistant/message"),
+            event("turn/end", 4, {"turn": 1}),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        usage = [item for item in parsed.events if item.kind == "usage.reported"]
+        assert len(usage) == 1
+        assert usage[0].envelope["payload"]["payload"]["tokens_total"] == 120
+
+    def test_usage_from_attempt_only(self, tmp_path):
+        events = [
+            header(),
+            usage_request_header(0, "deepseek-flash"),
+            assistant_usage(
+                1,
+                input_tokens=30,
+                output_tokens=20,
+                total=50,
+                event_type="assistant/attempt",
+            ),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        usage = [item for item in parsed.events if item.kind == "usage.reported"]
+        assert len(usage) == 1
+        assert usage[0].envelope["payload"]["payload"]["tokens_total"] == 50
+
+    def test_assistant_without_usage_is_ignored(self, tmp_path):
+        events = [
+            header(),
+            event("assistant/message", 0, {"turn": 1, "step": 1}),
+            event("assistant/attempt", 1, {"turn": 1, "step": 1, "stream": []}),
+            event("turn/start", 2, {"turn": 1}),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        assert [item.kind for item in parsed.events] == ["turn.started"]
+
+    def test_usage_model_propagation_and_change(self, tmp_path):
+        events = [
+            header(),
+            usage_request_header(0, "deepseek-flash"),
+            assistant_usage(1, step=1, total=120),
+            usage_request_header(2, "deepseek-pro"),
+            assistant_usage(3, step=2, total=60),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        usage = [
+            item.envelope for item in parsed.events if item.kind == "usage.reported"
+        ]
+        # Canonical model lives at payload.model; usage summary stays model-free.
+        assert [event["payload"]["model"] for event in usage] == [
+            "deepseek-flash",
+            "deepseek-pro",
+        ]
+        assert all("model" not in event["payload"]["payload"] for event in usage)
+
+    def test_usage_project_derived_from_cwd(self, tmp_path):
+        app = parse_session_file(
+            write_session(tmp_path / "app", usage_session(cwd="/Users/me/Dev/my-app"))
+        )
+        usage = [item.envelope for item in app.events if item.kind == "usage.reported"]
+        assert usage and usage[0]["project"] == "my-app"
+        assert usage[0]["payload"]["payload"]["project"] == "my-app"
+
+        root = parse_session_file(
+            write_session(tmp_path / "root", usage_session(cwd="/"))
+        )
+        root_usage = [
+            item.envelope for item in root.events if item.kind == "usage.reported"
+        ]
+        assert root_usage and root_usage[0]["project"] is None
+
+    def test_usage_tolerates_strings_and_invalid_cache(self, tmp_path):
+        events = [
+            header(),
+            usage_request_header(0, "deepseek-flash"),
+            event(
+                "assistant/message",
+                1,
+                {
+                    "turn": 1,
+                    "step": 1,
+                    "usage": {
+                        "inputTokens": "100",
+                        "outputTokens": "20",
+                        "cacheReadTokens": -3,
+                        "cacheWriteTokens": "5",
+                        "totalTokens": "120",
+                    },
+                },
+            ),
+            event(
+                "assistant/message",
+                2,
+                {
+                    "turn": 1,
+                    "step": 2,
+                    "usage": {"inputTokens": None, "outputTokens": "abc"},
+                },
+            ),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        usage = [
+            item.envelope for item in parsed.events if item.kind == "usage.reported"
+        ]
+        assert len(usage) == 1
+        summary = usage[0]["payload"]["payload"]
+        assert summary["input_tokens"] == 100
+        assert summary["tokens_in"] == 105  # -3 cache read ignored, +5 cache write
+        assert summary["tokens_out"] == 20
+        assert summary["tokens_total"] == 125
+
+    def test_compaction_summary_usage_is_not_counted(self, tmp_path):
+        events = [
+            header(),
+            event(
+                "compaction/summary",
+                0,
+                {
+                    "usage": {
+                        "inputTokens": 513,
+                        "outputTokens": 2924,
+                        "cacheReadTokens": 590080,
+                        "totalTokens": 593517,
+                    }
+                },
+            ),
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        assert [item for item in parsed.events if item.kind == "usage.reported"] == []
+
+    def test_usage_tail_checkpoint_prevents_double_counting(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        write_session(sessions, usage_session())
+        state_path = tmp_path / "state.json"
+        emitted = []
+
+        first = tail_once(
+            sessions_dir=sessions, state_path=state_path, emit=emitted.append
+        )
+        usage = [event for event in emitted if event["kind"] == "usage.reported"]
+        assert first.events == 5  # header + turn.started + 2 usage + turn.ended
+        assert len(usage) == 2
+        assert aggregate_usage(usage)["totals"]["tokens_total"] == 385
+
+        second_emitted = []
+        second = tail_once(
+            sessions_dir=sessions,
+            state_path=state_path,
+            emit=second_emitted.append,
+        )
+        assert second.events == 0
+        assert second_emitted == []
+
+    def test_usage_manual_duplicate_seq_is_not_reported_twice(self, tmp_path):
+        duplicate = assistant_usage(2, step=1, total=120)
+        events = [
+            header(),
+            usage_request_header(0, "deepseek-flash"),
+            duplicate,
+            duplicate,
+        ]
+        parsed = parse_session_file(write_session(tmp_path, events))
+        usage = [item for item in parsed.events if item.kind == "usage.reported"]
+        assert len(usage) == 1
+
+    def test_usage_real_log_smoke(self):
+        import glob
+
+        files = sorted(
+            glob.glob(
+                os.path.expanduser("~/.dsh/sessions/**/session.v4.jsonl.zstd"),
+                recursive=True,
+            )
+        )
+        if not files:
+            pytest.skip("no real DSH session logs on this host")
+        checked = 0
+        seen_usage = 0
+        for path in files[:20]:
+            try:
+                parsed = parse_session_file(Path(path))
+            except DshParseError:
+                continue
+            usage = [item for item in parsed.events if item.kind == "usage.reported"]
+            if not usage:
+                continue
+            checked += 1
+            seen_usage += len(usage)
+            for item in usage:
+                envelope = item.envelope
+                assert envelope["kind"] == "usage.reported"
+                assert envelope["harness"] == "dsh"
+                assert envelope["payload"]["fidelity"] == "L2"
+                summary = envelope["payload"]["payload"]
+                assert isinstance(summary["tokens_in"], int)
+                assert isinstance(summary["tokens_out"], int)
+                assert summary["tokens_in"] >= 0 and summary["tokens_out"] >= 0
+                assert (
+                    summary["tokens_total"]
+                    == summary["tokens_in"] + summary["tokens_out"]
+                )
+                if "provider_total_tokens" in summary:
+                    assert summary["tokens_total"] == summary["provider_total_tokens"]
+            if checked >= 3:
+                break
+        if checked == 0:
+            pytest.skip("no real DSH logs with usage on this host")
+        assert seen_usage > 0
