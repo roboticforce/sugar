@@ -35,6 +35,15 @@ def html(client):
     return response.text
 
 
+def test_activity_feed_can_filter_by_project_and_all_kind_groups(html):
+    assert 'id="activity-project"' in html
+    for value in ("turn", "session", "tool", "evidence", "usage"):
+        assert 'value="%s"' % value in html
+    assert "function eventProject(" in html
+    assert "function eventCwd(" in html
+    assert "renderProjectFilter" in html
+
+
 def test_activity_events_open_an_inspect_modal(html):
     for element_id in (
         "event-modal",

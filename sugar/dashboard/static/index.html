@@ -455,10 +455,17 @@
         <option value="">All kinds</option>
         <option value="task">Task</option>
         <option value="run">Run</option>
+        <option value="turn">Turn</option>
+        <option value="session">Session</option>
         <option value="tool">Tool</option>
+        <option value="evidence">Evidence</option>
+        <option value="usage">Usage</option>
         <option value="signal">Signal</option>
       </select>
-      <input type="search" id="activity-search" placeholder="Filter actor, task or kind…" autocomplete="off">
+      <select id="activity-project" aria-label="Filter activity by project">
+        <option value="">All projects</option>
+      </select>
+      <input type="search" id="activity-search" placeholder="Filter actor, project, task or kind…" autocomplete="off">
     </div>
     <span class="spacer"></span>
     <button class="btn primary" id="btn-new">+ New task</button>
@@ -703,6 +710,7 @@
     feed: [],
     feedIds: new Set(),
     feedKind: "",
+    feedProject: "",
     feedQuery: "",
     feedUnavailable: false,
     // Coverage matrix (Phase 0): read-only snapshot, refreshed while open.
@@ -1046,8 +1054,14 @@
     const value = String(kind || "").toLowerCase();
     if (value.indexOf("task.") === 0) return "task";
     if (value.indexOf("run.") === 0) return "run";
+    if (value.indexOf("turn.") === 0) return "turn";
+    if (value.indexOf("session.") === 0) return "session";
     if (value.indexOf("tool.") === 0) return "tool";
+    if (value.indexOf("usage.") === 0) return "usage";
     if (value.indexOf("signal.") === 0) return "signal";
+    if (value.indexOf("verification.") === 0 || value.indexOf("policy.") === 0 ||
+        value.indexOf("approval.") === 0 || value.indexOf("artifact.") === 0 ||
+        value.indexOf("commit.") === 0) return "evidence";
     return "other";
   }
 
@@ -1057,6 +1071,21 @@
       try { return JSON.parse(payload) || {}; } catch (err) { return {}; }
     }
     return payload && typeof payload === "object" ? payload : {};
+  }
+
+  function eventCwd(event) {
+    const payload = eventPayload(event);
+    const nested = payload.payload && typeof payload.payload === "object" ? payload.payload : {};
+    const value = payload.cwd || nested.cwd || "";
+    return value ? String(value) : "";
+  }
+
+  function eventProject(event) {
+    if (event && event.project) return String(event.project);
+    const cwd = eventCwd(event);
+    if (!cwd) return "";
+    const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : cwd;
   }
 
   function eventTitle(event) {
@@ -1071,15 +1100,35 @@
 
   function activityHaystack(event) {
     const payload = eventPayload(event);
-    return [event.actor, event.task_id, event.kind, payload.title, event.harness, event.project]
+    return [event.actor, event.task_id, event.kind, payload.title, event.harness,
+      event.project, eventProject(event), eventCwd(event)]
       .filter(function (value) { return value !== null && value !== undefined && value !== ""; })
       .join(" ").toLowerCase();
   }
 
   function matchesActivityFilters(event) {
     if (state.feedKind && activityCategory(event.kind) !== state.feedKind) return false;
+    if (state.feedProject && eventProject(event) !== state.feedProject) return false;
     if (state.feedQuery && activityHaystack(event).indexOf(state.feedQuery) === -1) return false;
     return true;
+  }
+
+  function renderProjectFilter() {
+    const select = $("activity-project");
+    if (!select) return;
+    const current = state.feedProject;
+    const projects = new Set();
+    state.feed.forEach(function (event) {
+      const project = eventProject(event);
+      if (project) projects.add(project);
+    });
+    if (current) projects.add(current);
+    select.replaceChildren();
+    select.appendChild(new Option("All projects", ""));
+    Array.from(projects).sort().forEach(function (project) {
+      select.appendChild(new Option(project, project));
+    });
+    select.value = current;
   }
 
   function mergeFeed(events) {
@@ -1162,9 +1211,10 @@
       chip.title = "harness: " + event.harness;
       chips.appendChild(chip);
     }
-    if (event.project) {
-      const chip = el("span", "mini-chip", event.project);
-      chip.title = "project: " + event.project;
+    const project = eventProject(event);
+    if (project) {
+      const chip = el("span", "mini-chip", project);
+      chip.title = eventCwd(event) ? "project: " + eventCwd(event) : "project: " + project;
       chips.appendChild(chip);
     }
     row.appendChild(chips);
@@ -1195,6 +1245,7 @@
   function renderFeed() {
     const feed = $("feed");
     if (!feed) return;
+    renderProjectFilter();
     const filtered = state.feed.filter(matchesActivityFilters);
     const count = $("feed-count");
     if (count) {
@@ -1237,7 +1288,8 @@
       ["actor", event.actor || "—"],
       ["harness", event.harness || "—"],
       ["task", taskId || "—"],
-      ["project", event.project || "—"],
+      ["project", eventProject(event) || "—"],
+      ["cwd", eventCwd(event) || "—"],
       ["time", eventTime(event) || "—"],
       ["source", event.source || "—"],
       ["event id", event.id != null ? String(event.id) : "—"],
@@ -2529,6 +2581,10 @@
     });
     $("activity-kind").addEventListener("change", function (event) {
       state.feedKind = event.target.value;
+      renderFeed();
+    });
+    $("activity-project").addEventListener("change", function (event) {
+      state.feedProject = event.target.value;
       renderFeed();
     });
     $("activity-search").addEventListener("input", function (event) {
