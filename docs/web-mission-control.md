@@ -9,6 +9,8 @@ pipx install 'sugarai[all]'
 sugar dashboard --open          # http://127.0.0.1:7331
 ```
 
+**Want to see it first?** [Open the interactive demo](https://roboticforce.io/sugar/demo) — simulated data, no install, clickable tasks, live Activity, Coverage and Evidence.
+
 The dashboard is served by the same local process as the board. It binds
 loopback by default; for a team, expose it on your own network with scoped
 tokens (see [Board Server](board-server.md)).

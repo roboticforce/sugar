@@ -4,6 +4,8 @@ Get Sugar up and running in your project in just a few minutes. Sugar is the coo
 
 💡 **Need help anytime?** Run `sugar help` for a complete overview and quick reference guide.
 
+▶ **Want to see Mission Control first?** Try the [interactive web demo](https://roboticforce.io/sugar/demo) — simulated data, no install.
+
 ⚠️ **Important:** Run Sugar in a regular terminal/shell, **not** within a Claude Code session. Sugar will call Claude Code CLI as needed.
 
 ## Prerequisites
