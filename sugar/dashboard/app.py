@@ -54,6 +54,7 @@ from ..telemetry.socket import IngestSocketServer
 from .spine import EventSpine, SpineError
 from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
+from .aibom import AibomQueryError, aibom_report
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,26 @@ async def usage(request: Request) -> JSONResponse:
             limit=params.get("limit"),
         )
     except UsageQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
+async def aibom(request: Request) -> JSONResponse:
+    """Observed AIBOM inventory v0 from the event spine (``GET /api/aibom``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await aibom_report(
+            spine.db_path,
+            project=params.get("project"),
+            since=params.get("since"),
+            limit=params.get("limit"),
+        )
+    except AibomQueryError as exc:
         raise DashboardError(400, "validation_error", str(exc)) from exc
     return JSONResponse(report)
 
@@ -722,6 +743,7 @@ def create_app(
         Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),
         Route("/api/trends", trends, methods=["GET"]),
+        Route("/api/aibom", aibom, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
         Route("/api/hooks/{harness}", hooks_ingest, methods=["POST"]),
