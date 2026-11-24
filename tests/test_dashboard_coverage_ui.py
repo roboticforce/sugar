@@ -35,6 +35,45 @@ def html(client):
     return response.text
 
 
+def test_activity_feed_can_filter_and_summarize_by_model(html):
+    assert 'id="activity-model"' in html
+    assert 'id="model-summary"' in html
+    assert "function eventModel(" in html
+    assert "function renderModelSummary(" in html
+    assert "renderModelFilter" in html
+
+
+def test_activity_feed_can_filter_by_project_and_all_kind_groups(html):
+    assert 'id="activity-project"' in html
+    for value in ("turn", "session", "tool", "evidence", "usage"):
+        assert 'value="%s"' % value in html
+    assert "function eventProject(" in html
+    assert "function eventCwd(" in html
+    assert "renderProjectFilter" in html
+
+
+def test_activity_events_open_an_inspect_modal(html):
+    for element_id in (
+        "event-modal",
+        "event-title",
+        "event-close",
+        "event-meta",
+        "event-payload",
+        "event-open-task",
+    ):
+        assert 'id="%s"' % element_id in html
+    assert "openEventModal" in html
+    assert "row.tabIndex = 0" in html
+    assert 'Inspect " + (event.kind || "event") + " event' in html
+
+
+def test_hidden_attribute_wins_over_layout_classes(html):
+    # The status/type/search controls use the HTML hidden attribute when the
+    # Activity view is active. A `display:flex` class must not override it or
+    # the task filters stay visible (and do nothing) in the activity feed.
+    assert "[hidden] { display: none !important; }" in html
+
+
 def test_coverage_trigger_lives_in_the_header(html):
     header_start = html.index('class="topbar"')
     header_end = html.index("</header>", header_start)

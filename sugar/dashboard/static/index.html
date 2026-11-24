@@ -66,6 +66,7 @@
 
   main { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 14px 20px 0; gap: 12px; }
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 33px; }
+  [hidden] { display: none !important; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip {
     background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
@@ -164,6 +165,20 @@
   }
   .feed-head .dot { width: 8px; height: 8px; flex: none; }
   .feed-head .feed-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: normal; text-transform: none; }
+  .model-summary {
+    display: flex; flex-direction: column; gap: 4px; flex: none;
+    padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .model-summary[hidden] { display: none; }
+  .model-row {
+    display: flex; align-items: center; gap: 12px; font-size: 11.5px;
+    color: var(--muted); cursor: pointer; padding: 4px 0;
+  }
+  .model-row:hover { color: var(--text); }
+  .model-row b { color: var(--text); font-size: 12px; min-width: 110px; }
+  .model-row .model-count { font-variant-numeric: tabular-nums; }
+  .model-row .model-when { margin-left: auto; white-space: nowrap; }
+  .model-row .model-projects { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .feed { flex: 1; min-height: 0; overflow: auto; }
   .feed-row {
     display: flex; align-items: center; gap: 12px;
@@ -392,6 +407,19 @@
   .row .field { flex: 1; min-width: 140px; }
   .form-error { color: var(--red); font-size: 12.5px; min-height: 16px; }
   .modal footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-2); }
+  .feed-row { cursor: pointer; }
+  .feed-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .event-body { padding: 16px 18px; display: grid; gap: 14px; }
+  .event-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+  .event-meta div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .event-meta span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+  .event-meta b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-payload pre {
+    margin: 0; max-height: 46vh; overflow: auto; padding: 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  }
+  .event-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .toast {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -441,10 +469,20 @@
         <option value="">All kinds</option>
         <option value="task">Task</option>
         <option value="run">Run</option>
+        <option value="turn">Turn</option>
+        <option value="session">Session</option>
         <option value="tool">Tool</option>
+        <option value="evidence">Evidence</option>
+        <option value="usage">Usage</option>
         <option value="signal">Signal</option>
       </select>
-      <input type="search" id="activity-search" placeholder="Filter actor, task or kind…" autocomplete="off">
+      <select id="activity-project" aria-label="Filter activity by project">
+        <option value="">All projects</option>
+      </select>
+      <select id="activity-model" aria-label="Filter activity by model">
+        <option value="">All models</option>
+      </select>
+      <input type="search" id="activity-search" placeholder="Filter actor, project, task or kind…" autocomplete="off">
     </div>
     <span class="spacer"></span>
     <button class="btn primary" id="btn-new">+ New task</button>
@@ -475,6 +513,7 @@
       <div class="usage-totals" id="usage-totals"></div>
       <div class="usage-cols" id="usage-cols"></div>
     </section>
+    <section class="model-summary" id="model-summary" aria-label="Model usage summary" hidden></section>
     <div class="feed-head">
       <span class="dot" id="feed-dot"></span>
       <span id="feed-live-label">connecting…</span>
@@ -628,6 +667,20 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="event-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="event-title">
+    <header>
+      <h2 id="event-title">Activity event</h2>
+      <button class="btn" id="event-close" type="button" title="Close (Esc)">✕</button>
+    </header>
+    <div class="event-body">
+      <div class="event-meta" id="event-meta"></div>
+      <div class="event-payload"><pre id="event-payload"></pre></div>
+      <div class="event-actions"><button class="btn primary" id="event-open-task" type="button" hidden>Open task</button></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -675,6 +728,8 @@
     feed: [],
     feedIds: new Set(),
     feedKind: "",
+    feedProject: "",
+    feedModel: "",
     feedQuery: "",
     feedUnavailable: false,
     // Coverage matrix (Phase 0): read-only snapshot, refreshed while open.
@@ -1018,8 +1073,14 @@
     const value = String(kind || "").toLowerCase();
     if (value.indexOf("task.") === 0) return "task";
     if (value.indexOf("run.") === 0) return "run";
+    if (value.indexOf("turn.") === 0) return "turn";
+    if (value.indexOf("session.") === 0) return "session";
     if (value.indexOf("tool.") === 0) return "tool";
+    if (value.indexOf("usage.") === 0) return "usage";
     if (value.indexOf("signal.") === 0) return "signal";
+    if (value.indexOf("verification.") === 0 || value.indexOf("policy.") === 0 ||
+        value.indexOf("approval.") === 0 || value.indexOf("artifact.") === 0 ||
+        value.indexOf("commit.") === 0) return "evidence";
     return "other";
   }
 
@@ -1029,6 +1090,28 @@
       try { return JSON.parse(payload) || {}; } catch (err) { return {}; }
     }
     return payload && typeof payload === "object" ? payload : {};
+  }
+
+  function eventCwd(event) {
+    const payload = eventPayload(event);
+    const nested = payload.payload && typeof payload.payload === "object" ? payload.payload : {};
+    const value = payload.cwd || nested.cwd || "";
+    return value ? String(value) : "";
+  }
+
+  function eventProject(event) {
+    if (event && event.project) return String(event.project);
+    const cwd = eventCwd(event);
+    if (!cwd) return "";
+    const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : cwd;
+  }
+
+  function eventModel(event) {
+    const payload = eventPayload(event);
+    const nested = payload.payload && typeof payload.payload === "object" ? payload.payload : {};
+    const value = payload.model || nested.model || "";
+    return value ? String(value) : "";
   }
 
   function eventTitle(event) {
@@ -1043,15 +1126,104 @@
 
   function activityHaystack(event) {
     const payload = eventPayload(event);
-    return [event.actor, event.task_id, event.kind, payload.title, event.harness, event.project]
+    return [event.actor, event.task_id, event.kind, payload.title, event.harness,
+      event.project, eventProject(event), eventCwd(event), eventModel(event)]
       .filter(function (value) { return value !== null && value !== undefined && value !== ""; })
       .join(" ").toLowerCase();
   }
 
+  function renderModelFilter() {
+    const select = $("activity-model");
+    if (!select) return;
+    const current = state.feedModel;
+    const models = new Set();
+    state.feed.forEach(function (event) {
+      const model = eventModel(event);
+      if (model) models.add(model);
+    });
+    if (current) models.add(current);
+    select.replaceChildren();
+    select.appendChild(new Option("All models", ""));
+    Array.from(models).sort().forEach(function (model) {
+      select.appendChild(new Option(model, model));
+    });
+    select.value = current;
+  }
+
+  function renderModelSummary() {
+    const panel = $("model-summary");
+    if (!panel) return;
+    const groups = new Map();
+    state.feed.forEach(function (event) {
+      const model = eventModel(event);
+      if (!model) return;
+      let group = groups.get(model);
+      if (!group) {
+        group = { events: 0, tools: 0, projects: new Set(), first: null, last: null };
+        groups.set(model, group);
+      }
+      group.events += 1;
+      if (activityCategory(event.kind) === "tool") group.tools += 1;
+      const project = eventProject(event);
+      if (project) group.projects.add(project);
+      const time = eventTime(event);
+      if (time) {
+        if (!group.first || time < group.first) group.first = time;
+        if (!group.last || time > group.last) group.last = time;
+      }
+    });
+    if (!groups.size) {
+      panel.hidden = true;
+      panel.replaceChildren();
+      return;
+    }
+    panel.hidden = false;
+    const rows = Array.from(groups.entries()).sort(function (a, b) {
+      return b[1].events - a[1].events;
+    }).map(function (entry) {
+      const model = entry[0];
+      const group = entry[1];
+      const row = el("div", "model-row");
+      row.title = "Filter activity to " + model;
+      row.addEventListener("click", function () {
+        state.feedModel = state.feedModel === model ? "" : model;
+        renderModelFilter();
+        renderFeed();
+      });
+      row.appendChild(el("b", null, model));
+      row.appendChild(el("span", "model-count", group.events + " events · " + group.tools + " tools"));
+      const projects = Array.from(group.projects).slice(0, 3).join(", ");
+      row.appendChild(el("span", "model-projects", projects || "—"));
+      row.appendChild(el("span", "model-when", (group.first || "—") + " → " + (group.last || "—")));
+      return row;
+    });
+    panel.replaceChildren.apply(panel, rows);
+  }
+
   function matchesActivityFilters(event) {
     if (state.feedKind && activityCategory(event.kind) !== state.feedKind) return false;
+    if (state.feedProject && eventProject(event) !== state.feedProject) return false;
+    if (state.feedModel && eventModel(event) !== state.feedModel) return false;
     if (state.feedQuery && activityHaystack(event).indexOf(state.feedQuery) === -1) return false;
     return true;
+  }
+
+  function renderProjectFilter() {
+    const select = $("activity-project");
+    if (!select) return;
+    const current = state.feedProject;
+    const projects = new Set();
+    state.feed.forEach(function (event) {
+      const project = eventProject(event);
+      if (project) projects.add(project);
+    });
+    if (current) projects.add(current);
+    select.replaceChildren();
+    select.appendChild(new Option("All projects", ""));
+    Array.from(projects).sort().forEach(function (project) {
+      select.appendChild(new Option(project, project));
+    });
+    select.value = current;
   }
 
   function mergeFeed(events) {
@@ -1113,7 +1285,10 @@
         const link = el("button", "task-link", title);
         link.type = "button";
         link.title = "Open task " + taskId;
-        link.addEventListener("click", function () { openTaskFromFeed(taskId); });
+        link.addEventListener("click", function (clickEvent) {
+          clickEvent.stopPropagation();
+          openTaskFromFeed(taskId);
+        });
         taskCell.appendChild(link);
       } else {
         const ref = el("span", "task-ref" + (taskId ? " task-missing" : ""), title);
@@ -1131,9 +1306,16 @@
       chip.title = "harness: " + event.harness;
       chips.appendChild(chip);
     }
-    if (event.project) {
-      const chip = el("span", "mini-chip", event.project);
-      chip.title = "project: " + event.project;
+    const model = eventModel(event);
+    if (model) {
+      const modelChip = el("span", "mini-chip", model);
+      modelChip.title = "model: " + model;
+      chips.appendChild(modelChip);
+    }
+    const project = eventProject(event);
+    if (project) {
+      const chip = el("span", "mini-chip", project);
+      chip.title = eventCwd(event) ? "project: " + eventCwd(event) : "project: " + project;
       chips.appendChild(chip);
     }
     row.appendChild(chips);
@@ -1144,6 +1326,19 @@
     row.appendChild(time);
     row.title = (event.kind || "event") + " · " + fullTime(iso) +
       (event.actor ? " · " + event.actor : "") + (taskId ? " · " + taskId : "");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", "Inspect " + (event.kind || "event") + " event");
+    row.addEventListener("click", function (clickEvent) {
+      if (clickEvent.target.closest(".task-link")) return;
+      openEventModal(event);
+    });
+    row.addEventListener("keydown", function (keyEvent) {
+      if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+        keyEvent.preventDefault();
+        openEventModal(event);
+      }
+    });
 
     return row;
   }
@@ -1151,6 +1346,9 @@
   function renderFeed() {
     const feed = $("feed");
     if (!feed) return;
+    renderProjectFilter();
+    renderModelFilter();
+    renderModelSummary();
     const filtered = state.feed.filter(matchesActivityFilters);
     const count = $("feed-count");
     if (count) {
@@ -1180,6 +1378,42 @@
       feedRenderTimer = null;
       if (state.view === "activity") renderFeed();
     }, 120);
+  }
+
+  let eventModalTaskId = null;
+
+  function openEventModal(event) {
+    const taskId = event.task_id ? String(event.task_id) : null;
+    eventModalTaskId = taskId && state.tasks.has(taskId) ? taskId : null;
+    $("event-title").textContent = event.kind || "Activity event";
+    const meta = [
+      ["kind", event.kind || "—"],
+      ["actor", event.actor || "—"],
+      ["harness", event.harness || "—"],
+      ["task", taskId || "—"],
+      ["project", eventProject(event) || "—"],
+      ["cwd", eventCwd(event) || "—"],
+      ["model", eventModel(event) || "—"],
+      ["time", eventTime(event) || "—"],
+      ["source", event.source || "—"],
+      ["event id", event.id != null ? String(event.id) : "—"],
+    ];
+    const metaWrap = $("event-meta");
+    metaWrap.replaceChildren.apply(metaWrap, meta.map(function (pair) {
+      const cell = el("div");
+      cell.appendChild(el("span", null, pair[0]));
+      cell.appendChild(el("b", null, pair[1]));
+      return cell;
+    }));
+    $("event-payload").textContent = JSON.stringify(event.payload || {}, null, 2);
+    $("event-open-task").hidden = !eventModalTaskId;
+    $("event-modal").hidden = false;
+    $("event-close").focus();
+  }
+
+  function closeEventModal() {
+    $("event-modal").hidden = true;
+    eventModalTaskId = null;
   }
 
   function openTaskFromFeed(taskId) {
@@ -2453,6 +2687,14 @@
       state.feedKind = event.target.value;
       renderFeed();
     });
+    $("activity-project").addEventListener("change", function (event) {
+      state.feedProject = event.target.value;
+      renderFeed();
+    });
+    $("activity-model").addEventListener("change", function (event) {
+      state.feedModel = event.target.value;
+      renderFeed();
+    });
     $("activity-search").addEventListener("input", function (event) {
       state.feedQuery = event.target.value.trim().toLowerCase();
       renderFeed();
@@ -2476,6 +2718,15 @@
     $("form-close").addEventListener("click", closeForm);
     $("form-cancel").addEventListener("click", closeForm);
     $("task-form").addEventListener("submit", submitForm);
+    $("event-close").addEventListener("click", closeEventModal);
+    $("event-modal").addEventListener("click", function (event) {
+      if (event.target === $("event-modal")) closeEventModal();
+    });
+    $("event-open-task").addEventListener("click", function () {
+      const taskId = eventModalTaskId;
+      closeEventModal();
+      if (taskId) openTaskFromFeed(taskId);
+    });
     $("coverage-open").addEventListener("click", openCoverage);
     $("coverage-close").addEventListener("click", closeCoverage);
     $("coverage-refresh").addEventListener("click", function () { loadCoverage(); });
@@ -2493,6 +2744,7 @@
     $("evidence-status").addEventListener("change", function () { loadEvidence(); });
     document.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
+      if (!$("event-modal").hidden) { closeEventModal(); return; }
       if (!$("evidence-modal").hidden) { closeEvidence(); return; }
       if (!$("coverage-modal").hidden) { closeCoverage(); return; }
       if (!$("modal").hidden) { closeForm(); return; }
