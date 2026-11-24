@@ -393,6 +393,19 @@
   .row .field { flex: 1; min-width: 140px; }
   .form-error { color: var(--red); font-size: 12.5px; min-height: 16px; }
   .modal footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-2); }
+  .feed-row { cursor: pointer; }
+  .feed-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .event-body { padding: 16px 18px; display: grid; gap: 14px; }
+  .event-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+  .event-meta div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .event-meta span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+  .event-meta b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-payload pre {
+    margin: 0; max-height: 46vh; overflow: auto; padding: 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  }
+  .event-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .toast {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -626,6 +639,20 @@
       <span id="evidence-limit-note">limit 100</span>
       <span>auto-refresh 15s</span>
     </footer>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="event-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="event-title">
+    <header>
+      <h2 id="event-title">Activity event</h2>
+      <button class="btn" id="event-close" type="button" title="Close (Esc)">✕</button>
+    </header>
+    <div class="event-body">
+      <div class="event-meta" id="event-meta"></div>
+      <div class="event-payload"><pre id="event-payload"></pre></div>
+      <div class="event-actions"><button class="btn primary" id="event-open-task" type="button" hidden>Open task</button></div>
+    </div>
   </div>
 </div>
 
@@ -1114,7 +1141,10 @@
         const link = el("button", "task-link", title);
         link.type = "button";
         link.title = "Open task " + taskId;
-        link.addEventListener("click", function () { openTaskFromFeed(taskId); });
+        link.addEventListener("click", function (clickEvent) {
+          clickEvent.stopPropagation();
+          openTaskFromFeed(taskId);
+        });
         taskCell.appendChild(link);
       } else {
         const ref = el("span", "task-ref" + (taskId ? " task-missing" : ""), title);
@@ -1145,6 +1175,19 @@
     row.appendChild(time);
     row.title = (event.kind || "event") + " · " + fullTime(iso) +
       (event.actor ? " · " + event.actor : "") + (taskId ? " · " + taskId : "");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", "Inspect " + (event.kind || "event") + " event");
+    row.addEventListener("click", function (clickEvent) {
+      if (clickEvent.target.closest(".task-link")) return;
+      openEventModal(event);
+    });
+    row.addEventListener("keydown", function (keyEvent) {
+      if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+        keyEvent.preventDefault();
+        openEventModal(event);
+      }
+    });
 
     return row;
   }
@@ -1181,6 +1224,40 @@
       feedRenderTimer = null;
       if (state.view === "activity") renderFeed();
     }, 120);
+  }
+
+  let eventModalTaskId = null;
+
+  function openEventModal(event) {
+    const taskId = event.task_id ? String(event.task_id) : null;
+    eventModalTaskId = taskId && state.tasks.has(taskId) ? taskId : null;
+    $("event-title").textContent = event.kind || "Activity event";
+    const meta = [
+      ["kind", event.kind || "—"],
+      ["actor", event.actor || "—"],
+      ["harness", event.harness || "—"],
+      ["task", taskId || "—"],
+      ["project", event.project || "—"],
+      ["time", eventTime(event) || "—"],
+      ["source", event.source || "—"],
+      ["event id", event.id != null ? String(event.id) : "—"],
+    ];
+    const metaWrap = $("event-meta");
+    metaWrap.replaceChildren.apply(metaWrap, meta.map(function (pair) {
+      const cell = el("div");
+      cell.appendChild(el("span", null, pair[0]));
+      cell.appendChild(el("b", null, pair[1]));
+      return cell;
+    }));
+    $("event-payload").textContent = JSON.stringify(event.payload || {}, null, 2);
+    $("event-open-task").hidden = !eventModalTaskId;
+    $("event-modal").hidden = false;
+    $("event-close").focus();
+  }
+
+  function closeEventModal() {
+    $("event-modal").hidden = true;
+    eventModalTaskId = null;
   }
 
   function openTaskFromFeed(taskId) {
@@ -2477,6 +2554,15 @@
     $("form-close").addEventListener("click", closeForm);
     $("form-cancel").addEventListener("click", closeForm);
     $("task-form").addEventListener("submit", submitForm);
+    $("event-close").addEventListener("click", closeEventModal);
+    $("event-modal").addEventListener("click", function (event) {
+      if (event.target === $("event-modal")) closeEventModal();
+    });
+    $("event-open-task").addEventListener("click", function () {
+      const taskId = eventModalTaskId;
+      closeEventModal();
+      if (taskId) openTaskFromFeed(taskId);
+    });
     $("coverage-open").addEventListener("click", openCoverage);
     $("coverage-close").addEventListener("click", closeCoverage);
     $("coverage-refresh").addEventListener("click", function () { loadCoverage(); });
@@ -2494,6 +2580,7 @@
     $("evidence-status").addEventListener("change", function () { loadEvidence(); });
     document.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
+      if (!$("event-modal").hidden) { closeEventModal(); return; }
       if (!$("evidence-modal").hidden) { closeEvidence(); return; }
       if (!$("coverage-modal").hidden) { closeCoverage(); return; }
       if (!$("modal").hidden) { closeForm(); return; }
