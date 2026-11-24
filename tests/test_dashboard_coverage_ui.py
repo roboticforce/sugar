@@ -35,6 +35,13 @@ def html(client):
     return response.text
 
 
+def test_hidden_attribute_wins_over_layout_classes(html):
+    # The status/type/search controls use the HTML hidden attribute when the
+    # Activity view is active. A `display:flex` class must not override it or
+    # the task filters stay visible (and do nothing) in the activity feed.
+    assert "[hidden] { display: none !important; }" in html
+
+
 def test_coverage_trigger_lives_in_the_header(html):
     header_start = html.index('class="topbar"')
     header_end = html.index("</header>", header_start)
