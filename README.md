@@ -7,6 +7,8 @@
 One durable board for Claude Code, Codex, Cursor, Goose, OpenCode, DSH — and any harness that can claim a task.
 Atomic claims, live agent activity, cost attribution and tamper-evident history. Local-first, no account.
 
+[**▶ Try the live web demo**](https://roboticforce.io/sugar/demo) — simulated data, no install.
+
 <!-- mcp-name: io.github.cdnsteve/sugar -->
 
 [![PyPI](https://img.shields.io/pypi/v/sugarai?style=flat-square&label=pypi)](https://pypi.org/project/sugarai/)
@@ -15,7 +17,7 @@ Atomic claims, live agent activity, cost attribution and tamper-evident history.
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20commercial-blue?style=flat-square)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)](docs/local-dashboard.md)
 
-[Quick start](#quick-start) · [See it work](#see-your-fleet-work) · [Why Sugar](#why-sugar) · [Works with](#works-with-your-harnesses) · [Docs](docs/README.md) · [Team edition](#team-edition-self-hosted)
+[Quick start](#quick-start) · [Live demo](https://roboticforce.io/sugar/demo) · [See it work](#see-your-fleet-work) · [Why Sugar](#why-sugar) · [Works with](#works-with-your-harnesses) · [Docs](docs/README.md) · [Team edition](#team-edition-self-hosted)
 
 <img src="docs/images/app-tasks.png" alt="SugarDash: the task board with a task inspector open, live activity and history" width="880">
 
