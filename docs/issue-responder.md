@@ -414,7 +414,7 @@ If the file doesn't exist or is invalid, Sugar uses the default behavior.
   },
   "instructions": "You are a technical support assistant for the Acme API. Be professional and precise. Reference API documentation at docs.acme.com. For billing questions, direct users to support@acme.com.",
   "constraints": [
-    "Don't discuss pricing or enterprise tiers",
+    "Don't speculate about roadmap, licensing or commercial terms",
     "Don't speculate about roadmap or release dates",
     "Don't share internal implementation details"
   ]

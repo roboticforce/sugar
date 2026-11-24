@@ -1,7 +1,7 @@
 {
   "name": "sugar",
-  "version": "3.10.2",
-  "description": "🍰 Sugar - The autonomous layer for AI coding agents",
+  "version": "3.11.1",
+  "description": "Mission control for your agent fleet: one durable board, live telemetry, coverage, evidence and audit for Claude Code and other harnesses.",
   "author": {
     "name": "Steven Leggett",
     "email": "contact@roboticforce.io"

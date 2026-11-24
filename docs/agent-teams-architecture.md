@@ -1,6 +1,6 @@
 # Agent teams: architecture and business-domain boundaries
 
-*Companion to [agent-teams-market.md](agent-teams-market.md) (market, positioning, validation) and
+*Companion to [agent-teams.md](agent-teams.md) and
 [agent-teams.md](agent-teams.md) (Sugar's current capabilities). This document fixes the architecture, the
 domain boundaries, and — via the Wardley map — where to build versus where to buy/adopt.*
 
@@ -355,7 +355,7 @@ a domain rule, not a UI detail.
 - **~20%** into adapters/ecosystem: MCP already; HTTP agent API; A2A endpoint; Hermes/DSH/Goose/Claude plugins.
 - **~10%** into surfaces: keep the web dashboard and macOS app good enough; don't chase top-tier kanban UX.
 
-Mapping to the phased plan in [agent-teams-market.md](agent-teams-market.md):
+Mapping to the phased plan in the internal strategy (not public):
 
 | Phase | Wardley reading | Work |
 |---|---|---|
