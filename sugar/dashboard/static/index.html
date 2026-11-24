@@ -587,6 +587,105 @@
     .trace-graph-scroll { min-height: 200px; }
   }
 
+  /* Overview (Human layer 2). Landing view: what needs attention, a compact
+     summary and recent traces. Read-only; every data source degrades quietly. */
+  .overview-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .overview-pane[hidden] { display: none; }
+  .overview-head {
+    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 14px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--muted); font-size: 11.5px;
+  }
+  .overview-head b { color: var(--text); font-size: 13px; }
+  .overview-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  .overview-section { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .overview-section-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2);
+  }
+  .overview-section-head h3 { margin: 0; font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); }
+  .attention-filter { display: inline-flex; gap: 2px; padding: 1px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  .attention-filter button {
+    border: none; background: transparent; color: var(--muted);
+    padding: 1px 9px; border-radius: 6px; font-size: 11px; line-height: 16px;
+  }
+  .attention-filter button:hover { color: var(--text); }
+  .attention-filter button.active { background: rgba(88, 166, 255, 0.16); color: var(--accent); }
+  .attention-filter button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .attention-list, .overview-traces { display: flex; flex-direction: column; }
+  .attention-card {
+    display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+    border-bottom: 1px solid rgba(34, 48, 66, 0.65);
+  }
+  .attention-card:last-child { border-bottom: none; }
+  .attention-card[role="button"] { cursor: pointer; }
+  .attention-card[role="button"]:hover { background: rgba(88, 166, 255, 0.06); }
+  .attention-card[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .attention-sev {
+    flex: none; padding: 0 8px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 10px; line-height: 18px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .attention-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .attention-title { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attention-detail {
+    color: var(--muted); font-size: 12px; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .attention-meta { color: var(--muted); font-size: 11px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .attention-kind { color: var(--accent); }
+  .attention-link { flex: none; align-self: center; color: var(--accent); font-size: 11.5px; white-space: nowrap; }
+  .overview-state { color: var(--muted); text-align: center; padding: 26px 16px; font-size: 13px; }
+  .overview-state[hidden] { display: none; }
+  .overview-summary { display: flex; flex-wrap: wrap; gap: 10px; }
+  .overview-metric {
+    flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+  .overview-metric-label { color: var(--muted); font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .overview-metric-value { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .overview-task-metrics { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: var(--muted); }
+  .overview-task-metrics b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .overview-usage { display: flex; flex-wrap: wrap; gap: 3px 12px; color: var(--muted); font-size: 12.5px; }
+  .overview-usage b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .overview-usage .usage-est { color: var(--yellow); }
+  .overview-trace-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-bottom: 1px solid rgba(34, 48, 66, 0.65); cursor: pointer;
+  }
+  .overview-trace-row:last-child { border-bottom: none; }
+  .overview-trace-row:hover { background: rgba(88, 166, 255, 0.06); }
+  .overview-trace-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .overview-trace-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .overview-trace-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .overview-trace-sub { color: var(--muted); font-size: 11px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .risk-badge {
+    padding: 0 8px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 10.5px; line-height: 18px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
+  }
+
+  /* Trace narrative/insights strip above the explorer grid. */
+  .trace-insights {
+    flex: none; display: flex; flex-direction: column; gap: 5px;
+    padding: 9px 12px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .trace-insights[hidden] { display: none; }
+  .trace-insights-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .trace-insights-head strong { font-size: 13px; }
+  .trace-insights-bullets { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 12px; }
+  .trace-insights-bullets li { color: var(--muted); }
+  .trace-insights-bullets button {
+    border: none; background: none; padding: 0; color: var(--accent);
+    font-size: 12px; text-align: left; text-decoration: underline;
+  }
+  @media (max-width: 700px) {
+    .overview-summary { flex-direction: column; }
+    .overview-metric { flex: 1 1 auto; }
+    .attention-card { flex-wrap: wrap; }
+    .attention-link { align-self: flex-start; }
+  }
+
 </style>
 </head>
 <body>
@@ -616,14 +715,15 @@
 <main>
   <div class="toolbar">
     <div class="view-switch" id="view-switch" role="tablist" aria-label="View">
-      <button type="button" class="active" data-view="tasks" role="tab" aria-selected="true">Tasks</button>
+      <button type="button" class="active" data-view="overview" role="tab" aria-selected="true">Overview</button>
+      <button type="button" data-view="tasks" role="tab" aria-selected="false">Tasks</button>
       <button type="button" data-view="activity" role="tab" aria-selected="false">Activity</button>
       <button type="button" data-view="traces" role="tab" aria-selected="false">Traces</button>
     </div>
-    <div class="chips" id="status-chips"></div>
-    <select id="type-filter" aria-label="Filter by type"><option value="">All types</option></select>
-    <select id="project-filter" aria-label="Filter by project"><option value="">All projects</option></select>
-    <input type="search" id="search" placeholder="Search title, description or id…" autocomplete="off">
+    <div class="chips" id="status-chips" hidden></div>
+    <select id="type-filter" aria-label="Filter by type" hidden><option value="">All types</option></select>
+    <select id="project-filter" aria-label="Filter by project" hidden><option value="">All projects</option></select>
+    <input type="search" id="search" placeholder="Search title, description or id…" autocomplete="off" hidden>
     <div class="activity-filters" id="activity-filters" hidden>
       <select id="activity-kind" aria-label="Filter activity by kind group">
         <option value="">All kinds</option>
@@ -647,7 +747,52 @@
     <span class="spacer"></span>
     <button class="btn primary" id="btn-new">+ New task</button>
   </div>
-  <div class="table-wrap" id="tasks-pane">
+  <div class="overview-pane" id="overview-pane">
+    <div class="overview-head">
+      <b>Overview</b>
+      <span id="overview-note">what needs attention right now</span>
+      <span class="spacer"></span>
+      <button class="btn" id="overview-refresh" type="button">Refresh</button>
+    </div>
+    <div class="overview-scroll" id="overview-scroll">
+      <section class="overview-section" aria-label="Attention queue">
+        <div class="overview-section-head">
+          <h3>Needs attention <span id="attention-count" class="muted"></span></h3>
+          <span class="spacer"></span>
+          <div class="attention-filter" id="attention-filter" role="group" aria-label="Filter attention by severity">
+            <button type="button" id="attention-filter-all" data-attention-filter="all" class="active" aria-pressed="true">All</button>
+            <button type="button" id="attention-filter-high" data-attention-filter="high" aria-pressed="false">High</button>
+          </div>
+        </div>
+        <div class="attention-list" id="attention-list"></div>
+        <div class="overview-state" id="attention-state">Loading attention…</div>
+      </section>
+      <section class="overview-summary" aria-label="Summary">
+        <div class="overview-metric">
+          <span class="overview-metric-label">Tasks</span>
+          <div class="overview-task-metrics" id="overview-task-metrics"></div>
+        </div>
+        <div class="overview-metric">
+          <span class="overview-metric-label">Traces today</span>
+          <span class="overview-metric-value" id="overview-trace-count">—</span>
+        </div>
+        <div class="overview-metric" id="overview-usage" hidden>
+          <span class="overview-metric-label">Usage</span>
+          <div class="overview-usage" id="overview-usage-body"></div>
+        </div>
+      </section>
+      <section class="overview-section" aria-label="Recent traces">
+        <div class="overview-section-head">
+          <h3>Recent traces</h3>
+          <span class="spacer"></span>
+          <button class="btn" id="overview-view-traces" type="button">View all traces</button>
+        </div>
+        <div class="overview-traces" id="overview-trace-list"></div>
+        <div class="overview-state" id="overview-trace-state">Loading traces…</div>
+      </section>
+    </div>
+  </div>
+  <div class="table-wrap" id="tasks-pane" hidden>
     <table>
       <thead>
         <tr>
@@ -708,6 +853,13 @@
         <div class="trace-summary" id="trace-summary"></div>
         <span class="muted" id="trace-explorer-note"></span>
       </div>
+      <section class="trace-insights" id="trace-insights" aria-label="Trace insights" hidden>
+        <div class="trace-insights-head">
+          <span class="risk-badge" id="trace-insights-risk" hidden></span>
+          <strong id="trace-insights-headline"></strong>
+        </div>
+        <ul class="trace-insights-bullets" id="trace-insights-bullets"></ul>
+      </section>
       <div class="trace-grid">
         <section class="trace-card" aria-label="Span call tree">
           <div class="trace-card-head"><span>Call tree</span><span class="spacer"></span><span id="trace-tree-count"></span></div>
@@ -945,7 +1097,7 @@
     readOnly: false,
     connected: false,
     gotSnapshot: false,
-    view: "tasks",
+    view: "overview",
     // Task project/cwd provenance (context.project / context.cwd).
     projectFilter: "",
     // Usage/cost panel dimension + last report (docs/usage.md).
@@ -983,7 +1135,14 @@
     traceSelectedSpanId: null,
     traceCollapsed: new Set(),
     traceVisual: "timeline",
-    traceGraph: null
+    traceGraph: null,
+    // Overview (Human layer 2): attention queue + summary + recent traces.
+    attention: [],
+    attentionError: null,
+    attentionFetchedAt: 0,
+    attentionLoaded: false,
+    attentionFilter: "all",
+    overviewUsage: null
   };
 
   let eventSource = null;
@@ -1002,6 +1161,8 @@
   let evidenceDebounce = null;
   let traceInFlight = false;
   let traceDetailInFlight = false;
+  let attentionInFlight = false;
+  let overviewUsageInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -1720,6 +1881,7 @@
   }
 
   function renderView() {
+    const overview = state.view === "overview";
     const activity = state.view === "activity";
     const traces = state.view === "traces";
     Array.prototype.forEach.call($("view-switch").querySelectorAll("button[data-view]"), function (button) {
@@ -1727,22 +1889,28 @@
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", active ? "true" : "false");
     });
-    $("status-chips").hidden = activity || traces;
-    $("type-filter").hidden = activity || traces;
-    $("project-filter").hidden = activity || traces;
-    $("search").hidden = activity || traces;
+    const taskChrome = activity || traces || overview;
+    $("status-chips").hidden = taskChrome;
+    $("type-filter").hidden = taskChrome;
+    $("project-filter").hidden = taskChrome;
+    $("search").hidden = taskChrome;
     $("activity-filters").hidden = !activity;
-    $("tasks-pane").hidden = activity || traces;
+    $("overview-pane").hidden = !overview;
+    $("tasks-pane").hidden = activity || traces || overview;
     $("activity-pane").hidden = !activity;
     $("traces-pane").hidden = !traces;
     renderRows();
+    if (overview) renderOverview();
     if (activity) renderFeed();
     if (traces) renderTracesView();
     renderDrawer();
   }
 
   function setView(view) {
-    const next = view === "activity" ? "activity" : view === "traces" ? "traces" : "tasks";
+    const next = view === "overview" ? "overview"
+      : view === "activity" ? "activity"
+        : view === "traces" ? "traces" : "tasks";
+    const enteringOverview = next === "overview" && state.view !== "overview";
     const enteringActivity = next === "activity" && state.view !== "activity";
     const enteringTraces = next === "traces" && state.view !== "traces";
     state.view = next;
@@ -1752,6 +1920,8 @@
     if (enteringActivity) loadUsage();
     // Traces are loaded lazily on first open; Refresh re-reads them.
     if (enteringTraces && !state.tracesLoaded) loadTraces();
+    // Overview is a landing surface: refresh attention/usage/traces on entry.
+    if (enteringOverview) loadOverview();
   }
 
   function drawerSection(label, content) {
@@ -1843,7 +2013,7 @@
     const drawer = $("drawer");
     // The feed/traces views take the full width; switching back restores the
     // drawer for the still-selected task (selection is never cleared).
-    if (state.view === "activity" || state.view === "traces") { drawer.hidden = true; return; }
+    if (state.view === "activity" || state.view === "traces" || state.view === "overview") { drawer.hidden = true; return; }
     if (!state.selectedId) { drawer.hidden = true; return; }
     const task = state.tasks.get(state.selectedId);
     if (!task) { drawer.hidden = true; return; }
@@ -1960,6 +2130,7 @@
     renderChips();
     renderTypeFilter();
     renderTaskProjectFilter();
+    renderOverviewSummary();
     renderRows();
     if (state.view === "activity") renderFeed();
     renderDrawer();
@@ -3017,6 +3188,8 @@
       toolCalls: Number(record.tool_calls || record.tool_count || record.tools) || derivedTools,
       models: traceModels(record, rawSpans),
       tokens: traceTokenTotals(record, rawSpans),
+      insights: record.insights && typeof record.insights === "object" ? record.insights : null,
+      risk: String((record.insights && record.insights.risk) || record.risk || "").toLowerCase(),
       spans: rawSpans
     };
   }
@@ -3069,8 +3242,14 @@
     else if (payload && payload.trace && Array.isArray(payload.trace.spans)) spans = payload.trace.spans;
     else if (root && Array.isArray(root.spans)) spans = root.spans;
     else if (fallback && Array.isArray(fallback.spans)) spans = fallback.spans;
+    const normalized = normalizeTrace(root || fallback);
+    if (!normalized.insights && payload && payload.insights &&
+        typeof payload.insights === "object") {
+      normalized.insights = payload.insights;
+      normalized.risk = String(payload.insights.risk || normalized.risk || "").toLowerCase();
+    }
     return {
-      trace: normalizeTrace(root || fallback),
+      trace: normalized,
       spans: spans.map(normalizeSpan)
     };
   }
@@ -3080,6 +3259,95 @@
     node.appendChild(el("b", null, value));
     node.appendChild(document.createTextNode(" " + label));
     return node;
+  }
+
+  function traceRisk(trace) {
+    if (!trace) return "";
+    if (trace.risk) return String(trace.risk).toLowerCase();
+    const insights = trace.insights;
+    return insights && insights.risk ? String(insights.risk).toLowerCase() : "";
+  }
+
+  function traceRiskColor(risk) {
+    const value = String(risk || "").toLowerCase();
+    if (value === "critical" || value === "high" || value === "severe") return "var(--red)";
+    if (value === "medium" || value === "moderate") return "var(--orange)";
+    if (value === "low") return "var(--yellow)";
+    return UNKNOWN_COLOR;
+  }
+
+  function riskBadgeNode(risk) {
+    const value = String(risk || "").toLowerCase();
+    const badge = el("span", "risk-badge", value || "risk");
+    badge.style.color = traceRiskColor(value);
+    badge.style.borderColor = "color-mix(in srgb, " + traceRiskColor(value) + " 45%, transparent)";
+    badge.title = "risk: " + (value || "unknown");
+    return badge;
+  }
+
+  function traceInsightBulletText(bullet) {
+    if (typeof bullet === "string") return bullet;
+    if (!bullet || typeof bullet !== "object") return "";
+    return String(bullet.text || bullet.label || bullet.title || bullet.message || "").trim();
+  }
+
+  function traceInsightBulletSpan(bullet) {
+    if (!bullet || typeof bullet !== "object") return "";
+    return String(bullet.span_id || bullet.spanId || bullet.span || "").trim();
+  }
+
+  function renderTraceInsights(trace) {
+    const box = $("trace-insights");
+    if (!box) return;
+    const insights = (trace && trace.insights) || null;
+    const headline = insights
+      ? String(insights.headline || insights.summary || insights.title || "").trim()
+      : "";
+    const rawBullets = insights
+      ? (Array.isArray(insights.bullets) ? insights.bullets
+        : Array.isArray(insights.highlights) ? insights.highlights : [])
+      : [];
+    const bullets = rawBullets.map(function (bullet) {
+      return { text: traceInsightBulletText(bullet), spanId: traceInsightBulletSpan(bullet) };
+    }).filter(function (bullet) { return !!bullet.text; });
+    const risk = traceRisk(trace);
+    if (!headline && !bullets.length && !risk) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const riskNode = $("trace-insights-risk");
+    const headlineNode = $("trace-insights-headline");
+    const bulletsNode = $("trace-insights-bullets");
+    if (riskNode) {
+      riskNode.hidden = !risk;
+      riskNode.textContent = risk || "";
+      if (risk) {
+        riskNode.style.color = traceRiskColor(risk);
+        riskNode.style.borderColor =
+          "color-mix(in srgb, " + traceRiskColor(risk) + " 45%, transparent)";
+        riskNode.title = "risk: " + risk;
+      }
+    }
+    if (headlineNode) headlineNode.textContent = headline;
+    if (bulletsNode) {
+      bulletsNode.replaceChildren.apply(bulletsNode, bullets.map(function (bullet) {
+        const item = el("li");
+        const knownSpan = bullet.spanId && state.traceSpans.some(function (span) {
+          return span.id === bullet.spanId;
+        });
+        if (knownSpan) {
+          const button = el("button", null, bullet.text);
+          button.type = "button";
+          button.title = "Inspect span " + bullet.spanId;
+          button.addEventListener("click", function () { selectTraceSpan(bullet.spanId); });
+          item.appendChild(button);
+        } else {
+          item.textContent = bullet.text;
+        }
+        return item;
+      }));
+    }
   }
 
   function traceRow(trace) {
@@ -3107,6 +3375,8 @@
     metrics.appendChild(traceMetric("turns", trace.turns));
     metrics.appendChild(traceMetric("tools", trace.toolCalls));
     if (trace.tokens.total) metrics.appendChild(traceMetric("tokens", formatTokens(trace.tokens.total)));
+    const risk = traceRisk(trace);
+    if (risk) metrics.appendChild(riskBadgeNode(risk));
     const status = el("span", "trace-status", trace.status || "—");
     status.style.color = traceStatusColor(trace.status);
     status.style.borderColor = "color-mix(in srgb, " + traceStatusColor(trace.status) + " 45%, transparent)";
@@ -3189,6 +3459,10 @@
     } finally {
       traceInFlight = false;
       if (refresh) refresh.disabled = false;
+      if ($("overview-trace-list")) {
+        renderOverviewTraces();
+        renderOverviewSummary();
+      }
     }
   }
 
@@ -3314,6 +3588,7 @@
     if (title) title.textContent = trace.title || "Trace";
     state.traceTree = state.traceSpans.length ? traceSpanTree() : null;
     renderTraceSummary(trace);
+    renderTraceInsights(trace);
     const note = $("trace-explorer-note");
     if (note) {
       note.textContent = traceDetailInFlight
@@ -3957,6 +4232,377 @@
     return false;
   }
 
+  // ------------------------------------------------ overview (Human layer 2)
+
+  const ATTENTION_HIGH = ["critical", "high", "error", "urgent", "severe"];
+  const ATTENTION_SEVERITY_RANK = {
+    critical: 5, severe: 5, high: 4, error: 4, urgent: 4,
+    medium: 3, moderate: 3, warning: 2, low: 1, info: 0
+  };
+  const ATTENTION_SEVERITY_STYLE = {
+    critical: "var(--red)", severe: "var(--red)", high: "var(--red)",
+    error: "var(--red)", urgent: "var(--red)", medium: "var(--orange)",
+    moderate: "var(--orange)", warning: "var(--yellow)",
+    low: "var(--muted)", info: "var(--accent)"
+  };
+
+  function attentionItemsFrom(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== "object") return [];
+    const keys = ["items", "attention", "alerts", "queue", "notifications"];
+    for (let i = 0; i < keys.length; i += 1) {
+      if (Array.isArray(payload[keys[i]])) return payload[keys[i]];
+    }
+    return [];
+  }
+
+  function attentionSeverity(item) {
+    return String((item && (item.severity || item.level || item.priority)) || "")
+      .trim().toLowerCase();
+  }
+
+  function attentionIsHigh(item) {
+    return ATTENTION_HIGH.indexOf(attentionSeverity(item)) !== -1;
+  }
+
+  function attentionSeverityColor(item) {
+    return ATTENTION_SEVERITY_STYLE[attentionSeverity(item)] || UNKNOWN_COLOR;
+  }
+
+  function attentionTimeMs(item) {
+    return traceTimeMs(item && (item.ts || item.created_at || item.at ||
+      item.timestamp || item.time));
+  }
+
+  function attentionTraceId(item) {
+    if (!item) return "";
+    return String(item.trace_id || item.traceId || (item.trace && item.trace.id) || "");
+  }
+
+  function attentionTaskId(item) {
+    if (!item) return "";
+    return String(item.task_id || item.taskId || (item.task && item.task.id) || "");
+  }
+
+  function normalizeAttention(item, index) {
+    const record = item || {};
+    return {
+      raw: record,
+      id: String(record.id || "attention-" + index),
+      severity: attentionSeverity(record) || "info",
+      kind: String(record.kind || record.category || record.type || "attention"),
+      title: String(record.title || record.summary || record.subject ||
+        record.message || "Attention item"),
+      detail: String(record.detail || record.description || record.body ||
+        record.message || ""),
+      project: String(record.project ||
+        (record.attributes && record.attributes.project) || ""),
+      timeMs: attentionTimeMs(record),
+      traceId: attentionTraceId(record),
+      taskId: attentionTaskId(record)
+    };
+  }
+
+  function applyAttentionFilterState() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#attention-filter button[data-attention-filter]"),
+      function (button) {
+        const active = button.dataset.attentionFilter === state.attentionFilter;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      }
+    );
+  }
+
+  function setAttentionFilter(mode) {
+    state.attentionFilter = mode === "high" ? "high" : "all";
+    applyAttentionFilterState();
+    renderAttention();
+  }
+
+  function attentionCard(item) {
+    const card = el("div", "attention-card");
+    const clickable = !!(item.traceId || item.taskId);
+    if (clickable) {
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", "Open " + item.title);
+    }
+    const severity = el("span", "attention-sev", item.severity || "info");
+    severity.style.color = attentionSeverityColor(item);
+    severity.style.borderColor = "color-mix(in srgb, " +
+      attentionSeverityColor(item) + " 45%, transparent)";
+    card.appendChild(severity);
+    const main = el("div", "attention-main");
+    main.appendChild(el("div", "attention-title", item.title));
+    if (item.detail) main.appendChild(el("div", "attention-detail", item.detail));
+    const meta = el("div", "attention-meta");
+    meta.appendChild(el("span", "attention-kind", item.kind));
+    if (item.project) meta.appendChild(el("span", null, item.project));
+    if (item.timeMs !== null) {
+      const iso = new Date(item.timeMs).toISOString();
+      const time = el("span", null, timeAgo(iso));
+      time.title = fullTime(iso);
+      meta.appendChild(time);
+    }
+    if (item.traceId) meta.appendChild(el("span", null, "trace " + item.traceId));
+    else if (item.taskId) meta.appendChild(el("span", null, "task " + item.taskId));
+    main.appendChild(meta);
+    card.appendChild(main);
+    if (clickable) {
+      card.appendChild(el("span", "attention-link",
+        item.taskId ? "Open task →" : "Open trace →"));
+      card.addEventListener("click", function () { openAttentionTarget(item); });
+      card.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openAttentionTarget(item);
+        }
+      });
+    }
+    return card;
+  }
+
+  function openAttentionTarget(item) {
+    if (!item) return;
+    if (item.taskId) {
+      if (state.tasks.has(item.taskId)) {
+        setView("tasks");
+        selectTask(item.taskId);
+        return;
+      }
+      setView("tasks");
+      toast("Task " + item.taskId + " is not in the current queue.", true);
+      return;
+    }
+    if (item.traceId) openTraceById(item.traceId, item.title);
+  }
+
+  function openTraceById(id, title) {
+    if (!id) return;
+    const known = state.traces.find(function (trace) { return trace && trace.id === id; });
+    setView("traces");
+    openTrace(known || { id: String(id), title: title || String(id), spans: [] });
+  }
+
+  function renderAttention() {
+    const list = $("attention-list");
+    const stateBox = $("attention-state");
+    const count = $("attention-count");
+    applyAttentionFilterState();
+    if (!list || !stateBox) return;
+    if (state.attentionError) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.attentionError;
+      if (count) count.textContent = "";
+      return;
+    }
+    if (!state.attentionLoaded) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading attention…";
+      if (count) count.textContent = "";
+      return;
+    }
+    const highOnly = state.attentionFilter === "high";
+    const items = state.attention.filter(function (item) {
+      return !highOnly || attentionIsHigh(item);
+    }).slice().sort(function (a, b) {
+      const rank = (ATTENTION_SEVERITY_RANK[b.severity] || 0) -
+        (ATTENTION_SEVERITY_RANK[a.severity] || 0);
+      if (rank) return rank;
+      return (b.timeMs || 0) - (a.timeMs || 0);
+    });
+    list.replaceChildren.apply(list, items.map(attentionCard));
+    if (count) count.textContent = items.length ? String(items.length) : "";
+    stateBox.hidden = items.length > 0;
+    stateBox.textContent = items.length ? "" : (highOnly
+      ? "No high-severity items."
+      : "Nothing needs attention.");
+  }
+
+  async function loadAttention() {
+    if (attentionInFlight) return;
+    attentionInFlight = true;
+    const refresh = $("overview-refresh");
+    if (refresh) refresh.disabled = true;
+    state.attentionError = null;
+    renderAttention();
+    try {
+      const payload = await api.get("/api/attention");
+      state.attention = attentionItemsFrom(payload).map(normalizeAttention);
+      state.attentionLoaded = true;
+      state.attentionFetchedAt = Date.now();
+      renderAttention();
+    } catch (error) {
+      state.attentionLoaded = true;
+      state.attention = [];
+      if (error && (error.status === 404 || error.status === 405 ||
+          error.status === 503)) {
+        state.attentionError = "Attention unavailable on this server";
+      } else {
+        state.attentionError = "Attention failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      renderAttention();
+    } finally {
+      attentionInFlight = false;
+      if (refresh) refresh.disabled = false;
+    }
+  }
+
+  function tracesTodayCount() {
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return state.traces.filter(function (trace) {
+      return trace.startedMs !== null && trace.startedMs >= midnight;
+    }).length;
+  }
+
+  function overviewTraceRow(trace) {
+    const row = el("div", "overview-trace-row");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", "Open trace " + trace.title);
+    const main = el("div", "overview-trace-main");
+    main.appendChild(el("div", "overview-trace-title", trace.title));
+    const sub = el("div", "overview-trace-sub");
+    if (trace.project) sub.appendChild(el("span", null, trace.project));
+    if (trace.startedMs !== null) {
+      sub.appendChild(el("span", null,
+        timeAgo(new Date(trace.startedMs).toISOString())));
+    }
+    sub.appendChild(el("span", null, formatDuration(trace.durationMs)));
+    if (trace.toolCalls) sub.appendChild(el("span", null, trace.toolCalls + " tools"));
+    main.appendChild(sub);
+    row.appendChild(main);
+    const risk = traceRisk(trace);
+    if (risk) row.appendChild(riskBadgeNode(risk));
+    const status = el("span", "trace-status", trace.status || "—");
+    status.style.color = traceStatusColor(trace.status);
+    status.style.borderColor = "color-mix(in srgb, " +
+      traceStatusColor(trace.status) + " 45%, transparent)";
+    row.appendChild(status);
+    row.addEventListener("click", function () { openTraceById(trace.id, trace.title); });
+    row.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openTraceById(trace.id, trace.title);
+      }
+    });
+    return row;
+  }
+
+  function renderOverviewTraces() {
+    const list = $("overview-trace-list");
+    const stateBox = $("overview-trace-state");
+    if (!list || !stateBox) return;
+    if (state.tracesError) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.tracesError;
+      return;
+    }
+    if (!state.tracesLoaded) {
+      list.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading traces…";
+      return;
+    }
+    const traces = state.traces.slice().sort(function (a, b) {
+      return (b.startedMs || 0) - (a.startedMs || 0);
+    }).slice(0, 5);
+    list.replaceChildren.apply(list, traces.map(overviewTraceRow));
+    stateBox.hidden = traces.length > 0;
+    stateBox.textContent = traces.length ? "" : "No traces yet.";
+  }
+
+  function overviewUsageNodes(usage) {
+    if (!usage) return [];
+    const nodes = [];
+    function add(label, value) {
+      const node = el("span");
+      node.appendChild(el("b", null, String(value)));
+      node.appendChild(document.createTextNode(" " + label));
+      nodes.push(node);
+    }
+    add("usage events", usage.events || 0);
+    add("tokens total", formatTokens(usage.tokens_total));
+    add("reported cost", formatCost(usage.cost_usd));
+    const estimate = usageEstimate(usage);
+    if (estimate !== null) {
+      const node = el("span", "usage-est");
+      node.appendChild(document.createTextNode(formatCost(estimate) + " estimated cost"));
+      node.title = "estimated cost" +
+        (usage.cost_basis ? " (basis: " + usage.cost_basis + ")" : "");
+      nodes.push(node);
+    }
+    return nodes;
+  }
+
+  function renderOverviewSummary() {
+    const tasksBox = $("overview-task-metrics");
+    if (tasksBox) {
+      const by = (state.stats && state.stats.by_status) || {};
+      const rows = [["pending", "var(--accent)"], ["active", "var(--yellow)"],
+        ["blocked", "var(--red)"]];
+      tasksBox.replaceChildren.apply(tasksBox, rows.map(function (pair) {
+        const node = el("span");
+        const value = el("b", null, String(by[pair[0]] || 0));
+        value.style.color = pair[1];
+        node.appendChild(value);
+        node.appendChild(document.createTextNode(" " + pair[0]));
+        return node;
+      }));
+    }
+    const tracesBox = $("overview-trace-count");
+    if (tracesBox) {
+      tracesBox.textContent = state.tracesLoaded && !state.tracesError
+        ? String(tracesTodayCount()) : "—";
+    }
+    const usageBox = $("overview-usage");
+    const usageBody = $("overview-usage-body");
+    if (usageBox && usageBody) {
+      if (!state.overviewUsage) {
+        usageBox.hidden = true;
+        usageBody.replaceChildren();
+      } else {
+        usageBox.hidden = false;
+        usageBody.replaceChildren.apply(usageBody,
+          overviewUsageNodes(state.overviewUsage));
+      }
+    }
+  }
+
+  async function loadOverviewUsage() {
+    if (overviewUsageInFlight) return;
+    overviewUsageInFlight = true;
+    try {
+      const report = await api.get("/api/usage?group_by=harness&limit=5000");
+      state.overviewUsage = (report && report.totals) || null;
+    } catch (error) {
+      // Usage is optional here (older server / disabled spine): hide quietly.
+      state.overviewUsage = null;
+    } finally {
+      overviewUsageInFlight = false;
+      renderOverviewSummary();
+    }
+  }
+
+  function renderOverview() {
+    renderOverviewSummary();
+    renderAttention();
+    renderOverviewTraces();
+  }
+
+  async function loadOverview() {
+    renderOverview();
+    const pending = [loadAttention(), loadOverviewUsage(), loadTraces()];
+    await Promise.all(pending);
+    renderOverview();
+  }
+
   // ------------------------------------------------------------------ form
 
   function populateFormTypeOptions() {
@@ -4142,6 +4788,12 @@
       loadUsage();
     });
     $("btn-new").addEventListener("click", function () { openForm(null); });
+    $("overview-refresh").addEventListener("click", function () { loadOverview(); });
+    $("overview-view-traces").addEventListener("click", function () { setView("traces"); });
+    $("attention-filter").addEventListener("click", function (event) {
+      const button = event.target.closest("button[data-attention-filter]");
+      if (button) setAttentionFilter(button.dataset.attentionFilter);
+    });
     $("view-switch").addEventListener("click", function (event) {
       const button = event.target.closest("button[data-view]");
       if (button) setView(button.dataset.view);
@@ -4240,6 +4892,7 @@
     loadActivity();
     loadCoverage();
     loadEvidence();
+    loadOverview();
     // Safety net: if SSE is blocked entirely, still show the queue once.
     setTimeout(function () { if (!state.gotSnapshot) fallbackLoad(); }, 1500);
   }
