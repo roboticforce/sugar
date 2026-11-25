@@ -30,6 +30,7 @@ import aiosqlite
 
 from ..__version__ import __version__ as SUGAR_VERSION
 from ..dashboard.spine import now_iso
+from ..telemetry import redact
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +286,7 @@ async def _fetch_page(
     since: Optional[str],
     until: Optional[str],
     kinds: Sequence[str],
+    project: Optional[str],
     limit: int,
 ) -> List[Dict[str, Any]]:
     clauses = ["id > ?"]
@@ -299,6 +301,9 @@ async def _fetch_page(
         placeholders = ", ".join("?" for _ in kinds)
         clauses.append(f"kind IN ({placeholders})")
         params.extend(kinds)
+    if project:
+        clauses.append("project = ?")
+        params.append(project)
     sql = (
         "SELECT * FROM events WHERE "
         + " AND ".join(clauses)
@@ -341,7 +346,9 @@ async def export_events(
     since: Optional[str] = None,
     until: Optional[str] = None,
     kinds: Optional[Sequence[str]] = None,
+    project: Optional[str] = None,
     limit: Optional[int] = None,
+    redact_payloads: bool = False,
     sign_key_env: Optional[str] = None,
     force: bool = False,
 ) -> ExportResult:
@@ -355,6 +362,8 @@ async def export_events(
     if since_ts and until_ts and since_ts > until_ts:
         raise AuditConfigError("since must be earlier than or equal to until")
     kind_filter = normalize_kinds(kinds)
+    project_filter = str(project).strip()[:200] if project is not None else ""
+    project_filter = project_filter or None
     limit_value = validate_limit(limit)
     key = resolve_signing_key(sign_key_env)
 
@@ -406,6 +415,7 @@ async def export_events(
                         since=since_ts,
                         until=until_ts,
                         kinds=kind_filter,
+                        project=project_filter,
                         limit=page_size,
                     )
                     if not rows:
@@ -415,6 +425,10 @@ async def export_events(
                             truncated = True
                             break
                         event = _event_from_row(row)
+                        if redact_payloads:
+                            event["payload"] = redact.redact_payload(
+                                event.get("payload"), level="full"
+                            )
                         line = canonical_json_line(event)
                         handle.write(line)
                         sha.update(line)
@@ -440,6 +454,16 @@ async def export_events(
                     pass
             raise
 
+        filters: Dict[str, Any] = {
+            "since": since_ts,
+            "until": until_ts,
+            "kinds": kind_filter,
+            "limit": limit_value,
+        }
+        if project_filter:
+            filters["project"] = project_filter
+        if redact_payloads:
+            filters["redacted"] = True
         manifest: Dict[str, Any] = {
             "format": FORMAT,
             "generated_at": now_iso(),
@@ -450,12 +474,7 @@ async def export_events(
             "count": count,
             "sha256": sha.hexdigest(),
             "truncated": truncated,
-            "filters": {
-                "since": since_ts,
-                "until": until_ts,
-                "kinds": kind_filter,
-                "limit": limit_value,
-            },
+            "filters": filters,
         }
         if key is not None:
             manifest["signed"] = _sign_manifest(manifest, key)
