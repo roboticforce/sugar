@@ -686,6 +686,110 @@
     .attention-link { align-self: flex-start; }
   }
 
+  /* Audit / AIBOM (Phase 1c). Read-only observed inventory + coverage +
+     limitations + claims. No mutations, no external assets. */
+  .audit-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .audit-pane[hidden] { display: none; }
+  .audit-head {
+    flex: none; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+    padding: 9px 14px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--muted); font-size: 11.5px;
+  }
+  .audit-head b { color: var(--text); font-size: 13px; }
+  .audit-head label { font-size: 10.5px; letter-spacing: 0.7px; text-transform: uppercase; }
+  .audit-head select, .audit-head input[type="date"] {
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 7px;
+    padding: 2px 8px; font-size: 12px; color: var(--text);
+  }
+  .audit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  .audit-banner {
+    flex: none; padding: 9px 12px; border: 1px solid rgba(210, 153, 34, 0.5);
+    background: rgba(210, 153, 34, 0.08); color: var(--yellow);
+    border-radius: var(--radius); font-size: 12px;
+  }
+  .audit-section { flex: none; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .audit-section-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2);
+  }
+  .audit-section-head h3 { margin: 0; font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); }
+  .audit-note { color: var(--muted); font-size: 11.5px; }
+  .audit-summary { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .audit-count {
+    display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 10px;
+    border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11.5px;
+  }
+  .audit-count b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .audit-count.model b { color: var(--yellow); }
+  .audit-count.harness b { color: var(--accent); }
+  .audit-count.tool b { color: var(--teal); }
+  .audit-count.mcp_server b { color: var(--purple); }
+  .audit-count.artifact b { color: var(--orange); }
+  .audit-count.l3 b { color: var(--green); }
+  .audit-count.l2 b { color: var(--teal); }
+  .audit-count.l1 b { color: var(--yellow); }
+  .audit-count.l0 b { color: var(--red); }
+  .audit-table-wrap { overflow: auto; }
+  .audit-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px; }
+  .audit-table th {
+    position: sticky; top: 0; background: var(--panel-2); text-align: left;
+    font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; color: var(--muted);
+    padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .audit-table td { padding: 6px 10px; border-bottom: 1px solid rgba(34, 48, 66, 0.65); vertical-align: top; }
+  .audit-table tr:last-child td { border-bottom: none; }
+  .audit-type {
+    display: inline-block; padding: 0 7px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 10px; line-height: 16px; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap;
+  }
+  .audit-type.model { color: var(--yellow); }
+  .audit-type.harness { color: var(--accent); }
+  .audit-type.tool { color: var(--teal); }
+  .audit-type.mcp_server { color: var(--purple); }
+  .audit-type.artifact { color: var(--orange); }
+  .audit-name { color: var(--text); word-break: break-word; }
+  .audit-table .audit-name { min-width: 170px; }
+  .audit-muted { color: var(--muted); }
+  .audit-evidence { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .audit-evidence button {
+    background: none; border: 1px solid rgba(88, 166, 255, 0.45); color: var(--accent);
+    border-radius: 999px; padding: 0 7px; font-size: 10.5px; line-height: 17px; cursor: pointer;
+  }
+  .audit-evidence button:hover { background: rgba(88, 166, 255, 0.14); }
+  .audit-state { color: var(--muted); text-align: center; padding: 24px 16px; font-size: 13px; }
+  .audit-state[hidden] { display: none; }
+  .audit-list { margin: 0; padding: 10px 12px 10px 30px; color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+  .audit-claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 12px; }
+  .audit-claim { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-size: 12px; }
+  .audit-claim h4 { margin: 0 0 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); }
+  .audit-claim ul { margin: 0; padding-left: 16px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+  .audit-claim p { margin: 0; color: var(--muted); }
+  .audit-commands { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .audit-command {
+    margin: 0; padding: 8px 10px; background: var(--bg-alt); border: 1px solid var(--border);
+    border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px; color: var(--text); overflow: auto; white-space: pre;
+  }
+  .audit-coverage-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+    border-bottom: 1px solid rgba(34, 48, 66, 0.65); font-size: 12px; min-width: 0;
+  }
+  .audit-coverage-row:last-child { border-bottom: none; }
+  .audit-coverage-row .audit-name { flex: 1; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .audit-fid {
+    padding: 0 7px; border: 1px solid currentColor; border-radius: 999px;
+    font-size: 10.5px; line-height: 17px; font-weight: 600; white-space: nowrap;
+  }
+  .audit-fid.l3 { color: var(--green); }
+  .audit-fid.l2 { color: var(--teal); }
+  .audit-fid.l1 { color: var(--yellow); }
+  .audit-fid.l0 { color: var(--red); }
+  @media (max-width: 700px) {
+    .audit-head select, .audit-head input[type="date"] { flex: 1 1 auto; }
+    .audit-claims { grid-template-columns: 1fr; }
+    .audit-coverage-row { flex-wrap: wrap; }
+  }
+
 </style>
 </head>
 <body>
@@ -719,6 +823,7 @@
       <button type="button" data-view="tasks" role="tab" aria-selected="false">Tasks</button>
       <button type="button" data-view="activity" role="tab" aria-selected="false">Activity</button>
       <button type="button" data-view="traces" role="tab" aria-selected="false">Traces</button>
+      <button type="button" data-view="audit" role="tab" aria-selected="false">Audit</button>
     </div>
     <div class="chips" id="status-chips" hidden></div>
     <select id="type-filter" aria-label="Filter by type" hidden><option value="">All types</option></select>
@@ -893,6 +998,94 @@
           <div class="trace-card-body" id="trace-inspector"></div>
         </section>
       </div>
+    </div>
+  </div>
+  <div class="audit-pane" id="audit-pane" hidden>
+    <div class="audit-head" id="audit-head">
+      <b>Audit</b>
+      <span id="audit-scope-note">observed runtime inventory · read-only</span>
+      <span class="spacer"></span>
+      <label for="audit-project">Project</label>
+      <select id="audit-project" aria-label="Audit project scope"><option value="">All projects</option></select>
+      <label for="audit-since">Since</label>
+      <input type="date" id="audit-since" aria-label="Audit inventory since date">
+      <button class="btn" id="audit-refresh" type="button">Refresh</button>
+    </div>
+    <div class="audit-scroll" id="audit-scroll">
+      <div class="audit-banner" id="audit-banner">Observed runtime inventory — not a complete or standards-certified AIBOM. Read-only; this view never mutates data.</div>
+      <section class="audit-section" aria-label="Observed AIBOM inventory">
+        <div class="audit-section-head">
+          <h3>Observed AIBOM inventory</h3>
+          <span class="audit-note" id="aibom-note"></span>
+        </div>
+        <div class="audit-summary" id="aibom-summary"></div>
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th style="width:100px">Type</th>
+                <th>Name</th>
+                <th style="width:70px">Events</th>
+                <th style="width:150px">Projects</th>
+                <th style="width:130px">First seen</th>
+                <th style="width:130px">Last seen</th>
+                <th style="width:150px">Evidence</th>
+              </tr>
+            </thead>
+            <tbody id="aibom-rows"></tbody>
+          </table>
+        </div>
+        <div class="audit-state" id="aibom-state">Loading AIBOM…</div>
+      </section>
+      <section class="audit-section" aria-label="Coverage snapshot">
+        <div class="audit-section-head">
+          <h3>Coverage snapshot</h3>
+          <span class="audit-note" id="audit-coverage-note"></span>
+        </div>
+        <div class="audit-summary" id="audit-coverage-levels"></div>
+        <div id="audit-coverage-rows"></div>
+        <div class="audit-state" id="audit-coverage-state">Loading coverage…</div>
+      </section>
+      <section class="audit-section" aria-label="Limitations">
+        <div class="audit-section-head"><h3>Limitations</h3></div>
+        <ul class="audit-list" id="aibom-limitations"></ul>
+      </section>
+      <section class="audit-section" aria-label="Claims and export">
+        <div class="audit-section-head">
+          <h3>What this view can and cannot prove</h3>
+          <span class="audit-note">read-only · no mutations</span>
+        </div>
+        <div class="audit-claims" id="audit-claims">
+          <div class="audit-claim">
+            <h4>Can show</h4>
+            <ul>
+              <li>Observed runtime inventory in the selected scope: models, harnesses, tools, MCP servers and artifacts seen in the event spine.</li>
+              <li>First/last seen timestamps, event counts, projects and evidence links back to traces.</li>
+              <li>Harness telemetry fidelity and coverage levels L3–L0 for each harness.</li>
+              <li>That tamper-evident audit exports can be produced with the CLI.</li>
+            </ul>
+          </div>
+          <div class="audit-claim">
+            <h4>Cannot show</h4>
+            <ul>
+              <li>A complete or declared inventory — absence here does not prove absence.</li>
+              <li>Model weights, training data, licenses, datasets or suppliers.</li>
+              <li>CycloneDX/SPDX certification or any standards attestation.</li>
+              <li>Approvals or policy decisions not recorded in the event spine.</li>
+            </ul>
+          </div>
+          <div class="audit-claim">
+            <h4>Export for an audit</h4>
+            <p>The UI is read-only and does not package data. Use the CLI to export the spine with a SHA-256 manifest (optionally HMAC-signed) and to verify it offline.</p>
+          </div>
+        </div>
+        <div class="audit-commands" id="audit-commands">
+          <pre class="audit-command">sugar audit export --out audit/2026-11.jsonl</pre>
+          <pre class="audit-command">sugar audit verify audit/2026-11.jsonl audit/2026-11.manifest.json</pre>
+          <pre class="audit-command">sugar aibom --project sugar --since 2026-11-01 --json</pre>
+          <span class="audit-note">CLI commands run outside the dashboard; this view does not create or download files.</span>
+        </div>
+      </section>
     </div>
   </div>
 </main>
@@ -1142,7 +1335,17 @@
     attentionFetchedAt: 0,
     attentionLoaded: false,
     attentionFilter: "all",
-    overviewUsage: null
+    overviewUsage: null,
+    // Audit / AIBOM (Phase 1c): read-only observed inventory + coverage.
+    auditProject: "",
+    auditSince: "",
+    aibom: null,
+    aibomError: null,
+    aibomLoaded: false,
+    aibomFetchedAt: 0,
+    auditCoverage: null,
+    auditCoverageError: null,
+    auditCoverageLoaded: false
   };
 
   let eventSource = null;
@@ -1163,6 +1366,8 @@
   let traceDetailInFlight = false;
   let attentionInFlight = false;
   let overviewUsageInFlight = false;
+  let aibomInFlight = false;
+  let auditCoverageInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -1884,35 +2089,40 @@
     const overview = state.view === "overview";
     const activity = state.view === "activity";
     const traces = state.view === "traces";
+    const audit = state.view === "audit";
     Array.prototype.forEach.call($("view-switch").querySelectorAll("button[data-view]"), function (button) {
       const active = button.dataset.view === state.view;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", active ? "true" : "false");
     });
-    const taskChrome = activity || traces || overview;
+    const taskChrome = activity || traces || overview || audit;
     $("status-chips").hidden = taskChrome;
     $("type-filter").hidden = taskChrome;
     $("project-filter").hidden = taskChrome;
     $("search").hidden = taskChrome;
     $("activity-filters").hidden = !activity;
     $("overview-pane").hidden = !overview;
-    $("tasks-pane").hidden = activity || traces || overview;
+    $("tasks-pane").hidden = activity || traces || overview || audit;
     $("activity-pane").hidden = !activity;
     $("traces-pane").hidden = !traces;
+    $("audit-pane").hidden = !audit;
     renderRows();
     if (overview) renderOverview();
     if (activity) renderFeed();
     if (traces) renderTracesView();
+    if (audit) renderAudit();
     renderDrawer();
   }
 
   function setView(view) {
     const next = view === "overview" ? "overview"
       : view === "activity" ? "activity"
-        : view === "traces" ? "traces" : "tasks";
+        : view === "traces" ? "traces"
+          : view === "audit" ? "audit" : "tasks";
     const enteringOverview = next === "overview" && state.view !== "overview";
     const enteringActivity = next === "activity" && state.view !== "activity";
     const enteringTraces = next === "traces" && state.view !== "traces";
+    const enteringAudit = next === "audit" && state.view !== "audit";
     state.view = next;
     renderView();
     // Usage is a read-only snapshot, not an SSE stream: refresh when the
@@ -1922,6 +2132,8 @@
     if (enteringTraces && !state.tracesLoaded) loadTraces();
     // Overview is a landing surface: refresh attention/usage/traces on entry.
     if (enteringOverview) loadOverview();
+    // Audit inventory/coverage are read-only snapshots; load when the tab opens.
+    if (enteringAudit) loadAudit();
   }
 
   function drawerSection(label, content) {
@@ -2013,7 +2225,8 @@
     const drawer = $("drawer");
     // The feed/traces views take the full width; switching back restores the
     // drawer for the still-selected task (selection is never cleared).
-    if (state.view === "activity" || state.view === "traces" || state.view === "overview") { drawer.hidden = true; return; }
+    if (state.view === "activity" || state.view === "traces" ||
+      state.view === "overview" || state.view === "audit") { drawer.hidden = true; return; }
     if (!state.selectedId) { drawer.hidden = true; return; }
     const task = state.tasks.get(state.selectedId);
     if (!task) { drawer.hidden = true; return; }
@@ -4603,6 +4816,390 @@
     renderOverview();
   }
 
+  // ------------------------------------------------ audit / AIBOM (Phase 1c)
+
+  const AIBOM_TYPES = ["model", "harness", "tool", "mcp_server", "artifact"];
+  const AIBOM_TYPE_LABELS = {
+    model: "models", harness: "harnesses", tool: "tools",
+    mcp_server: "MCP servers", artifact: "artifacts"
+  };
+  const AIBOM_TYPE_SINGULAR = {
+    model: "model", harness: "harness", tool: "tool",
+    mcp_server: "MCP server", artifact: "artifact"
+  };
+
+  function aibomComponents() {
+    return state.aibom && Array.isArray(state.aibom.components)
+      ? state.aibom.components : [];
+  }
+
+  function aibomScopeQuery() {
+    const params = [];
+    if (state.auditProject) {
+      params.push("project=" + encodeURIComponent(state.auditProject));
+    }
+    if (state.auditSince) {
+      params.push("since=" + encodeURIComponent(state.auditSince + "T00:00:00Z"));
+    }
+    return params.length ? "?" + params.join("&") : "";
+  }
+
+  function aibomUrl() {
+    return "/api/aibom" + aibomScopeQuery();
+  }
+
+  function auditProjectValues() {
+    const projects = new Set();
+    Array.from(state.tasks.values()).forEach(function (task) {
+      const project = taskProject(task);
+      if (project) projects.add(project);
+    });
+    state.traces.forEach(function (trace) {
+      if (trace && trace.project) projects.add(trace.project);
+    });
+    aibomComponents().forEach(function (component) {
+      (Array.isArray(component.projects) ? component.projects : []).forEach(
+        function (project) { if (project) projects.add(String(project)); }
+      );
+    });
+    if (state.auditProject) projects.add(state.auditProject);
+    return Array.from(projects).sort();
+  }
+
+  function renderAuditProjectOptions() {
+    const select = $("audit-project");
+    if (!select) return;
+    const current = state.auditProject;
+    select.replaceChildren();
+    select.appendChild(new Option("All projects", ""));
+    auditProjectValues().forEach(function (project) {
+      select.appendChild(new Option(project, project));
+    });
+    select.value = current;
+  }
+
+  function aibomTypeCounts() {
+    const counts = {};
+    AIBOM_TYPES.forEach(function (type) { counts[type] = 0; });
+    aibomComponents().forEach(function (component) {
+      const type = String(component.type || "");
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    return counts;
+  }
+
+  function renderAibomSummary() {
+    const box = $("aibom-summary");
+    if (!box) return;
+    if (!state.aibom) { box.replaceChildren(); return; }
+    const counts = aibomTypeCounts();
+    const nodes = AIBOM_TYPES.map(function (type) {
+      const count = counts[type] || 0;
+      const label = count === 1
+        ? (AIBOM_TYPE_SINGULAR[type] || type)
+        : (AIBOM_TYPE_LABELS[type] || type);
+      const chip = el("span", "audit-count " + type);
+      chip.appendChild(el("b", null, count));
+      chip.appendChild(document.createTextNode(" " + label));
+      return chip;
+    });
+    box.replaceChildren.apply(box, nodes);
+  }
+
+  function auditIso(value) {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    try { return new Date(value).toISOString(); } catch (err) { return ""; }
+  }
+
+  function aibomEvidenceLinks(links) {
+    const wrap = el("span", "audit-evidence");
+    const list = Array.isArray(links) ? links : [];
+    if (!list.length) {
+      wrap.appendChild(el("span", "audit-muted", "—"));
+      return wrap;
+    }
+    list.slice(0, 5).forEach(function (link) {
+      const traceId = link && (link.trace_id || link.traceId);
+      if (!traceId) {
+        wrap.appendChild(el("span", "audit-muted",
+          link && link.span_id ? "span " + link.span_id : "—"));
+        return;
+      }
+      const button = el("button", null, "trace");
+      button.type = "button";
+      button.title = "Open trace " + traceId +
+        (link.span_id ? " · span " + link.span_id : "");
+      button.addEventListener("click", function () {
+        openTraceById(traceId, "Evidence for " + traceId);
+      });
+      wrap.appendChild(button);
+    });
+    return wrap;
+  }
+
+  function aibomRow(component) {
+    const row = el("tr");
+    const type = String(component.type || "component");
+    const typeCell = el("td");
+    typeCell.appendChild(el("span", "audit-type " + type, type));
+    row.appendChild(typeCell);
+    const nameCell = el("td", "audit-name", component.name || "(unnamed)");
+    nameCell.title = component.name || "";
+    row.appendChild(nameCell);
+    row.appendChild(el("td", "audit-muted", component.events || 0));
+    const projects = Array.isArray(component.projects) ? component.projects : [];
+    const projectsCell = el("td", "audit-muted");
+    projectsCell.textContent = projects.length ? projects.join(", ") : "—";
+    if (projects.length) projectsCell.title = projects.join(", ");
+    row.appendChild(projectsCell);
+    const first = el("td", "audit-muted",
+      component.first_seen ? timeAgo(auditIso(component.first_seen)) : "—");
+    first.title = component.first_seen ? fullTime(auditIso(component.first_seen)) : "";
+    row.appendChild(first);
+    const last = el("td", "audit-muted",
+      component.last_seen ? timeAgo(auditIso(component.last_seen)) : "—");
+    last.title = component.last_seen ? fullTime(auditIso(component.last_seen)) : "";
+    row.appendChild(last);
+    const evidence = el("td");
+    evidence.appendChild(aibomEvidenceLinks(component.evidence_links));
+    row.appendChild(evidence);
+    return row;
+  }
+
+  function renderAibomLimitations() {
+    const list = $("aibom-limitations");
+    if (!list) return;
+    const report = state.aibom;
+    const limitations = report && Array.isArray(report.limitations)
+      ? report.limitations : [];
+    if (limitations.length) {
+      list.replaceChildren.apply(list, limitations.map(function (text) {
+        return el("li", null, text);
+      }));
+      return;
+    }
+    list.replaceChildren(el("li", "audit-muted",
+      state.aibomError
+        ? "Limitations unavailable on this server."
+        : "Loading limitations…"));
+  }
+
+  function renderAibom() {
+    const rows = $("aibom-rows");
+    const stateBox = $("aibom-state");
+    const note = $("aibom-note");
+    if (!rows || !stateBox) return;
+    renderAibomSummary();
+    renderAibomLimitations();
+    if (state.aibomError) {
+      rows.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.aibomError;
+      if (note) note.textContent = "unavailable";
+      return;
+    }
+    if (!state.aibomLoaded) {
+      rows.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading AIBOM…";
+      if (note) note.textContent = "";
+      return;
+    }
+    const components = aibomComponents();
+    rows.replaceChildren.apply(rows, components.map(aibomRow));
+    const report = state.aibom || {};
+    if (note) {
+      const bits = [];
+      if (report.schema) bits.push(report.schema);
+      if (report.events_scanned !== undefined) {
+        bits.push(report.events_scanned + " events scanned");
+      }
+      if (report.generated_at) bits.push("generated " + timeAgo(report.generated_at));
+      if (report.truncated) {
+        bits.push("showing first " + components.length + " components (limit " +
+          (report.component_limit || components.length) + ")");
+      }
+      note.textContent = bits.join(" · ");
+      note.title = report.generated_at ? fullTime(report.generated_at) : "";
+    }
+    stateBox.hidden = components.length > 0;
+    stateBox.textContent = components.length
+      ? "" : "No AIBOM components observed in this scope.";
+  }
+
+  function renderAuditScopeNote() {
+    const note = $("audit-scope-note");
+    if (!note) return;
+    const report = state.aibom;
+    const bits = ["observed runtime inventory", "read-only"];
+    if (report && report.scope) {
+      if (report.scope.project) bits.push("project " + report.scope.project);
+      if (report.scope.since) bits.push("since " + fullTime(report.scope.since));
+    }
+    note.textContent = bits.join(" · ");
+  }
+
+  async function loadAibom() {
+    if (aibomInFlight) return;
+    aibomInFlight = true;
+    const refresh = $("audit-refresh");
+    if (refresh) refresh.disabled = true;
+    state.aibomError = null;
+    renderAibom();
+    try {
+      const payload = await api.get(aibomUrl());
+      state.aibom = payload && typeof payload === "object" ? payload : null;
+      state.aibomLoaded = true;
+      state.aibomFetchedAt = Date.now();
+      renderAuditProjectOptions();
+      renderAibom();
+      renderAuditScopeNote();
+    } catch (error) {
+      state.aibomLoaded = true;
+      state.aibom = null;
+      if (error && (error.status === 404 || error.status === 405 ||
+          error.status === 503)) {
+        state.aibomError = "AIBOM unavailable on this server";
+      } else {
+        state.aibomError = "AIBOM failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      renderAibom();
+      renderAuditScopeNote();
+    } finally {
+      aibomInFlight = false;
+      if (refresh) refresh.disabled = false;
+    }
+  }
+
+  function auditCoverageCounts(payload) {
+    const counts = { L3: 0, L2: 0, L1: 0, L0: 0 };
+    const harnesses = payload && Array.isArray(payload.harnesses)
+      ? payload.harnesses : [];
+    harnesses.forEach(function (item) {
+      const level = String((item && item.fidelity) || "L0").toUpperCase();
+      counts[counts[level] === undefined ? "L0" : level] += 1;
+    });
+    const summary = payload && payload.summary;
+    if (summary && typeof summary === "object") {
+      ["L3", "L2", "L1", "L0"].forEach(function (level) {
+        if (Array.isArray(summary[level])) counts[level] = summary[level].length;
+      });
+    }
+    return counts;
+  }
+
+  function renderAuditCoverage() {
+    const levelsBox = $("audit-coverage-levels");
+    const rowsBox = $("audit-coverage-rows");
+    const stateBox = $("audit-coverage-state");
+    const note = $("audit-coverage-note");
+    if (!levelsBox || !rowsBox || !stateBox) return;
+    if (state.auditCoverageError) {
+      levelsBox.replaceChildren();
+      rowsBox.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = state.auditCoverageError;
+      if (note) note.textContent = "unavailable";
+      return;
+    }
+    if (!state.auditCoverageLoaded) {
+      levelsBox.replaceChildren();
+      rowsBox.replaceChildren();
+      stateBox.hidden = false;
+      stateBox.textContent = "Loading coverage…";
+      if (note) note.textContent = "";
+      return;
+    }
+    const payload = state.auditCoverage;
+    const counts = auditCoverageCounts(payload);
+    levelsBox.replaceChildren.apply(levelsBox, ["L3", "L2", "L1", "L0"].map(
+      function (level) {
+        const chip = el("span", "audit-count " + level.toLowerCase());
+        chip.appendChild(el("b", null, counts[level]));
+        chip.appendChild(document.createTextNode(" " + level));
+        chip.title = counts[level] + " harness(es) at " + level;
+        return chip;
+      }
+    ));
+    const harnesses = payload && Array.isArray(payload.harnesses)
+      ? payload.harnesses : [];
+    rowsBox.replaceChildren.apply(rowsBox, harnesses.map(function (item) {
+      const row = el("div", "audit-coverage-row");
+      const name = el("span", "audit-name",
+        item.display_name || item.harness || "unknown");
+      name.title = item.harness || "";
+      row.appendChild(name);
+      const level = String(item.fidelity || "L0").toUpperCase();
+      row.appendChild(el("span", "audit-fid " + level.toLowerCase(), level));
+      row.appendChild(el("span", "audit-muted", item.transport || "—"));
+      row.appendChild(el("span", "audit-muted",
+        (item.events_24h || 0) + " events/24h"));
+      const last = el("span", "audit-muted",
+        "last " + timeAgo(item.last_event_at));
+      last.title = fullTime(item.last_event_at);
+      row.appendChild(last);
+      if (item.notes) {
+        const notes = el("span", "audit-muted", item.notes);
+        notes.title = item.notes;
+        notes.style.maxWidth = "220px";
+        notes.style.overflow = "hidden";
+        notes.style.textOverflow = "ellipsis";
+        notes.style.whiteSpace = "nowrap";
+        row.appendChild(notes);
+      }
+      return row;
+    }));
+    if (note) {
+      note.textContent = payload && payload.generated_at
+        ? "generated " + timeAgo(payload.generated_at) : "";
+      note.title = payload && payload.generated_at
+        ? fullTime(payload.generated_at) : "";
+    }
+    stateBox.hidden = harnesses.length > 0;
+    stateBox.textContent = harnesses.length ? "" : "No harnesses reported.";
+  }
+
+  async function loadAuditCoverage() {
+    if (auditCoverageInFlight) return;
+    auditCoverageInFlight = true;
+    state.auditCoverageError = null;
+    renderAuditCoverage();
+    try {
+      const payload = await api.get("/api/coverage");
+      state.auditCoverage = payload && typeof payload === "object" ? payload : null;
+      state.auditCoverageLoaded = true;
+      renderAuditCoverage();
+    } catch (error) {
+      state.auditCoverageLoaded = true;
+      state.auditCoverage = null;
+      if (error && (error.status === 404 || error.status === 405 ||
+          error.status === 503)) {
+        state.auditCoverageError = "Coverage unavailable on this server";
+      } else {
+        state.auditCoverageError = "Coverage failed to load: " +
+          (error && error.message ? error.message : "request failed");
+      }
+      renderAuditCoverage();
+    } finally {
+      auditCoverageInFlight = false;
+    }
+  }
+
+  function renderAudit() {
+    renderAuditProjectOptions();
+    renderAuditScopeNote();
+    renderAibom();
+    renderAuditCoverage();
+  }
+
+  async function loadAudit() {
+    renderAudit();
+    await Promise.all([loadAibom(), loadAuditCoverage()]);
+    renderAudit();
+  }
+
   // ------------------------------------------------------------------ form
 
   function populateFormTypeOptions() {
@@ -4789,6 +5386,15 @@
     });
     $("btn-new").addEventListener("click", function () { openForm(null); });
     $("overview-refresh").addEventListener("click", function () { loadOverview(); });
+    $("audit-refresh").addEventListener("click", function () { loadAudit(); });
+    $("audit-project").addEventListener("change", function (event) {
+      state.auditProject = event.target.value;
+      loadAibom();
+    });
+    $("audit-since").addEventListener("change", function (event) {
+      state.auditSince = event.target.value;
+      loadAibom();
+    });
     $("overview-view-traces").addEventListener("click", function () { setView("traces"); });
     $("attention-filter").addEventListener("click", function (event) {
       const button = event.target.closest("button[data-attention-filter]");
