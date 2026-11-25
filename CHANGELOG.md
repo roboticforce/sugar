@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.3] - 2026-11-25
+
+### Added
+
+- **Downloadable audit packages**: `GET /api/audit/package?project=&since=&until=` builds the scoped audit package and returns it as a zip with file-count, SHA-256 and signed-status response headers. The Audit view gains a one-click download panel showing filename, file count, size, zip SHA-256, signed/unsigned state and offline verification instructions. (#194, #195)
+- **Trace hierarchy**: trace summaries now expose `parent_trace_id`, `child_trace_ids` and `subagent_count` from `subagent.started` events, so child sessions link back to their parent. Trace Explorer indents/labels child traces, shows subagent relations and a parent button. (#192, #193)
+- **Trace graph aggregation**: repeated LLM spans collapse by model + turn with a `×N` badge (matching tool aggregation), and the graph note explains what was aggregated. (#193)
+
+### Changed
+
+- **Audit view** now combines observed AIBOM, coverage, limitations, claims and package download in one read-only workspace.
+
 ## [3.11.2] - 2026-11-24
 
 ### Added

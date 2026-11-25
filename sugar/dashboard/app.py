@@ -18,6 +18,7 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
+    Response,
     StreamingResponse,
 )
 from starlette.routing import Route
@@ -284,6 +285,47 @@ async def spine_chain(request: Request) -> JSONResponse:
             503, "spine_unavailable", "the event spine is disabled on this server"
         )
     return JSONResponse(await verify_event_chain(spine.db_path))
+
+
+async def audit_package_download(request: Request) -> Response:
+    """Build and download a scoped, self-verifying audit package zip."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    service = _service(request)
+    params = request.query_params
+    from ..audit.export import AuditConfigError
+    from .audit_package_api import build_audit_download
+
+    try:
+        download = await build_audit_download(
+            events_db=spine.db_path,
+            board_db=getattr(service, "db_path", None),
+            project=params.get("project"),
+            since=params.get("since"),
+            until=params.get("until"),
+        )
+    except AuditConfigError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    except Exception:
+        logger.exception("audit package download failed")
+        raise DashboardError(
+            500, "package_error", "could not build audit package"
+        ) from None
+    headers = {
+        "Content-Disposition": f'attachment; filename="{download.filename}"',
+        "Cache-Control": "no-store",
+        "X-Sugar-Package-Files": str(len(download.filenames)),
+        "X-Sugar-Package-Sha256": download.sha256,
+        "X-Sugar-Package-Signed": "true" if download.signed else "false",
+    }
+    return Response(
+        content=download.archive,
+        media_type="application/zip",
+        headers=headers,
+    )
 
 
 async def traces(request: Request) -> JSONResponse:
@@ -750,6 +792,7 @@ def create_app(
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
         Route("/api/spine/chain", spine_chain, methods=["GET"]),
+        Route("/api/audit/package", audit_package_download, methods=["GET"]),
         Route("/api/attention", attention, methods=["GET"]),
         Route("/api/traces", traces, methods=["GET"]),
         Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),

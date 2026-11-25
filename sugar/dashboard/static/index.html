@@ -541,7 +541,7 @@
     .trace-grid { grid-template-columns: 1fr; overflow: auto; }
     .trace-card { min-height: 200px; }
     .trace-grid .trace-card:nth-child(2) { min-height: 240px; }
-    .trace-metrics { justify-content: flex-start; }
+    .trace-metrics { justify-content: flex-start; flex: 1 1 100%; min-width: 0; }
     .trace-row { flex-wrap: wrap; }
   }
   @media (max-width: 600px) {
@@ -567,6 +567,36 @@
   .trace-graph-body[hidden] { display: none; }
   .trace-graph-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
   .trace-graph-note[hidden] { display: none; }
+  /* Phase 3b: trace hierarchy, relation links and subagent shortcuts. */
+  .trace-parent-button[hidden] { display: none; }
+  .trace-relations {
+    flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 11.5px; color: var(--muted);
+  }
+  .trace-relations[hidden] { display: none; }
+  .trace-relations-label {
+    font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted);
+  }
+  .trace-relations-link {
+    border: 1px solid rgba(88, 166, 255, 0.45); background: none; color: var(--accent);
+    border-radius: 999px; padding: 0 9px; font-size: 11px; line-height: 20px; cursor: pointer;
+  }
+  .trace-relations-link:hover { background: rgba(88, 166, 255, 0.13); }
+  .trace-relations-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px; color: var(--muted);
+  }
+  .trace-hierarchy-chip {
+    border: 1px solid var(--border); background: var(--bg-alt); color: var(--muted);
+    border-radius: 999px; padding: 0 8px; font-size: 10.5px; line-height: 17px; cursor: pointer;
+  }
+  .trace-hierarchy-chip:hover { border-color: rgba(88, 166, 255, 0.5); color: var(--accent); }
+  .trace-hierarchy-badge {
+    border: 1px solid var(--border); background: var(--bg-alt); color: var(--muted);
+    border-radius: 999px; padding: 0 8px; font-size: 10.5px; line-height: 17px;
+  }
+  .trace-row.child { border-left: 2px solid rgba(88, 166, 255, 0.35); }
   .trace-graph-scroll { flex: 1; min-height: 220px; overflow: auto; }
   .trace-graph-svg { display: block; }
   .trace-graph-arrow { fill: var(--border); }
@@ -765,6 +795,41 @@
   .audit-claim ul { margin: 0; padding-left: 16px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
   .audit-claim p { margin: 0; color: var(--muted); }
   .audit-commands { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+  /* Phase 4: scoped audit package download + verification guidance. */
+  .audit-package { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+  .audit-package-controls {
+    display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .audit-package-controls label { font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; }
+  .audit-package-controls input[type="date"] {
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 7px;
+    padding: 2px 8px; font-size: 12px; color: var(--text);
+  }
+  .audit-package-controls .btn:disabled { opacity: 0.55; cursor: wait; }
+  .audit-package-scope { color: var(--muted); font-size: 11.5px; }
+  .audit-package-status { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .audit-package-status.building { color: var(--yellow); }
+  .audit-package-status.error { color: var(--red); }
+  .audit-package-result { display: flex; flex-direction: column; gap: 6px; }
+  .audit-package-result[hidden] { display: none; }
+  .audit-package-meta {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .audit-package-field b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .audit-package-field code { font-size: 10.5px; word-break: break-all; color: var(--text); }
+  .audit-package-badge {
+    border: 1px solid currentColor; border-radius: 999px; padding: 0 8px;
+    font-size: 10px; line-height: 17px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .audit-package-badge.signed { color: var(--green); }
+  .audit-package-badge.unsigned { color: var(--yellow); }
+  .audit-package-warning {
+    border: 1px solid rgba(210, 153, 34, 0.45); background: rgba(210, 153, 34, 0.07);
+    color: var(--yellow); border-radius: 8px; padding: 7px 9px; font-size: 11px; line-height: 1.5;
+  }
+  .audit-package-warning code, .audit-package-status code { color: var(--text); }
   .audit-command {
     margin: 0; padding: 8px 10px; background: var(--bg-alt); border: 1px solid var(--border);
     border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -788,6 +853,9 @@
     .audit-head select, .audit-head input[type="date"] { flex: 1 1 auto; }
     .audit-claims { grid-template-columns: 1fr; }
     .audit-coverage-row { flex-wrap: wrap; }
+    .audit-package-controls { align-items: flex-start; }
+    .audit-package-controls #audit-package-download { flex: 1 1 100%; }
+    .audit-package-controls input[type="date"] { flex: 1 1 auto; }
   }
 
 </style>
@@ -954,10 +1022,12 @@
     <div class="trace-explorer" id="trace-explorer" hidden>
       <div class="trace-explorer-head">
         <button class="btn" id="trace-back" type="button" title="Back to traces (Esc)">← Traces</button>
+        <button class="btn trace-parent-button" id="trace-parent-link" type="button" title="Open parent trace" hidden>← Parent</button>
         <h3 id="trace-explorer-title">Trace</h3>
         <div class="trace-summary" id="trace-summary"></div>
         <span class="muted" id="trace-explorer-note"></span>
       </div>
+      <div class="trace-relations" id="trace-relations" hidden></div>
       <section class="trace-insights" id="trace-insights" aria-label="Trace insights" hidden>
         <div class="trace-insights-head">
           <span class="risk-badge" id="trace-insights-risk" hidden></span>
@@ -1013,6 +1083,32 @@
     </div>
     <div class="audit-scroll" id="audit-scroll">
       <div class="audit-banner" id="audit-banner">Observed runtime inventory — not a complete or standards-certified AIBOM. Read-only; this view never mutates data.</div>
+      <section class="audit-section" aria-label="Download audit package">
+        <div class="audit-section-head">
+          <h3>Download audit package</h3>
+          <span class="audit-note" id="audit-package-note">scoped zip · read-only</span>
+        </div>
+        <div class="audit-package">
+          <div class="audit-package-controls">
+            <span class="audit-package-scope" id="audit-package-scope">All projects · no date filter</span>
+            <span class="spacer"></span>
+            <label for="audit-until">Until (optional)</label>
+            <input type="date" id="audit-until" aria-label="Audit package until date">
+            <button class="btn primary" id="audit-package-download" type="button">Download audit package</button>
+          </div>
+          <div class="audit-package-status" id="audit-package-status">Uses the Project and Since scope above.</div>
+          <div class="audit-package-result" id="audit-package-result" hidden>
+            <div class="audit-package-meta">
+              <span class="audit-package-field">Zip <b id="audit-package-filename">—</b></span>
+              <span class="audit-package-field">Files <b id="audit-package-files">—</b></span>
+              <span class="audit-package-field">Size <b id="audit-package-size">—</b></span>
+              <span class="audit-package-field">SHA-256 <code id="audit-package-sha256">—</code></span>
+              <span class="audit-package-badge unsigned" id="audit-package-signed">unsigned</span>
+            </div>
+            <div class="audit-package-warning">⚠ Sensitive metadata — the package contains event, task, evidence and trace metadata. Verify it offline with <code>sugar audit verify-package &lt;dir&gt;</code> before sharing.</div>
+          </div>
+        </div>
+      </section>
       <section class="audit-section" aria-label="Observed AIBOM inventory">
         <div class="audit-section-head">
           <h3>Observed AIBOM inventory</h3>
@@ -1063,6 +1159,7 @@
               <li>First/last seen timestamps, event counts, projects and evidence links back to traces.</li>
               <li>Harness telemetry fidelity and coverage levels L3–L0 for each harness.</li>
               <li>That tamper-evident audit exports can be produced with the CLI.</li>
+              <li>A downloaded package's SHA-256 (and optional HMAC signature) matches its package manifest when verified offline.</li>
             </ul>
           </div>
           <div class="audit-claim">
@@ -1072,18 +1169,22 @@
               <li>Model weights, training data, licenses, datasets or suppliers.</li>
               <li>CycloneDX/SPDX certification or any standards attestation.</li>
               <li>Approvals or policy decisions not recorded in the event spine.</li>
+              <li>That a package is complete outside the selected project/date scope, or that an auditor accepts the format.</li>
             </ul>
           </div>
           <div class="audit-claim">
             <h4>Export for an audit</h4>
-            <p>The UI is read-only and does not package data. Use the CLI to export the spine with a SHA-256 manifest (optionally HMAC-signed) and to verify it offline.</p>
+            <p>Download a scoped zip here (events + manifest, tasks, evidence, traces, AIBOM, coverage, claims and a README, all hashed in a package manifest). The download is local and read-only. Verify the package offline before sharing; an HMAC signature proves the holder of the key vouched for it.</p>
           </div>
         </div>
         <div class="audit-commands" id="audit-commands">
+          <pre class="audit-command">sugar audit package --out audit-package --project sugar --since 2026-11-01</pre>
+          <pre class="audit-command">sugar audit verify-package audit-package</pre>
+          <pre class="audit-command">SUGAR_AUDIT_HMAC_KEY=... sugar audit package --out audit-package --sign-key-env SUGAR_AUDIT_HMAC_KEY</pre>
           <pre class="audit-command">sugar audit export --out audit/2026-11.jsonl</pre>
           <pre class="audit-command">sugar audit verify audit/2026-11.jsonl audit/2026-11.manifest.json</pre>
           <pre class="audit-command">sugar aibom --project sugar --since 2026-11-01 --json</pre>
-          <span class="audit-note">CLI commands run outside the dashboard; this view does not create or download files.</span>
+          <span class="audit-note">CLI commands run outside the dashboard. The download above uses the same package builder; verify the zip offline with <code>sugar audit verify-package &lt;dir&gt;</code> before sharing it.</span>
         </div>
       </section>
     </div>
@@ -1345,7 +1446,12 @@
     aibomFetchedAt: 0,
     auditCoverage: null,
     auditCoverageError: null,
-    auditCoverageLoaded: false
+    auditCoverageLoaded: false,
+    // Audit package download (Phase 4): scoped zip + verification metadata.
+    auditUntil: "",
+    auditPackageInfo: null,
+    auditPackageError: null,
+    auditPackageBuilding: false
   };
 
   let eventSource = null;
@@ -1368,6 +1474,7 @@
   let overviewUsageInFlight = false;
   let aibomInFlight = false;
   let auditCoverageInFlight = false;
+  let auditPackageInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -3403,8 +3510,33 @@
       tokens: traceTokenTotals(record, rawSpans),
       insights: record.insights && typeof record.insights === "object" ? record.insights : null,
       risk: String((record.insights && record.insights.risk) || record.risk || "").toLowerCase(),
+      // Phase 3b: additive parent/child/subagent summary fields. Absent on older
+      // backends, so the list stays flat and the relations strip hides.
+      parentTraceId: traceStringId(record.parent_trace_id || record.parentTraceId),
+      childTraceIds: traceStringList(
+        record.child_trace_ids || record.childTraceIds || record.child_traces),
+      subagentCount: Number(record.subagent_count || record.subagentCount) || 0,
       spans: rawSpans
     };
+  }
+
+  function traceStringId(value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "object") {
+      return traceStringId(value.trace_id || value.traceId || value.id);
+    }
+    return String(value).trim() || null;
+  }
+
+  function traceStringList(value) {
+    if (value === null || value === undefined) return [];
+    const list = Array.isArray(value) ? value : [value];
+    const result = [];
+    list.forEach(function (item) {
+      const id = traceStringId(item);
+      if (id && result.indexOf(id) === -1) result.push(id);
+    });
+    return result;
   }
 
   function normalizeSpan(span, index) {
@@ -3436,6 +3568,10 @@
       cwd: traceCwd(record),
       input: record.input !== undefined ? record.input : record.input_payload,
       output: record.output !== undefined ? record.output : record.output_payload,
+      // Phase 3b: subagent spans may name the child session they started.
+      childSessionId: traceStringId(
+        record.child_session_id || attrs.child_session_id || attrs.childSessionId ||
+        record.childSessionId),
       attributes: attrs
     };
   }
@@ -3465,6 +3601,52 @@
       trace: normalized,
       spans: spans.map(normalizeSpan)
     };
+  }
+
+  function traceById(id) {
+    if (!id) return null;
+    for (let index = 0; index < state.traces.length; index += 1) {
+      if (state.traces[index].id === id) return state.traces[index];
+    }
+    return null;
+  }
+
+  function openTraceRelation(id, label) {
+    if (!id) return;
+    const known = traceById(id);
+    openTrace(known || { id: id, title: label || "Trace " + id, spans: [] });
+  }
+
+  // Order traces so children follow their parent (indented). Without any
+  // parent_trace_id fields the order is exactly the server order (flat list).
+  function traceHierarchyRows(traces) {
+    const byId = new Map();
+    traces.forEach(function (trace) { byId.set(trace.id, trace); });
+    const children = new Map();
+    const nested = new Set();
+    traces.forEach(function (trace) {
+      const parentId = trace.parentTraceId;
+      if (parentId && byId.has(parentId) && parentId !== trace.id) {
+        if (!children.has(parentId)) children.set(parentId, []);
+        children.get(parentId).push(trace);
+        nested.add(trace.id);
+      }
+    });
+    const rows = [];
+    const seen = new Set();
+    function walk(trace, depth) {
+      if (!trace || seen.has(trace.id)) return;
+      seen.add(trace.id);
+      rows.push({ trace: trace, depth: depth });
+      (children.get(trace.id) || []).forEach(function (child) {
+        walk(child, depth + 1);
+      });
+    }
+    traces.forEach(function (trace) {
+      if (!nested.has(trace.id)) walk(trace, 0);
+    });
+    traces.forEach(function (trace) { walk(trace, 0); });
+    return rows;
   }
 
   function traceMetric(label, value) {
@@ -3563,12 +3745,15 @@
     }
   }
 
-  function traceRow(trace) {
-    const row = el("div", "trace-row");
+  function traceRow(trace, depth) {
+    const level = Number(depth) || 0;
+    const row = el("div", "trace-row" + (level > 0 ? " child" : ""));
     row.tabIndex = 0;
     row.setAttribute("role", "button");
-    row.setAttribute("aria-label", "Open trace " + trace.title);
+    row.setAttribute("aria-label", "Open trace " + trace.title +
+      (level > 0 ? " (child trace)" : ""));
     const main = el("div", "trace-main");
+    if (level > 0) main.style.paddingLeft = (level * 14) + "px";
     main.appendChild(el("div", "trace-title", trace.title));
     const sub = el("div", "trace-sub");
     if (trace.project) sub.appendChild(el("span", null, trace.project));
@@ -3581,6 +3766,36 @@
       sub.appendChild(el("span", null, "started " + timeAgo(new Date(trace.startedMs).toISOString())));
     }
     if (trace.models.length) sub.appendChild(el("span", null, trace.models.slice(0, 3).join(", ")));
+    if (trace.parentTraceId) {
+      const parent = traceById(trace.parentTraceId);
+      const chip = el("button", "trace-hierarchy-chip", "child of " +
+        (parent ? parent.title : trace.parentTraceId));
+      chip.type = "button";
+      chip.title = "Parent trace " + trace.parentTraceId +
+        (parent ? "" : " (not in the loaded list)") + " — click to open";
+      chip.addEventListener("click", function (event) {
+        event.stopPropagation();
+        openTraceRelation(trace.parentTraceId, "Parent trace");
+      });
+      chip.addEventListener("keydown", function (event) { event.stopPropagation(); });
+      sub.appendChild(chip);
+    }
+    if (trace.childTraceIds.length) {
+      const chip = el("button", "trace-hierarchy-chip", trace.childTraceIds.length +
+        (trace.childTraceIds.length === 1 ? " child trace" : " child traces"));
+      chip.type = "button";
+      chip.title = "Child traces: " + trace.childTraceIds.join(", ");
+      chip.addEventListener("click", function (event) {
+        event.stopPropagation();
+        openTraceRelation(trace.childTraceIds[0], "Child trace");
+      });
+      chip.addEventListener("keydown", function (event) { event.stopPropagation(); });
+      sub.appendChild(chip);
+    }
+    if (trace.subagentCount > 0) {
+      sub.appendChild(el("span", "trace-hierarchy-badge",
+        trace.subagentCount + (trace.subagentCount === 1 ? " subagent" : " subagents")));
+    }
     main.appendChild(sub);
     row.appendChild(main);
     const metrics = el("div", "trace-metrics");
@@ -3625,7 +3840,10 @@
       return;
     }
     const traces = state.traces;
-    list.replaceChildren.apply(list, traces.map(traceRow));
+    const rows = traceHierarchyRows(traces);
+    list.replaceChildren.apply(list, rows.map(function (row) {
+      return traceRow(row.trace, row.depth);
+    }));
     if (note) {
       note.textContent = traces.length + (traces.length === 1 ? " trace" : " traces") +
         (state.tracesFetchedAt
@@ -3782,6 +4000,13 @@
     add("turns", turns);
     add("tools", toolCalls);
     add("models", models.join(", "));
+    const subagents = trace.subagentCount ||
+      spans.filter(function (span) { return span.kind === "subagent"; }).length;
+    if (subagents) add("subagents", subagents);
+    if (trace.childTraceIds && trace.childTraceIds.length) {
+      add(trace.childTraceIds.length === 1 ? "child trace" : "children",
+        trace.childTraceIds.length);
+    }
     if (tokens.total) add("tokens", formatTokens(tokens.total));
     box.replaceChildren.apply(box, nodes);
     const status = $("trace-explorer-status");
@@ -3795,12 +4020,106 @@
     }
   }
 
+  function renderTraceRelations(trace) {
+    const box = $("trace-relations");
+    if (!box) return;
+    const nodes = [];
+    const label = el("span", "trace-relations-label", "Trace relations");
+    function addParent(parentId) {
+      if (!parentId) return;
+      const parent = traceById(parentId);
+      nodes.push(label);
+      const button = el("button", "trace-relations-link",
+        "← Parent: " + (parent ? parent.title : parentId));
+      button.type = "button";
+      button.title = "Open parent trace " + parentId;
+      button.addEventListener("click", function () {
+        openTraceRelation(parentId, "Parent trace");
+      });
+      nodes.push(button);
+    }
+    function addChildren(childIds) {
+      const ids = traceStringList(childIds);
+      if (!ids.length) return;
+      if (nodes.indexOf(label) === -1) nodes.push(label);
+      const shown = ids.slice(0, 6);
+      shown.forEach(function (childId) {
+        const child = traceById(childId);
+        const button = el("button", "trace-relations-link",
+          "→ " + (child ? child.title : "Child trace: " + childId));
+        button.type = "button";
+        button.title = "Open child trace " + childId +
+          (child ? "" : " (not in the loaded list)");
+        button.addEventListener("click", function () {
+          openTraceRelation(childId, "Child trace");
+        });
+        nodes.push(button);
+      });
+      if (ids.length > shown.length) {
+        nodes.push(el("span", "trace-relations-id",
+          "+" + (ids.length - shown.length) + " more"));
+      }
+    }
+    function subagentName(span) {
+      return String(span.name || "subagent").replace(/^subagent:\s*/i, "");
+    }
+    function addSubagents(spans) {
+      const seen = new Set();
+      spans.forEach(function (span) {
+        if (span.kind !== "subagent" && !span.childSessionId) return;
+        const key = span.childSessionId || span.id;
+        if (seen.has(key)) return;
+        seen.add(key);
+        if (nodes.indexOf(label) === -1) nodes.push(label);
+        const child = span.childSessionId ? traceById(span.childSessionId) : null;
+        if (child) {
+          const button = el("button", "trace-relations-link",
+            "subagent: " + subagentName(span) + " →");
+          button.type = "button";
+          button.title = "Open subagent trace " + child.id;
+          button.addEventListener("click", function () {
+            openTraceRelation(child.id, "Subagent trace");
+          });
+          nodes.push(button);
+        } else if (span.childSessionId) {
+          const link = el("span", "trace-relations-id",
+            "subagent: " + subagentName(span) + " · child session " +
+            span.childSessionId);
+          link.title = "Child session id reported by the subagent span";
+          nodes.push(link);
+        } else {
+          const button = el("button", "trace-relations-link",
+            "subagent: " + subagentName(span) + " (inspect)");
+          button.type = "button";
+          button.title = "Select this subagent span in the call tree";
+          button.addEventListener("click", function () {
+            selectTraceSpan(span.id);
+          });
+          nodes.push(button);
+        }
+      });
+    }
+    if (trace.parentTraceId) addParent(trace.parentTraceId);
+    addChildren(trace.childTraceIds || []);
+    addSubagents(state.traceSpans || []);
+    box.hidden = nodes.length === 0;
+    box.replaceChildren.apply(box, nodes);
+  }
+
   function renderTraceExplorer() {
     const trace = state.traceDetail || {};
     const title = $("trace-explorer-title");
     if (title) title.textContent = trace.title || "Trace";
+    const parentLink = $("trace-parent-link");
+    if (parentLink) {
+      parentLink.hidden = !trace.parentTraceId;
+      if (trace.parentTraceId) {
+        parentLink.title = "Open parent trace " + trace.parentTraceId;
+      }
+    }
     state.traceTree = state.traceSpans.length ? traceSpanTree() : null;
     renderTraceSummary(trace);
+    renderTraceRelations(trace);
     renderTraceInsights(trace);
     const note = $("trace-explorer-note");
     if (note) {
@@ -3880,6 +4199,16 @@
     return index === -1 ? TRACE_LANE_ORDER.length : index;
   }
 
+  function traceLlmRepeatCounts() {
+    const counts = new Map();
+    state.traceSpans.forEach(function (span) {
+      if (span.kind !== "llm") return;
+      const key = (span.model || "unknown-model") + "|" + (span.parentId || "");
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }
+
   function renderTraceLanes() {
     const box = $("trace-lanes");
     if (!box) return;
@@ -3919,10 +4248,23 @@
       return traceLaneRank(a) - traceLaneRank(b) || a.localeCompare(b);
     });
     const wrap = el("div", "trace-lanes");
+    const llmRepeats = traceLlmRepeatCounts();
     actors.forEach(function (actor) {
       const lane = el("div", "trace-lane");
       const laneTitle = el("div", "trace-lane-title", actor);
       laneTitle.appendChild(el("span", "muted", " · " + lanes.get(actor).length + " spans"));
+      const laneChildIds = [];
+      lanes.get(actor).forEach(function (span) {
+        if (span.childSessionId && laneChildIds.indexOf(span.childSessionId) === -1) {
+          laneChildIds.push(span.childSessionId);
+        }
+      });
+      if (laneChildIds.length) {
+        const childNote = el("span", "muted",
+          " · subagent session " + laneChildIds.join(", "));
+        childNote.title = "Child session(s) reported by subagent spans in this lane";
+        laneTitle.appendChild(childNote);
+      }
       lane.appendChild(laneTitle);
       lanes.get(actor).slice().sort(function (a, b) {
         return a.startMs - b.startMs || a.depth - b.depth;
@@ -3945,8 +4287,13 @@
         bar.style.left = left.toFixed(3) + "%";
         bar.style.width = Math.min(100 - left, width).toFixed(3) + "%";
         bar.style.background = traceKindColor(span.kind);
+        const llmRepeat = span.kind === "llm"
+          ? llmRepeats.get((span.model || "unknown-model") + "|" + (span.parentId || "")) || 0
+          : 0;
         bar.title = span.name + " · " + span.kind + " · " + formatDuration(span.durationMs) +
-          (span.status ? " · " + span.status : "");
+          (span.status ? " · " + span.status : "") +
+          (llmRepeat > 1 ? " · ×" + llmRepeat + " similar LLM calls this turn" : "") +
+          (span.childSessionId ? " · child session " + span.childSessionId : "");
         bar.setAttribute("role", "button");
         bar.tabIndex = 0;
         bar.addEventListener("click", function () { selectTraceSpan(span.id); });
@@ -4027,10 +4374,32 @@
     const edges = [];
     const nodeBySpan = new Map();
     const toolGroups = new Map();
+    const llmGroups = new Map();
     let aggregatedCalls = 0;
+    let aggregatedLlm = 0;
+    const spanById = new Map();
+    spans.forEach(function (span) { spanById.set(span.id, span); });
+
+    function llmTurnKey(span) {
+      const parent = span.parentId ? spanById.get(span.parentId) : null;
+      return parent && parent.kind === "turn" ? parent.id : "no-turn";
+    }
 
     spans.forEach(function (span) {
       const kind = span.kind;
+      if (kind === "llm") {
+        // Repeated LLM calls collapse by model + turn, mirroring tool groups.
+        // Without a turn parent the model alone is the grouping key.
+        const key = (span.model || "unknown-model") + "|" + llmTurnKey(span);
+        const group = llmGroups.get(key);
+        if (group) {
+          group.count += 1;
+          group.spanIds.push(span.id);
+        } else {
+          llmGroups.set(key, { span: span, count: 1, spanIds: [span.id] });
+        }
+        return;
+      }
       if (kind === "tool" || kind === "mcp") {
         // Repeated tool/MCP calls collapse into one node with a count badge.
         const key = kind + "|" + span.name;
@@ -4073,6 +4442,25 @@
         path: ""
       };
       aggregatedCalls += group.count - 1;
+      group.spanIds.forEach(function (id) { nodeBySpan.set(id, node.id); });
+      nodes.push(node);
+    });
+
+    llmGroups.forEach(function (group) {
+      const model = group.span.model || "unknown-model";
+      const node = {
+        id: "llmagg:" + model + ":" + llmTurnKey(group.span),
+        spanId: group.span.id,
+        spanIds: group.spanIds.slice(),
+        kind: "llm",
+        layer: 1,
+        label: group.span.name,
+        sub: "llm · " + model + (group.count > 1 ? " ×" + group.count : ""),
+        count: group.count,
+        artifact: false,
+        path: ""
+      };
+      aggregatedLlm += group.count - 1;
       group.spanIds.forEach(function (id) { nodeBySpan.set(id, node.id); });
       nodes.push(node);
     });
@@ -4157,6 +4545,7 @@
       totalNodes: totalNodes,
       truncated: truncated,
       aggregatedCalls: aggregatedCalls,
+      aggregatedLlm: aggregatedLlm,
       hasArtifacts: kept.some(function (node) { return node.layer === 2; })
     };
   }
@@ -4180,6 +4569,10 @@
     if (model.aggregatedCalls > 0) {
       notes.push(model.aggregatedCalls +
         " repeated tool call(s) aggregated by name/kind.");
+    }
+    if (model.aggregatedLlm > 0) {
+      notes.push(model.aggregatedLlm +
+        " repeated LLM call(s) aggregated by model/turn.");
     }
     if (model.truncated > 0) {
       notes.push("Showing " + model.nodes.length + " of " + model.totalNodes +
@@ -5187,11 +5580,231 @@
     }
   }
 
+  // ----------------------------------------- audit package download (Phase 4)
+
+  function auditPackageScopeText() {
+    const bits = [state.auditProject ? "project " + state.auditProject : "all projects"];
+    bits.push(state.auditSince ? "since " + state.auditSince : "no start filter");
+    if (state.auditUntil) bits.push("until " + state.auditUntil);
+    return bits.join(" · ");
+  }
+
+  function renderAuditPackageScope() {
+    const scope = $("audit-package-scope");
+    if (scope) scope.textContent = auditPackageScopeText();
+  }
+
+  function auditPackageUrl() {
+    const params = [];
+    if (state.auditProject) {
+      params.push("project=" + encodeURIComponent(state.auditProject));
+    }
+    if (state.auditSince) {
+      params.push("since=" + encodeURIComponent(state.auditSince + "T00:00:00Z"));
+    }
+    if (state.auditUntil) {
+      params.push("until=" + encodeURIComponent(state.auditUntil + "T23:59:59Z"));
+    }
+    return "/api/audit/package" + (params.length ? "?" + params.join("&") : "");
+  }
+
+  function auditPackageFallbackName() {
+    const project = String(state.auditProject || "all").replace(/[^A-Za-z0-9._-]+/g, "-");
+    return "audit-package-" + project + ".zip";
+  }
+
+  function auditPackageFileName(disposition) {
+    const header = String(disposition || "");
+    if (!header) return "";
+    const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+    if (encoded) {
+      try {
+        return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, ""));
+      } catch (err) {
+        return "";
+      }
+    }
+    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(header);
+    if (quoted) return quoted[1];
+    const plain = /filename\s*=\s*([^;]+)/i.exec(header);
+    return plain ? plain[1].trim().replace(/^"|"$/g, "") : "";
+  }
+
+  function auditPackageSigned(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw || raw === "false" || raw === "0" || raw === "no" || raw === "unsigned") {
+      return false;
+    }
+    return true;
+  }
+
+  function auditFormatBytes(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return "—";
+    if (value < 1024) return value + " B";
+    if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
+    return (value / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  async function auditSha256Hex(blob) {
+    if (!window.crypto || !window.crypto.subtle || !blob) return "";
+    try {
+      const buffer = await blob.arrayBuffer();
+      const digest = await window.crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(digest)).map(function (byte) {
+        return byte.toString(16).padStart(2, "0");
+      }).join("");
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function resetAuditPackageResult() {
+    if (state.auditPackageBuilding) return;
+    state.auditPackageInfo = null;
+    state.auditPackageError = null;
+    renderAuditPackage();
+  }
+
+  function renderAuditPackage() {
+    const status = $("audit-package-status");
+    const result = $("audit-package-result");
+    const button = $("audit-package-download");
+    if (!status || !result) return;
+    renderAuditPackageScope();
+    if (button) button.disabled = state.auditPackageBuilding;
+    if (state.auditPackageBuilding) {
+      status.className = "audit-package-status building";
+      status.textContent = "Building audit package…";
+      result.hidden = true;
+      return;
+    }
+    if (state.auditPackageError) {
+      status.className = "audit-package-status error";
+      status.textContent = state.auditPackageError;
+      result.hidden = true;
+      return;
+    }
+    const info = state.auditPackageInfo;
+    status.className = "audit-package-status";
+    if (!info) {
+      status.textContent = "Uses the Project and Since scope above.";
+      result.hidden = true;
+      return;
+    }
+    status.textContent = "Package downloaded. Verify it offline with " +
+      "sugar audit verify-package <dir> before sharing.";
+    result.hidden = false;
+    const filename = $("audit-package-filename");
+    if (filename) {
+      filename.textContent = info.filename;
+      filename.title = info.filename;
+    }
+    const files = $("audit-package-files");
+    if (files) files.textContent = info.files === null ? "—" : String(info.files);
+    const size = $("audit-package-size");
+    if (size) size.textContent = auditFormatBytes(info.size);
+    const sha = $("audit-package-sha256");
+    if (sha) {
+      sha.textContent = info.sha256 || "—";
+      sha.title = info.sha256 || "SHA-256 header was not provided and could not be computed";
+    }
+    const signed = $("audit-package-signed");
+    if (signed) {
+      signed.textContent = info.signed ? "HMAC-SHA256 signed" : "hash-only (unsigned)";
+      signed.className = "audit-package-badge " + (info.signed ? "signed" : "unsigned");
+    }
+  }
+
+  function triggerAuditPackageDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  async function auditPackageResponseError(response) {
+    let detail = "";
+    try {
+      const data = await response.json();
+      detail = (data && (data.detail || data.error)) || "";
+    } catch (err) {
+      detail = "";
+    }
+    const message = (response.status === 404 || response.status === 405 ||
+      response.status === 503)
+      ? "Audit package unavailable on this server"
+      : "Audit package failed: " + (detail || ("HTTP " + response.status));
+    const error = new Error(message);
+    error.status = response.status;
+    error.auditMessage = message;
+    return error;
+  }
+
+  async function downloadAuditPackage() {
+    if (auditPackageInFlight) return;
+    auditPackageInFlight = true;
+    state.auditPackageBuilding = true;
+    state.auditPackageError = null;
+    state.auditPackageInfo = null;
+    renderAuditPackage();
+    try {
+      const response = await fetch(auditPackageUrl(), {
+        method: "GET",
+        headers: { "Accept": "application/zip, application/octet-stream" },
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw await auditPackageResponseError(response);
+      const contentType = String(response.headers.get("Content-Type") || "").toLowerCase();
+      if (contentType.indexOf("application/json") !== -1) {
+        const data = await response.json().catch(function () { return null; });
+        const detail = (data && (data.detail || data.error)) || "server returned JSON instead of a zip";
+        const error = new Error("Audit package failed: " + detail);
+        error.auditMessage = error.message;
+        throw error;
+      }
+      const blob = await response.blob();
+      const filename = auditPackageFileName(
+        response.headers.get("Content-Disposition")) || auditPackageFallbackName();
+      const headerSha = String(response.headers.get("X-Sugar-Package-Sha256") || "")
+        .trim().toLowerCase();
+      let sha256 = headerSha;
+      if (!sha256) sha256 = await auditSha256Hex(blob);
+      const filesRaw = String(response.headers.get("X-Sugar-Package-Files") || "").trim();
+      const files = /^\d+$/.test(filesRaw) ? Number(filesRaw) : null;
+      const signed = auditPackageSigned(
+        response.headers.get("X-Sugar-Package-Signed"));
+      triggerAuditPackageDownload(blob, filename);
+      state.auditPackageInfo = {
+        filename: filename,
+        size: blob.size,
+        sha256: sha256,
+        files: files,
+        signed: signed
+      };
+    } catch (error) {
+      state.auditPackageError = error && error.auditMessage
+        ? error.auditMessage
+        : "Audit package failed: " + (error && error.message ? error.message : "request failed");
+    } finally {
+      auditPackageInFlight = false;
+      state.auditPackageBuilding = false;
+      renderAuditPackage();
+    }
+  }
+
   function renderAudit() {
     renderAuditProjectOptions();
     renderAuditScopeNote();
     renderAibom();
     renderAuditCoverage();
+    renderAuditPackage();
   }
 
   async function loadAudit() {
@@ -5389,12 +6002,19 @@
     $("audit-refresh").addEventListener("click", function () { loadAudit(); });
     $("audit-project").addEventListener("change", function (event) {
       state.auditProject = event.target.value;
+      resetAuditPackageResult();
       loadAibom();
     });
     $("audit-since").addEventListener("change", function (event) {
       state.auditSince = event.target.value;
+      resetAuditPackageResult();
       loadAibom();
     });
+    $("audit-until").addEventListener("change", function (event) {
+      state.auditUntil = event.target.value;
+      resetAuditPackageResult();
+    });
+    $("audit-package-download").addEventListener("click", downloadAuditPackage);
     $("overview-view-traces").addEventListener("click", function () { setView("traces"); });
     $("attention-filter").addEventListener("click", function (event) {
       const button = event.target.closest("button[data-attention-filter]");
@@ -5450,6 +6070,10 @@
     });
     $("trace-refresh").addEventListener("click", function () { loadTraces(); });
     $("trace-back").addEventListener("click", closeTraceExplorer);
+    $("trace-parent-link").addEventListener("click", function () {
+      const trace = state.traceDetail || {};
+      if (trace.parentTraceId) openTraceRelation(trace.parentTraceId, "Parent trace");
+    });
     $("trace-mode-switch").addEventListener("click", function (event) {
       const button = event.target.closest("button[data-trace-mode]");
       if (button) setTraceVisual(button.dataset.traceMode);
