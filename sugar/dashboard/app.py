@@ -54,7 +54,7 @@ from ..telemetry.socket import IngestSocketServer
 from .spine import EventSpine, SpineError
 from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
-from .aibom import AibomQueryError, aibom_report
+from .aibom import AibomQueryError, aibom_report, normalize_format, render_aibom
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +357,7 @@ async def aibom(request: Request) -> JSONResponse:
         )
     params = request.query_params
     try:
+        output_format = normalize_format(params.get("format"))
         report = await aibom_report(
             spine.db_path,
             project=params.get("project"),
@@ -365,7 +366,7 @@ async def aibom(request: Request) -> JSONResponse:
         )
     except AibomQueryError as exc:
         raise DashboardError(400, "validation_error", str(exc)) from exc
-    return JSONResponse(report)
+    return JSONResponse(render_aibom(report, output_format))
 
 
 async def trends(request: Request) -> JSONResponse:

@@ -17,13 +17,19 @@ from sugar.dashboard.aibom import (
     MAX_EVENT_LIMIT,
     MAX_EVIDENCE_LINKS,
     SCHEMA,
+    SUPPORTED_FORMATS,
     AibomQueryError,
     aggregate_aibom,
     aibom_report,
     format_aibom_table,
+    inventory_fingerprint,
+    normalize_format,
     normalize_limit,
     normalize_since,
     read_aibom_events,
+    render_aibom,
+    to_cyclonedx,
+    to_spdx,
 )
 from sugar.dashboard.app import create_app
 from sugar.dashboard.spine import EventSpine
@@ -691,3 +697,386 @@ def test_format_aibom_table_empty_report():
     text = format_aibom_table(aggregate_aibom([]))
     assert "(no observed components)" in text
     assert "Limitations:" in text
+
+
+# ---------------------------------------------------------------------------
+# Exchange formats: CycloneDX 1.6 / SPDX 2.3 observed projections
+# ---------------------------------------------------------------------------
+
+
+def sample_report():
+    return aggregate_aibom(
+        [
+            make_event(
+                "usage.reported",
+                payload={"model": "deepseek-flash", "fidelity": "L2"},
+                session_id="s1",
+                project="sugar",
+                ts="2026-11-09T10:00:00Z",
+            ),
+            make_event(
+                "tool.started",
+                payload={
+                    "tool_name": "bash",
+                    "tool_use_id": "c1",
+                    "fidelity": "L3",
+                },
+                session_id="s1",
+                project="sugar",
+                ts="2026-11-09T10:01:00Z",
+            ),
+            make_event(
+                "tool.started",
+                payload={
+                    "tool_name": "mcp__filesystem__read_file",
+                    "tool_use_id": "c2",
+                    "fidelity": "L3",
+                },
+                session_id="s1",
+                project="sugar",
+                ts="2026-11-09T10:02:00Z",
+            ),
+            make_event(
+                "artifact.created",
+                payload={"path": "/tmp/report.md", "fidelity": "L3"},
+                session_id="s1",
+                project="sugar",
+                ts="2026-11-09T10:03:00Z",
+            ),
+        ]
+    )
+
+
+class TestFormatNormalization:
+    def test_default_is_json(self):
+        assert normalize_format(None) == "json"
+        assert normalize_format("") == "json"
+
+    def test_case_insensitive_supported_formats(self):
+        assert normalize_format("JSON") == "json"
+        assert normalize_format(" CycloneDX ") == "cyclonedx"
+        assert normalize_format("spdx") == "spdx"
+        assert set(SUPPORTED_FORMATS) == {"json", "cyclonedx", "spdx"}
+
+    def test_invalid_format_raises(self):
+        for bad in ("banana", "cyclonedx1.6", "sarif"):
+            with pytest.raises(AibomQueryError):
+                normalize_format(bad)
+
+
+class TestCycloneDX:
+    def test_top_level_shape_and_metadata(self):
+        report = sample_report()
+        document = to_cyclonedx(report)
+        assert document["bomFormat"] == "CycloneDX"
+        assert document["specVersion"] == "1.6"
+        assert document["version"] == 1
+        assert document["serialNumber"].startswith("urn:uuid:")
+        # valid deterministic UUID
+        import uuid as _uuid
+
+        _uuid.UUID(document["serialNumber"][len("urn:uuid:") :])
+        metadata = document["metadata"]
+        assert metadata["timestamp"] == report["generated_at"]
+        tool_component = metadata["tools"]["components"][0]
+        assert tool_component["name"] == "sugar"
+        assert tool_component["type"] == "application"
+        assert tool_component["version"]
+        property_names = {item["name"] for item in metadata["properties"]}
+        assert "sugar:aibom:observed_runtime_only" in property_names
+        assert "sugar:aibom:sugar_version" in property_names
+        assert "sugar:aibom:scope:project" in property_names
+        assert "sugar:aibom:scope:since" in property_names
+        assert any(
+            name.startswith("sugar:aibom:limitation:") for name in property_names
+        )
+        assert any(
+            "observed projection" in item["value"].lower()
+            for item in metadata["properties"]
+            if item["name"] == "sugar:aibom:standard_compliance"
+        )
+
+    def test_component_type_mapping_and_properties(self):
+        document = to_cyclonedx(sample_report())
+        by_name = {component["name"]: component for component in document["components"]}
+        assert by_name["deepseek-flash"]["type"] == "machine-learning-model"
+        assert by_name["dsh"]["type"] == "application"
+        assert by_name["bash"]["type"] == "application"
+        assert by_name["filesystem"]["type"] == "service"
+        assert by_name["/tmp/report.md"]["type"] == "file"
+
+        model_props = {
+            item["name"]: item["value"]
+            for item in by_name["deepseek-flash"]["properties"]
+        }
+        assert model_props["sugar:aibom:component_type"] == "model"
+        assert model_props["sugar:aibom:events"] == "1"
+        assert model_props["sugar:aibom:projects"] == "sugar"
+        assert any(name.startswith("sugar:aibom:evidence:") for name in model_props)
+        artifact_props = {
+            item["name"]: item["value"]
+            for item in by_name["/tmp/report.md"]["properties"]
+        }
+        assert artifact_props["sugar:aibom:path"] == "/tmp/report.md"
+
+    def test_no_invented_component_fields(self):
+        document = to_cyclonedx(sample_report())
+        allowed = {"type", "bom-ref", "name", "properties"}
+        for component in document["components"]:
+            assert set(component) <= allowed
+            for invented in ("version", "supplier", "licenses", "hashes", "purl"):
+                assert invented not in component
+        # Every component ref is present and unique.
+        refs = [component["bom-ref"] for component in document["components"]]
+        assert len(refs) == len(set(refs))
+        assert all(ref.startswith("sugar:aibom:") for ref in refs)
+
+    def test_deterministic_ids(self):
+        report = sample_report()
+        first = to_cyclonedx(report)
+        second = to_cyclonedx(report)
+        assert first["serialNumber"] == second["serialNumber"]
+        assert [c["bom-ref"] for c in first["components"]] == [
+            c["bom-ref"] for c in second["components"]
+        ]
+
+        changed = aggregate_aibom(
+            [make_event("usage.reported", payload={"model": "another-model"})]
+        )
+        assert to_cyclonedx(changed)["serialNumber"] != first["serialNumber"]
+        assert inventory_fingerprint(changed) != inventory_fingerprint(report)
+
+    def test_empty_inventory_is_valid(self):
+        document = to_cyclonedx(aggregate_aibom([]))
+        assert document["components"] == []
+        assert document["metadata"]["properties"]
+        assert document["serialNumber"].startswith("urn:uuid:")
+
+
+class TestSPDX:
+    def test_top_level_shape(self):
+        report = sample_report()
+        document = to_spdx(report)
+        assert document["spdxVersion"] == "SPDX-2.3"
+        assert document["dataLicense"] == "CC0-1.0"
+        assert document["SPDXID"] == "SPDXRef-DOCUMENT"
+        assert document["name"] == "sugar-observed-aibom-v0"
+        assert document["documentNamespace"].startswith(
+            "https://sugar.dev/spdx/sugar.aibom.v0/"
+        )
+        assert document["creationInfo"]["created"] == report["generated_at"]
+        assert document["creationInfo"]["creators"][0].startswith("Tool: sugar-")
+        assert document["annotations"][0]["annotationType"] == "OTHER"
+        comment = document["annotations"][0]["comment"].lower()
+        assert "observed runtime" in comment
+        assert "not an spdx" in comment
+        for limitation in report["limitations"]:
+            assert limitation in document["annotations"][0]["comment"]
+
+    def test_packages_use_noassertion_and_no_invented_fields(self):
+        document = to_spdx(sample_report())
+        assert len(document["packages"]) == len(sample_report()["components"])
+        for package in document["packages"]:
+            assert package["downloadLocation"] == "NOASSERTION"
+            assert package["licenseConcluded"] == "NOASSERTION"
+            assert package["licenseDeclared"] == "NOASSERTION"
+            assert package["copyrightText"] == "NOASSERTION"
+            assert package["filesAnalyzed"] is False
+            for invented in ("versionInfo", "supplier", "originator", "homepage"):
+                assert invented not in package
+            assert "No version, supplier or license was observed." in package["comment"]
+
+    def test_ids_are_deterministic_valid_and_unique(self):
+        report = sample_report()
+        first = to_spdx(report)
+        second = to_spdx(report)
+        assert first["documentNamespace"] == second["documentNamespace"]
+        ids = [package["SPDXID"] for package in first["packages"]]
+        assert ids == [package["SPDXID"] for package in second["packages"]]
+        assert len(ids) == len(set(ids))
+        import re as _re
+
+        for spdx_id in ids:
+            assert _re.fullmatch(r"SPDXRef-[A-Za-z0-9.-]+", spdx_id)
+
+        changed = aggregate_aibom(
+            [make_event("artifact.created", payload={"path": "/tmp/other.md"})]
+        )
+        assert to_spdx(changed)["documentNamespace"] != first["documentNamespace"]
+
+    def test_describes_relationships(self):
+        document = to_spdx(sample_report())
+        package_ids = {package["SPDXID"] for package in document["packages"]}
+        relationships = document["relationships"]
+        assert len(relationships) == len(package_ids)
+        for relationship in relationships:
+            assert relationship["spdxElementId"] == "SPDXRef-DOCUMENT"
+            assert relationship["relationshipType"] == "DESCRIBES"
+            assert relationship["relatedSpdxElement"] in package_ids
+
+    def test_empty_inventory_is_valid(self):
+        document = to_spdx(aggregate_aibom([]))
+        assert document["packages"] == []
+        assert document["relationships"] == []
+        assert document["spdxVersion"] == "SPDX-2.3"
+        assert document["annotations"]
+
+
+class TestRenderFormat:
+    def test_json_render_returns_report(self):
+        report = sample_report()
+        assert render_aibom(report) == report
+        assert render_aibom(report, "json")["schema"] == SCHEMA
+
+    def test_other_formats(self):
+        report = sample_report()
+        assert render_aibom(report, "cyclonedx")["bomFormat"] == "CycloneDX"
+        assert render_aibom(report, "spdx")["spdxVersion"] == "SPDX-2.3"
+
+    def test_invalid_format_raises(self):
+        with pytest.raises(AibomQueryError):
+            render_aibom(sample_report(), "banana")
+
+
+class TestFormatsAPI:
+    @pytest.fixture
+    def client(self, tmp_path):
+        app = create_app(
+            str(tmp_path / "sugar.db"),
+            events_db=str(tmp_path / "events.db"),
+        )
+        with TestClient(app) as test_client:
+            yield test_client
+
+    def post_some(self, client):
+        for event in (
+            make_event(
+                "usage.reported",
+                payload={"model": "deepseek-flash", "fidelity": "L2"},
+                project="sugar",
+            ),
+            make_event(
+                "tool.started",
+                payload={"tool_name": "bash", "tool_use_id": "c1"},
+                project="sugar",
+            ),
+            make_event(
+                "artifact.created",
+                payload={"path": "/tmp/report.md"},
+                project="sugar",
+            ),
+        ):
+            response = client.post("/api/events", json=event)
+            assert response.status_code == 201, response.text
+
+    def test_default_json_format(self, client):
+        self.post_some(client)
+        response = client.get("/api/aibom")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.json()["schema"] == SCHEMA
+
+    def test_cyclonedx_format(self, client):
+        self.post_some(client)
+        response = client.get("/api/aibom", params={"format": "cyclonedx"})
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        document = response.json()
+        assert document["bomFormat"] == "CycloneDX"
+        assert document["specVersion"] == "1.6"
+
+    def test_spdx_format(self, client):
+        self.post_some(client)
+        response = client.get("/api/aibom", params={"format": "spdx"})
+        assert response.status_code == 200
+        document = response.json()
+        assert document["spdxVersion"] == "SPDX-2.3"
+        assert document["packages"]
+
+    def test_format_is_case_insensitive(self, client):
+        self.post_some(client)
+        assert (
+            client.get("/api/aibom", params={"format": "CycloneDX"}).json()["bomFormat"]
+            == "CycloneDX"
+        )
+
+    def test_invalid_format_is_400(self, client):
+        response = client.get("/api/aibom", params={"format": "banana"})
+        assert response.status_code == 400
+        assert response.json()["error"] == "validation_error"
+        assert "format" in response.json()["detail"]
+
+
+class TestFormatsCLI:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture
+    def events_db(self, tmp_path):
+        return make_events_db(
+            tmp_path,
+            [
+                make_event(
+                    "usage.reported",
+                    payload={"model": "deepseek-flash"},
+                    project="sugar",
+                ),
+                make_event(
+                    "tool.started",
+                    payload={"tool_name": "bash", "tool_use_id": "c1"},
+                ),
+                make_event(
+                    "artifact.created",
+                    payload={"path": "/tmp/report.md"},
+                ),
+            ],
+        )
+
+    def invoke(self, runner, tmp_path, *args):
+        return runner.invoke(
+            cli, ["--config", str(cli_config(tmp_path)), "aibom", *args]
+        )
+
+    def test_cyclonedx_output(self, runner, tmp_path, events_db):
+        first = self.invoke(
+            runner, tmp_path, "--db", events_db, "--format", "cyclonedx"
+        )
+        assert first.exit_code == 0, first.output
+        document = json.loads(first.output)
+        assert document["bomFormat"] == "CycloneDX"
+        assert document["specVersion"] == "1.6"
+
+        second = self.invoke(
+            runner, tmp_path, "--db", events_db, "--format", "cyclonedx"
+        )
+        assert second.exit_code == 0, second.output
+        assert json.loads(second.output)["serialNumber"] == document["serialNumber"]
+
+    def test_spdx_output(self, runner, tmp_path, events_db):
+        result = self.invoke(runner, tmp_path, "--db", events_db, "--format", "spdx")
+        assert result.exit_code == 0, result.output
+        document = json.loads(result.output)
+        assert document["spdxVersion"] == "SPDX-2.3"
+        assert document["packages"]
+        assert "NOASSERTION" in result.output
+
+    def test_invalid_format_is_cli_error(self, runner, tmp_path, events_db):
+        result = self.invoke(runner, tmp_path, "--db", events_db, "--format", "banana")
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output or "format" in result.output.lower()
+
+    def test_json_flag_conflicts_with_non_json_format(
+        self, runner, tmp_path, events_db
+    ):
+        result = self.invoke(
+            runner,
+            tmp_path,
+            "--db",
+            events_db,
+            "--format",
+            "cyclonedx",
+            "--json",
+        )
+        assert result.exit_code != 0
+        assert "--json" in result.output
