@@ -190,7 +190,7 @@ def test_claims_and_cli_export_instructions(html):
     assert "sugar audit export --out audit/2026-11.jsonl" in html
     assert "sugar audit verify audit/2026-11.jsonl audit/2026-11.manifest.json" in html
     assert "sugar aibom --project sugar --since 2026-11-01 --json" in html
-    assert "does not create or download files" in html
+    assert "The download above uses the same package builder" in html
 
 
 def test_audit_module_is_read_only(audit_html):
