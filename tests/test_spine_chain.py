@@ -237,7 +237,7 @@ class TestTamperDetection:
         assert result["first_bad_id"] == 2
         assert any("has no chain row" in error for error in result["errors"])
 
-    def test_deleted_middle_pair_is_a_gap(self, tmp_path):
+    def test_both_missing_interior_ids_are_retention_gaps(self, tmp_path):
         path = tmp_path / "events.db"
         self._spine(path)
         with sqlite3.connect(path) as conn:
@@ -245,8 +245,154 @@ class TestTamperDetection:
             conn.execute("DELETE FROM event_chain WHERE event_id = 2")
             conn.commit()
         result = run(verify_event_chain(path))
+        assert result["ok"] is True, result
+        assert result["first_bad_id"] is None
+        assert result["checked"] == 2
+        expected = [{"from_id": 2, "to_id": 2}]
+        assert result["pruned_ranges"] == expected
+        assert result["gaps"] == expected
+        assert result["errors"] == []
+
+    def test_multiple_retention_gaps_are_reported(self, tmp_path):
+        path = tmp_path / "events.db"
+
+        async def go():
+            spine = await make_spine(path)
+            await spine.append_batch(
+                [
+                    {"kind": "a"},
+                    {"kind": "b"},
+                    {"kind": "c"},
+                    {"kind": "d"},
+                    {"kind": "e"},
+                ]
+            )
+            await spine.close()
+
+        run(go())
+        with sqlite3.connect(path) as conn:
+            for event_id in (2, 4):
+                conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+                conn.execute("DELETE FROM event_chain WHERE event_id = ?", (event_id,))
+            conn.commit()
+        result = run(verify_event_chain(path))
+        assert result["ok"] is True, result
+        assert result["checked"] == 3
+        assert result["pruned_ranges"] == [
+            {"from_id": 2, "to_id": 2},
+            {"from_id": 4, "to_id": 4},
+        ]
+
+    def test_retention_prune_can_leave_interior_gaps(self, tmp_path):
+        path = tmp_path / "events.db"
+
+        async def go():
+            spine = await make_spine(path, retention_days=1)
+            await spine.append({"kind": "old.1", "ts": "2020-01-01T00:00:00Z"})
+            await spine.append({"kind": "new.2"})
+            await spine.append({"kind": "old.3", "ts": "2020-01-02T00:00:00Z"})
+            await spine.append({"kind": "new.4"})
+            removed = await spine.prune()
+            await spine.close()
+            return removed
+
+        assert run(go()) == 2
+        result = run(verify_event_chain(path))
+        assert result["ok"] is True, result
+        assert result["checked"] == 2
+        assert result["pruned_ranges"] == [
+            {"from_id": 1, "to_id": 1},
+            {"from_id": 3, "to_id": 3},
+        ]
+
+    def test_checkpoint_over_retention_gap_still_works(self, tmp_path):
+        path = tmp_path / "events.db"
+
+        async def go():
+            spine = await make_spine(path)
+            await spine.append_batch(
+                [{"kind": "a"}, {"kind": "b"}, {"kind": "c"}, {"kind": "d"}]
+            )
+            await spine.close()
+
+        run(go())
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM events WHERE id = 2")
+            conn.execute("DELETE FROM event_chain WHERE event_id = 2")
+            conn.commit()
+        checkpoint = run(build_checkpoint(path, from_id=1, to_id=4))
+        assert checkpoint["count"] == 3
+        assert run(verify_checkpoint_against_db(path, checkpoint))["ok"] is True
+
+    def test_pruned_prefix_is_reported(self, tmp_path):
+        path = tmp_path / "events.db"
+        self._spine(path)
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM events WHERE id = 1")
+            conn.execute("DELETE FROM event_chain WHERE event_id = 1")
+            conn.commit()
+        result = run(verify_event_chain(path))
+        assert result["ok"] is True, result
+        assert result["pruned_ranges"] == [{"from_id": 1, "to_id": 1}]
+
+    def test_gap_with_orphan_event_row_still_fails(self, tmp_path):
+        path = tmp_path / "events.db"
+        self._spine(path)
+        with sqlite3.connect(path) as conn:
+            # Event survives but its chain row is gone: this is not a pruned gap.
+            conn.execute("DELETE FROM event_chain WHERE event_id = 2")
+            conn.commit()
+        result = run(verify_event_chain(path))
         assert result["ok"] is False
-        assert any("chain gap" in error for error in result["errors"])
+        assert result["first_bad_id"] == 2
+        assert any("has no chain row" in error for error in result["errors"])
+        assert result["pruned_ranges"] == []
+
+    def test_gap_with_orphan_chain_row_still_fails(self, tmp_path):
+        path = tmp_path / "events.db"
+        self._spine(path)
+        with sqlite3.connect(path) as conn:
+            # Chain row survives but its event row is gone: not a pruned gap.
+            conn.execute("DELETE FROM events WHERE id = 2")
+            conn.commit()
+        result = run(verify_event_chain(path))
+        assert result["ok"] is False
+        assert result["first_bad_id"] == 2
+        assert any("chain row has no event" in error for error in result["errors"])
+        assert result["pruned_ranges"] == []
+
+    def test_link_across_retention_gap_is_not_false_positive(self, tmp_path):
+        path = tmp_path / "events.db"
+
+        async def go():
+            spine = await make_spine(path)
+            await spine.append_batch(
+                [{"kind": "a"}, {"kind": "b"}, {"kind": "c"}, {"kind": "d"}]
+            )
+            await spine.close()
+
+        run(go())
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM events WHERE id = 2")
+            conn.execute("DELETE FROM event_chain WHERE event_id = 2")
+            conn.commit()
+        result = run(verify_event_chain(path))
+        assert result["ok"] is True, result
+        assert result["pruned_ranges"] == [{"from_id": 2, "to_id": 2}]
+        # Tampering with a link after the gap must still be caught.
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "UPDATE event_chain SET prev_hash = ? WHERE event_id = 4",
+                (CHAIN_GENESIS,),
+            )
+            conn.commit()
+        result = run(verify_event_chain(path))
+        assert result["ok"] is False
+        assert result["first_bad_id"] == 4
+        assert any(
+            "hash mismatch" in error or "link broken" in error
+            for error in result["errors"]
+        )
 
     def test_bad_link_fails(self, tmp_path):
         path = tmp_path / "events.db"
@@ -394,6 +540,33 @@ class TestChainCLI:
         payload = json.loads(result.output)
         assert payload["ok"] is True
         assert payload["checked"] == 2
+
+    def test_verify_chain_reports_retention_gaps(self, runner, tmp_path):
+        path = tmp_path / "events.db"
+
+        async def go():
+            spine = await make_spine(path)
+            await spine.append_batch(
+                [{"kind": "a"}, {"kind": "b"}, {"kind": "c"}, {"kind": "d"}]
+            )
+            await spine.close()
+
+        run(go())
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM events WHERE id = 2")
+            conn.execute("DELETE FROM event_chain WHERE event_id = 2")
+            conn.commit()
+        result = runner.invoke(
+            cli, ["audit", "verify-chain", "--db", str(path), "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["ok"] is True
+        assert payload["pruned_ranges"] == [{"from_id": 2, "to_id": 2}]
+        human = runner.invoke(cli, ["audit", "verify-chain", "--db", str(path)])
+        assert human.exit_code == 0, human.output
+        assert "Pruned:" in human.output
+        assert "2..2" in human.output
 
     def test_verify_chain_failure_exit(self, runner, tmp_path):
         path = tmp_path / "events.db"
