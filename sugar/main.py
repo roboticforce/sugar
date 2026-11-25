@@ -6192,8 +6192,9 @@ def audit_verify_package(package_dir, sign_key_env, json_output):
 def audit_verify_chain(db_path, json_output):
     """Verify the per-event hash chain (tamper-evident, not immutable)
 
-    Recomputes every chained event hash and checks links, gaps and deleted or
-    rewritten events. Exits non-zero on the first mismatch.
+    Recomputes every chained event hash and checks links and deleted or
+    rewritten events. Legitimate retention gaps (both event and chain rows
+    pruned) are reported informationally; exits non-zero on a tamper finding.
     """
     import asyncio
     import json as _json
@@ -6208,6 +6209,14 @@ def audit_verify_chain(db_path, json_output):
         click.echo(f"   Checked:   {result['checked']} chained event(s)")
         if result.get("head_hash"):
             click.echo(f"   Head hash: {result['head_hash']}")
+        pruned_ranges = result.get("pruned_ranges") or []
+        if pruned_ranges:
+            rendered = ", ".join(
+                f"{item['from_id']}..{item['to_id']}" for item in pruned_ranges
+            )
+            click.echo(
+                f"   Pruned:    {len(pruned_ranges)} retention gap(s): {rendered}"
+            )
         checkpoint = result.get("checkpoint")
         if checkpoint:
             click.echo(

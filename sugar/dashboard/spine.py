@@ -698,8 +698,10 @@ async def verify_event_chain(events_db: Any) -> Dict[str, Any]:
     """Verify the per-event hash chain without trusting live event payloads.
 
     Detects rewritten/deleted events (where the chain row remains), missing or
-    reordered chain rows, broken links and altered hashes. A pruned prefix (from
-    the retention policy) is accepted; this proves tamper evidence, not
+    reordered chain rows, broken links and altered hashes. Legitimate retention
+    gaps — ids for which *both* the event row and the chain row are absent — are
+    accepted and reported informationally in ``pruned_ranges``/``gaps``. A
+    pruned prefix is likewise accepted. This proves tamper evidence, not
     immutability. The newest checkpoint (if any) is returned for convenience.
     """
     path = _resolve_db_path(events_db)
@@ -710,6 +712,8 @@ async def verify_event_chain(events_db: Any) -> Dict[str, Any]:
         "errors": [],
         "head_hash": None,
         "checkpoint": None,
+        "pruned_ranges": [],
+        "gaps": [],
     }
     if not Path(path).exists():
         result["errors"].append(f"event database not found: {path}")
@@ -780,6 +784,30 @@ async def verify_event_chain(events_db: Any) -> Dict[str, Any]:
         if event_id not in chain_by_id:
             fail(event_id, f"event {event_id} has no chain row")
 
+    def _range_is_absent(lo: int, hi: int) -> bool:
+        """Both event and chain rows are absent for every id in [lo, hi]."""
+        for candidate in range(lo, hi + 1):
+            if candidate in event_by_id or candidate in chain_by_id:
+                return False
+        return True
+
+    pruned_ranges: List[Dict[str, int]] = []
+    if chain_rows:
+        first_id = int(chain_rows[0]["event_id"])
+        if first_id > 1 and _range_is_absent(1, first_id - 1):
+            pruned_ranges.append({"from_id": 1, "to_id": first_id - 1})
+        for previous, current in zip(chain_rows, chain_rows[1:]):
+            previous_id = int(previous["event_id"])
+            current_id = int(current["event_id"])
+            if current_id == previous_id + 1:
+                continue
+            lo, hi = previous_id + 1, current_id - 1
+            # Interior ids with both event and chain rows missing are legitimate
+            # retention gaps (or indistinguishable from deletion of both rows).
+            # Orphan single-sided rows are reported as errors by the loops above.
+            if _range_is_absent(lo, hi):
+                pruned_ranges.append({"from_id": lo, "to_id": hi})
+
     expected_prev: Optional[Dict[str, Any]] = None
     for row in chain_rows:
         event_id = int(row["event_id"])
@@ -801,15 +829,19 @@ async def verify_event_chain(events_db: Any) -> Dict[str, Any]:
             # a missing chain row for an existing earlier event is caught above.
         else:
             prev_id = int(expected_prev["event_id"])
-            if event_id != prev_id + 1:
-                fail(event_id, f"chain gap between events {prev_id} and {event_id}")
-            elif str(row.get("prev_hash")) != str(expected_prev.get("hash")):
-                fail(event_id, f"chain link broken at event {event_id}")
+            if event_id == prev_id + 1:
+                if str(row.get("prev_hash")) != str(expected_prev.get("hash")):
+                    fail(event_id, f"chain link broken at event {event_id}")
+            # Across a legitimate pruned gap, prev_hash points at the (absent)
+            # previous event, so there is no surviving hash to compare. The
+            # current event hash is still recomputed with its stored prev_hash.
         recomputed = compute_event_hash(event_id, event, str(row.get("prev_hash")))
         if recomputed != str(row.get("hash")):
             fail(event_id, f"event {event_id} hash mismatch (payload/fields changed?)")
         expected_prev = row
 
+    result["pruned_ranges"] = pruned_ranges
+    result["gaps"] = list(pruned_ranges)
     result["first_bad_id"] = first_bad
     result["ok"] = not errors
     return result
