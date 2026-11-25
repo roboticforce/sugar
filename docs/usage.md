@@ -9,6 +9,11 @@ OpenCode, a custom runner, …) knows what a run cost; Sugar records what it
 reports and makes it queryable. One event log, one aggregation — the dashboard,
 the API and the CLI cannot disagree.
 
+> For task cwd/project provenance, grouping by model/project/task, and optional
+> operator-supplied price estimates, see
+> [`spend-attribution.md`](spend-attribution.md). This page is the underlying
+> reported-usage contract.
+
 ---
 
 ## 1. Reporting usage
@@ -88,6 +93,8 @@ Cost totals are rounded to 6 decimal places in output; token totals are ints.
 | `events` | usage-bearing events that contributed (skipped garbage is not counted) |
 | `tokens_in` / `tokens_out` / `tokens_total` | summed tokens (`total = in + out`) |
 | `cost_usd` | summed harness-reported cost |
+| `estimated_cost_usd` | summed estimate from the operator price table (0 when none) |
+| `cost_basis` | `reported`, `estimated`, `mixed` or `unavailable` |
 
 `group_by` dimensions:
 
@@ -97,6 +104,7 @@ Cost totals are rounded to 6 decimal places in output; token totals are ints.
 | `harness` | event `harness` | `"unknown"` |
 | `task` | event `task_id` | `"unknown"` |
 | `project` | event `project` | `"unknown"` |
+| `model` | usage payload `model` (flat or canonical nested) | `"unknown"` |
 | `day` | first 10 chars of `ts` (`YYYY-MM-DD`, UTC) | `"unknown"` |
 | `kind` | event `kind` (`usage.reported` or `run.ended`) | `"unknown"` |
 
@@ -116,7 +124,7 @@ GET /api/usage?since=2026-11-01T00:00:00Z&until=2026-11-10T00:00:00Z
 |---|---|---|
 | `since` | none | ISO-8601; inclusive; normalized to UTC `Z` |
 | `until` | none | ISO-8601; inclusive |
-| `group_by` | none (totals only) | `actor`, `harness`, `task`, `project`, `day`, `kind` |
+| `group_by` | none (totals only) | `actor`, `harness`, `task`, `project`, `model`, `day`, `kind` |
 | `limit` | 5000 | max events scanned, `1..50000` (bounded read) |
 | `kinds` | all usage kinds | comma-separated kind filter, e.g. `usage.reported` |
 | `actor` / `harness` | none | exact-match filters |
@@ -126,10 +134,12 @@ Response (200):
 ```json
 {
   "totals": {"events": 12, "tokens_in": 84000, "tokens_out": 21000,
-             "tokens_total": 105000, "cost_usd": 0.7341},
+             "tokens_total": 105000, "cost_usd": 0.7341,
+             "estimated_cost_usd": 0.2011, "cost_basis": "mixed"},
   "groups": [
     {"key": "dsh", "events": 8, "tokens_in": 61000, "tokens_out": 15000,
-     "tokens_total": 76000, "cost_usd": 0.5121}
+     "tokens_total": 76000, "cost_usd": 0.5121,
+     "estimated_cost_usd": 0.18, "cost_basis": "mixed"}
   ],
   "since": "2026-11-01T00:00:00Z",
   "until": "2026-11-10T00:00:00Z",
@@ -167,8 +177,9 @@ sugar usage --group-by harness --json
 ```
 
 Flags: `--db PATH`, `--since ISO`, `--until ISO`,
-`--group-by actor|harness|task|project|day|kind`, `--limit N` (bounded scan,
-default 5000), `--json`.
+`--group-by actor|harness|task|project|model|day|kind`, `--limit N` (bounded
+scan, default 5000), `--json`. With a price table configured the table also
+shows `estimated_cost_usd` and `cost_basis`.
 
 Example table:
 
@@ -192,11 +203,13 @@ event spine; it does not start a server.
 
 ## 5. Dashboard panel
 
-The Activity view shows a small **Usage** panel: totals (events, tokens in/out/
-total, reported cost) plus the top five harnesses and actors by cost. It is
-loaded once when the Activity view opens (no SSE stream) and hides itself on
-older servers that do not expose `/api/usage`. Task/Activity behaviour is
-otherwise untouched.
+The Activity view shows a **Usage** panel: totals (events, tokens in/out/total,
+reported cost, and estimated cost when a price table is configured) plus groups
+selectable by `harness` (default), `actor`, `project`, `task`, `model` or `day`.
+It is loaded once when the Activity view opens (no SSE stream) and hides itself
+on older servers that do not expose `/api/usage`. A model summary groups the
+recent activity feed by model, and the Overview shows a compact
+reported/estimated usage metric.
 
 ---
 
@@ -217,13 +230,17 @@ for a local team board.
 - **No provider billing reconciliation.** `cost_usd` is self-reported by the
   harness; it can be wrong, missing, or in a different currency unit. Sugar does
   not call provider APIs or compare against invoices.
-- **No pricing table.** Sugar does not derive cost from tokens × model prices.
-  A harness that only knows tokens reports `tokens_*` and omits `cost_usd`.
+- **Optional estimates, not a price list.** Sugar ships no prices. If the
+  operator supplies a table (`$SUGAR_MODEL_PRICES` or
+  `~/.sugar/model-prices.json`), an `estimated_cost_usd` is derived from token
+  counts and kept separate from reported `cost_usd`; estimates are not invoices
+  and never overwrite reported values. Details:
+  [`spend-attribution.md`](spend-attribution.md).
 - **No budgets, quotas, alerts or chargeback.** This is a visibility primitive,
   not a billing system.
-- **No `model` breakdown yet.** `model` rides along in the event payload; adding
-  it as a group dimension is a small follow-up (append a dimension in
-  `usage.GROUP_BY_DIMENSIONS` + CLI choice).
+- **Model grouping is by reported string.** `model` is an aggregation dimension
+  (`group_by=model`), but names/aliases are not normalised or versioned by Sugar;
+  spelling differences split groups.
 - **No tamper evidence.** Usage events are as trustworthy as the local event
   log; the signed export/verify workflow belongs to `docs/audit.md`.
 - **Retention still applies.** The spine prunes raw events after
