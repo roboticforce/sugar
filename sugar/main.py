@@ -5789,6 +5789,31 @@ def _audit_events_db(db_option):
     return str(default_events_db_path().expanduser())
 
 
+def _audit_default_board_db(ctx):
+    """Resolve the Sugar board task database for audit packages."""
+    from pathlib import Path
+
+    config = Path(str((ctx.obj or {}).get("config") or ".sugar/config.yaml"))
+    if config.exists():
+        try:
+            import yaml
+
+            data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+            sugar_data = data.get("sugar")
+            storage = (
+                sugar_data.get("storage") if isinstance(sugar_data, dict) else None
+            )
+            database = storage.get("database") if isinstance(storage, dict) else None
+            if database:
+                return str(Path(str(database)).expanduser())
+        except Exception:
+            pass
+    local = Path(".sugar/sugar.db")
+    if local.exists():
+        return str(local)
+    return str(Path.home() / ".sugar" / "sugar.db")
+
+
 def _audit_print_export(result, json_output):
     import json as _json
 
@@ -5984,6 +6009,152 @@ def audit_verify(jsonl_path, manifest_path, sign_key_env, json_output):
         for error in result.errors:
             click.echo(f"   • {error}", err=True)
 
+    if not result.ok:
+        sys.exit(1)
+
+
+@audit.command("package")
+@click.option(
+    "--out",
+    "out_dir",
+    required=True,
+    type=click.Path(file_okay=False, path_type=str),
+    help="Output package directory",
+)
+@click.option("--project", default=None, help="Only include this project scope")
+@click.option("--since", default=None, help="Only events/tasks at/after ISO-8601")
+@click.option("--until", default=None, help="Only events/tasks at/before ISO-8601")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option(
+    "--board-db",
+    default=None,
+    help="Board task database (default: project config storage.database)",
+)
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key (never the key)",
+)
+@click.option("--force", is_flag=True, help="Replace an existing package directory")
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+@click.pass_context
+def audit_package(
+    ctx,
+    out_dir,
+    project,
+    since,
+    until,
+    db_path,
+    board_db,
+    sign_key_env,
+    force,
+    json_output,
+):
+    """Build a scoped, self-verifying audit package directory
+
+    Contains the canonical event export + manifest, board tasks, evidence,
+    traces, observed AIBOM inventory, coverage snapshot, a claims matrix and a
+    README, all hashed in a package manifest (optionally HMAC-signed).
+
+    Examples:
+
+        sugar audit package --out /secure/audit/2026-11
+
+        sugar audit package --out audit-pkg --project sugar --since 2026-11-01
+
+        SUGAR_AUDIT_HMAC_KEY=... sugar audit package --out audit-pkg \
+            --sign-key-env SUGAR_AUDIT_HMAC_KEY
+    """
+    import asyncio
+    import json as _json
+
+    from .audit.export import AuditError
+    from .audit.package import build_audit_package
+
+    try:
+        result = asyncio.run(
+            build_audit_package(
+                out_dir,
+                events_db=_audit_events_db(db_path),
+                board_db=board_db or _audit_default_board_db(ctx),
+                project=project,
+                since=since,
+                until=until,
+                sign_key_env=sign_key_env,
+                force=force,
+            )
+        )
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:  # unexpected build failure must be a clean nonzero
+        click.echo(f"❌ audit package failed: {exc}", err=True)
+        sys.exit(1)
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        return
+    click.echo("✅ Audit package written")
+    click.echo(f"   Directory: {result.out_dir}")
+    click.echo(f"   Manifest:  {result.manifest_path}")
+    click.echo(f"   Events:    {result.events_count}")
+    click.echo(f"   Tasks:     {result.tasks_count}")
+    click.echo(f"   Evidence:  {result.evidence_count}")
+    click.echo(f"   Traces:    {result.traces_count}")
+    click.echo(f"   AIBOM:     {result.aibom_components} component(s)")
+    claims_text = ", ".join(
+        f"{status}={count}" for status, count in sorted(result.claims_summary.items())
+    )
+    click.echo(f"   Claims:    {claims_text or 'none'}")
+    signed_text = (
+        f"hmac-sha256 key_id={result.key_id}" if result.signed else "no (hash-only)"
+    )
+    click.echo(f"   Signed:    {signed_text}")
+    if result.limitations:
+        click.echo(
+            f"   Notes:     {len(result.limitations)} limitation(s); see README.md"
+        )
+    click.echo(f"   Verify:    sugar audit verify-package {result.out_dir}")
+
+
+@audit.command("verify-package")
+@click.argument("package_dir", type=click.Path(file_okay=False, path_type=str))
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify_package(package_dir, sign_key_env, json_output):
+    """Verify an audit package offline; exits non-zero on any mismatch"""
+    import json as _json
+
+    from .audit.package import verify_audit_package
+
+    result = verify_audit_package(package_dir, sign_key_env=sign_key_env)
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    elif result.ok:
+        click.echo("✅ Audit package verified")
+        click.echo(f"   Package: {result.package_path}")
+        click.echo(f"   Files:   {result.files_checked} hashed file(s)")
+        signed_text = (
+            f"hmac-sha256 key_id={result.key_id}" if result.signed else "no (hash-only)"
+        )
+        click.echo(f"   Signed:  {signed_text}")
+    else:
+        click.echo("❌ Audit package verification FAILED", err=True)
+        for error in result.errors:
+            click.echo(f"   • {error}", err=True)
     if not result.ok:
         sys.exit(1)
 

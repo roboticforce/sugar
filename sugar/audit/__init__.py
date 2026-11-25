@@ -5,6 +5,13 @@ snapshot plus a hash/HMAC manifest, and verify either offline. See
 ``docs/audit.md``.
 """
 
+from .package import (
+    PACKAGE_FORMAT,
+    PackageResult,
+    PackageVerifyResult,
+    build_audit_package,
+    verify_audit_package,
+)
 from .export import (
     FORMAT,
     AuditConfigError,
@@ -21,6 +28,11 @@ from .export import (
 
 __all__ = [
     "FORMAT",
+    "PACKAGE_FORMAT",
+    "PackageResult",
+    "PackageVerifyResult",
+    "build_audit_package",
+    "verify_audit_package",
     "AuditConfigError",
     "AuditError",
     "AuditFileError",
