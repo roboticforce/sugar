@@ -21,18 +21,34 @@ Design rules:
 
 Both ``GET /api/aibom`` and ``sugar aibom`` use :func:`aibom_report`; there is no
 second aggregation path.
+
+Exchange formats
+----------------
+
+The report can be projected into CycloneDX 1.6 JSON and SPDX 2.3 JSON shapes
+(:func:`to_cyclonedx`, :func:`to_spdx`) for interoperability. These are
+**observed projections only**: every document says so in properties/annotations
+and package comments, no standard-conformance claim is made, no licenses,
+versions, suppliers, hashes or URLs are invented (missing SPDX fields use
+``NOASSERTION``), and relationship types are only those the observed data
+supports (``DESCRIBES``). IDs are deterministic content hashes so the same
+inventory always yields the same serial/namespace/bom-refs.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import aiosqlite
+
+from ..__version__ import __version__ as SUGAR_VERSION
 
 SCHEMA = "sugar.aibom.v0"
 
@@ -54,6 +70,21 @@ _TYPE_ORDER = {name: index for index, name in enumerate(COMPONENT_TYPES)}
 
 #: Only names that unambiguously encode an MCP server are classified.
 _MCP_TOOL_PATTERN = re.compile(r"^mcp__([A-Za-z0-9][A-Za-z0-9_.-]*)__(.+)$")
+
+#: Exchange format names accepted by the API/CLI.
+SUPPORTED_FORMATS: Tuple[str, ...] = ("json", "cyclonedx", "spdx")
+
+#: Conservative CycloneDX component-type mapping for observed component types.
+_CYCLONEDX_TYPE = {
+    "model": "machine-learning-model",
+    "harness": "application",
+    "tool": "application",
+    "mcp_server": "service",
+    "artifact": "file",
+}
+
+#: Placeholder for fields SPDX requires but observation cannot assert.
+_SPDX_NOASSERTION = "NOASSERTION"
 
 _LIMITATIONS: Tuple[str, ...] = (
     "Observed runtime inventory only; not a complete declared AIBOM",
@@ -226,6 +257,16 @@ def normalize_project(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def normalize_format(value: Any) -> str:
+    """Validate an exchange format name (default ``json``)."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return "json"
+    text = str(value).strip().lower()
+    if text not in SUPPORTED_FORMATS:
+        raise AibomQueryError("format must be one of: " + ", ".join(SUPPORTED_FORMATS))
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +541,243 @@ async def aibom_report(
     report["events_scanned"] = len(events)
     report["limit"] = normalize_limit(limit)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Exchange formats (observed projections, deterministic content IDs)
+# ---------------------------------------------------------------------------
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+
+
+def inventory_fingerprint(report: Mapping[str, Any]) -> str:
+    """Content hash of the observed inventory (volatile timestamps excluded).
+
+    Used for deterministic CycloneDX serial numbers and SPDX document
+    namespaces: the same scope+components+coverage always yields the same IDs.
+    """
+    core = {
+        "schema": report.get("schema"),
+        "scope": report.get("scope") or {},
+        "components": report.get("components") or [],
+        "coverage": report.get("coverage") or {},
+        "limitations": report.get("limitations") or [],
+    }
+    return hashlib.sha256(_canonical_json(core).encode("utf-8")).hexdigest()
+
+
+def _component_digest(component: Mapping[str, Any]) -> str:
+    key = f"{component.get('type')}\0{component.get('name')}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _bom_ref(component: Mapping[str, Any]) -> str:
+    return (
+        f"sugar:aibom:{component.get('type') or 'component'}:"
+        f"{_component_digest(component)[:12]}"
+    )
+
+
+def _slug(value: Any, *, limit: int = 40) -> str:
+    text = re.sub(r"[^A-Za-z0-9.-]+", "-", str(value or "").strip()).strip("-.")
+    return text[:limit] or "component"
+
+
+def _spdx_id(component: Mapping[str, Any]) -> str:
+    component_type = _slug(component.get("type"), limit=20).title().replace("-", "")
+    name = _slug(component.get("name"))
+    digest = _component_digest(component)[:8]
+    return f"SPDXRef-{component_type or 'Component'}-{name}-{digest}"
+
+
+def _property(name: str, value: Any) -> Dict[str, str]:
+    return {"name": name, "value": str(value)}
+
+
+def _component_properties(component: Mapping[str, Any]) -> List[Dict[str, str]]:
+    component_type = str(component.get("type") or "")
+    properties = [
+        _property("sugar:aibom:component_type", component_type),
+        _property("sugar:aibom:events", int(component.get("events") or 0)),
+        _property("sugar:aibom:projects", ",".join(component.get("projects") or [])),
+        _property("sugar:aibom:first_seen", component.get("first_seen") or ""),
+        _property("sugar:aibom:last_seen", component.get("last_seen") or ""),
+    ]
+    if component_type == "artifact":
+        properties.append(_property("sugar:aibom:path", component.get("name")))
+    for index, link in enumerate(component.get("evidence_links") or [], start=1):
+        if not isinstance(link, Mapping):
+            continue
+        trace = str(link.get("trace_id") or "")
+        span = str(link.get("span_id") or "")
+        if trace:
+            properties.append(
+                _property(
+                    f"sugar:aibom:evidence:{index}",
+                    f"{trace}#{span}" if span else trace,
+                )
+            )
+    return properties
+
+
+def _metadata_properties(report: Mapping[str, Any]) -> List[Dict[str, str]]:
+    scope = report.get("scope") or {}
+    properties = [
+        _property("sugar:aibom:schema", report.get("schema") or SCHEMA),
+        _property("sugar:aibom:observed_runtime_only", "true"),
+        _property(
+            "sugar:aibom:standard_compliance",
+            "observed projection; not certified CycloneDX/SPDX AI-profile compliant",
+        ),
+        _property("sugar:aibom:sugar_version", SUGAR_VERSION),
+        _property("sugar:aibom:scope:project", scope.get("project") or ""),
+        _property("sugar:aibom:scope:since", scope.get("since") or ""),
+        _property("sugar:aibom:events_scanned", int(report.get("events_scanned") or 0)),
+        _property("sugar:aibom:limit", int(report.get("limit") or 0)),
+        _property("sugar:aibom:truncated", bool(report.get("truncated"))),
+    ]
+    for index, limitation in enumerate(report.get("limitations") or [], start=1):
+        properties.append(_property(f"sugar:aibom:limitation:{index}", limitation))
+    return properties
+
+
+def to_cyclonedx(report: Mapping[str, Any]) -> Dict[str, Any]:
+    """Project the observed inventory into a CycloneDX 1.6-shaped JSON document.
+
+    Conservative mapping: model -> ``machine-learning-model``, harness/tool ->
+    ``application``, mcp_server -> ``service``, artifact -> ``file``. No
+    version/supplier/license/hash/URL fields are invented; observed metadata is
+    carried as ``properties`` only.
+    """
+    fingerprint = inventory_fingerprint(report)
+    components: List[Dict[str, Any]] = []
+    for component in report.get("components") or []:
+        if not isinstance(component, Mapping):
+            continue
+        component_type = str(component.get("type") or "")
+        components.append(
+            {
+                "type": _CYCLONEDX_TYPE.get(component_type, "application"),
+                "bom-ref": _bom_ref(component),
+                "name": str(component.get("name") or ""),
+                "properties": _component_properties(component),
+            }
+        )
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "serialNumber": "urn:uuid:"
+        + str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://sugar.dev/aibom/{fingerprint}")),
+        "version": 1,
+        "metadata": {
+            "timestamp": str(report.get("generated_at") or ""),
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "name": "sugar",
+                        "version": SUGAR_VERSION,
+                    }
+                ]
+            },
+            "properties": _metadata_properties(report),
+        },
+        "components": components,
+    }
+
+
+def to_spdx(report: Mapping[str, Any]) -> Dict[str, Any]:
+    """Project the observed inventory into an SPDX 2.3-shaped JSON document.
+
+    This is explicitly **not** an SPDX AI-profile-compliant AIBOM. Missing
+    package facts use ``NOASSERTION``; relationships are limited to
+    ``DESCRIBES`` (containment between observed components is not known).
+    """
+    fingerprint = inventory_fingerprint(report)
+    limitations = "; ".join(str(item) for item in report.get("limitations") or [])
+    generated_at = str(report.get("generated_at") or "")
+    packages: List[Dict[str, Any]] = []
+    relationships: List[Dict[str, str]] = []
+    for component in report.get("components") or []:
+        if not isinstance(component, Mapping):
+            continue
+        spdx_id = _spdx_id(component)
+        event_count = int(component.get("events") or 0)
+        projects = ", ".join(component.get("projects") or [])
+        evidence = ", ".join(
+            f"{link.get('trace_id')}#{link.get('span_id')}"
+            for link in component.get("evidence_links") or []
+            if isinstance(link, Mapping)
+        )
+        comment = (
+            "Observed runtime component; "
+            f"type={component.get('type') or ''}; events={event_count}; "
+            f"projects={projects or 'none'}; "
+            f"first_seen={component.get('first_seen') or ''}; "
+            f"last_seen={component.get('last_seen') or ''}; "
+            f"evidence={evidence or 'none'}. "
+            "No version, supplier or license was observed."
+        )
+        packages.append(
+            {
+                "SPDXID": spdx_id,
+                "name": str(component.get("name") or ""),
+                "downloadLocation": _SPDX_NOASSERTION,
+                "filesAnalyzed": False,
+                "licenseConcluded": _SPDX_NOASSERTION,
+                "licenseDeclared": _SPDX_NOASSERTION,
+                "copyrightText": _SPDX_NOASSERTION,
+                "comment": comment,
+            }
+        )
+        relationships.append(
+            {
+                "spdxElementId": "SPDXRef-DOCUMENT",
+                "relationshipType": "DESCRIBES",
+                "relatedSpdxElement": spdx_id,
+            }
+        )
+    return {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": "sugar-observed-aibom-v0",
+        "documentNamespace": ("https://sugar.dev/spdx/sugar.aibom.v0/" + fingerprint),
+        "creationInfo": {
+            "created": generated_at,
+            "creators": [f"Tool: sugar-{SUGAR_VERSION}"],
+        },
+        "annotations": [
+            {
+                "annotationDate": generated_at,
+                "annotationType": "OTHER",
+                "annotator": f"Tool: sugar-{SUGAR_VERSION}",
+                "comment": (
+                    "Observed runtime inventory only; this is not an SPDX "
+                    "AI-profile-compliant AIBOM and makes no standard-conformance "
+                    "claim. Limitations: " + limitations
+                ),
+            }
+        ],
+        "packages": packages,
+        "relationships": relationships,
+    }
+
+
+def render_aibom(
+    report: Mapping[str, Any], output_format: Any = None
+) -> Dict[str, Any]:
+    """Return the report in the requested exchange format (``json`` default)."""
+    fmt = normalize_format(output_format)
+    if fmt == "cyclonedx":
+        return to_cyclonedx(report)
+    if fmt == "spdx":
+        return to_spdx(report)
+    return dict(report)
 
 
 # ---------------------------------------------------------------------------

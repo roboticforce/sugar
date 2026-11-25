@@ -5173,9 +5173,17 @@ def usage(events_db, since, until, group_by, limit, as_json):
     help="Maximum events to scan (bounded; max 50000)",
 )
 @click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "cyclonedx", "spdx"], case_sensitive=False),
+    default="json",
+    show_default=True,
+    help="Output format: observed v0 JSON (default), CycloneDX 1.6 or SPDX 2.3 shape",
+)
+@click.option(
     "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
 )
-def aibom(events_db, project, since, limit, as_json):
+def aibom(events_db, project, since, limit, output_format, as_json):
     """Show the observed AIBOM inventory from the event spine (v0)
 
     This is an **observed runtime inventory** derived from telemetry that
@@ -5190,10 +5198,18 @@ def aibom(events_db, project, since, limit, as_json):
 
         sugar aibom --project sugar --since 2026-11-01
 
+        sugar aibom --format cyclonedx
+
+        sugar aibom --format spdx
+
         sugar aibom --json
 
-    The same inventory is served by ``GET /api/aibom``. Requires the dashboard
-    extra (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    ``--format cyclonedx`` and ``--format spdx`` are **observed projections**
+    (CycloneDX 1.6 / SPDX 2.3 shaped) of the same v0 inventory: they are not
+    certified standard AIBOMs, invent no licenses/versions/suppliers, and use
+    deterministic content-hash IDs. The same inventory is served by
+    ``GET /api/aibom``. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
     """
     import asyncio
 
@@ -5202,6 +5218,8 @@ def aibom(events_db, project, since, limit, as_json):
             AibomQueryError,
             aibom_report,
             format_aibom_table,
+            normalize_format,
+            render_aibom,
         )
         from .dashboard.spine import default_events_db_path
     except ImportError as exc:  # pragma: no cover - depends on optional extras
@@ -5212,6 +5230,9 @@ def aibom(events_db, project, since, limit, as_json):
 
     db_path = events_db or str(default_events_db_path())
     try:
+        fmt = normalize_format(output_format)
+        if as_json and fmt != "json":
+            raise click.UsageError("--json cannot be combined with --format " + fmt)
         report = asyncio.run(
             aibom_report(
                 db_path,
@@ -5223,10 +5244,11 @@ def aibom(events_db, project, since, limit, as_json):
     except AibomQueryError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if as_json:
-        click.echo(json.dumps(report, indent=2, sort_keys=True))
+    document = render_aibom(report, fmt)
+    if fmt == "json" and not as_json:
+        click.echo(format_aibom_table(document))
         return
-    click.echo(format_aibom_table(report))
+    click.echo(json.dumps(document, indent=2, sort_keys=True))
 
 
 # =============================================================================
