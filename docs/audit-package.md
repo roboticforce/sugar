@@ -84,6 +84,32 @@ The summary prints out dir, manifest path, event/task/evidence/trace counts,
 AIBOM component count, claims status counts, signed state (key id if signed),
 limitations count and the verify command.
 
+### Download from the dashboard
+
+The Audit view can build and download the same package without the CLI:
+
+```text
+GET /api/audit/package?project=sugar&since=2026-11-01&until=2026-11-30
+Content-Type: application/zip
+Content-Disposition: attachment; filename="sugar-audit-sugar-20261130.zip"
+X-Sugar-Package-Files: 10
+X-Sugar-Package-Sha256: <sha256 of the zip bytes>
+X-Sugar-Package-Signed: true|false
+```
+
+The endpoint is read-only, builds in a temporary directory, and streams a zip
+containing the same files as the CLI package. The Audit view reports the file
+count, size, SHA-256 and signed state, and reminds the user to verify offline:
+
+```bash
+unzip sugar-audit-sugar-20261130.zip -d audit-pkg
+sugar audit verify-package audit-pkg
+```
+
+Signing still uses the server's `SUGAR_AUDIT_HMAC_KEY` environment variable; no
+key is accepted from the browser. When `X-Sugar-Package-Signed` is `false`, the
+package is hash-only and must be treated as unsigned metadata.
+
 ---
 
 ## 3. Verify offline
