@@ -51,7 +51,7 @@ from ..telemetry import otlp as otlp_mod
 from ..telemetry.pipeline import TelemetryPipeline
 from ..telemetry.schema import TelemetryValidationError
 from ..telemetry.socket import IngestSocketServer
-from .spine import EventSpine, SpineError
+from .spine import EventSpine, SpineError, verify_event_chain
 from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
 from .aibom import AibomQueryError, aibom_report, normalize_format, render_aibom
@@ -274,6 +274,16 @@ async def attention(request: Request) -> JSONResponse:
     except AttentionQueryError as exc:
         raise DashboardError(400, "validation_error", str(exc)) from exc
     return JSONResponse(report)
+
+
+async def spine_chain(request: Request) -> JSONResponse:
+    """Read-only hash-chain verification status (``GET /api/spine/chain``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    return JSONResponse(await verify_event_chain(spine.db_path))
 
 
 async def traces(request: Request) -> JSONResponse:
@@ -739,6 +749,7 @@ def create_app(
         Route("/api/stats", stats, methods=["GET"]),
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
+        Route("/api/spine/chain", spine_chain, methods=["GET"]),
         Route("/api/attention", attention, methods=["GET"]),
         Route("/api/traces", traces, methods=["GET"]),
         Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),
