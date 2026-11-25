@@ -8,13 +8,15 @@ the single normalizer/aggregator for that telemetry:
 
 - normalize tolerantly (missing/null/int-string fields, negative numbers, NaN
   and non-numeric garbage are ignored — bad telemetry never breaks a surface);
-- aggregate into totals and by ``actor``/``harness``/``task``/``project``/``day``/
-  ``kind`` (pure functions, no I/O, easy to test);
+- aggregate into totals and by ``actor``/``harness``/``task``/``project``/
+  ``model``/``day``/``kind`` (pure functions, no I/O, easy to test);
 - read the events back from the spine with SQL-side filters and a bounded scan
   (huge ranges need rollups, not a full-file load; see ``read_usage_events``).
 
 The module is deliberately SQLite/spine-internal, like the rest of the dashboard
-backend. There is no pricing table: ``cost_usd`` is whatever the harness says.
+backend. ``cost_usd`` is always harness-reported; an optional operator price
+table (``sugar.dashboard.pricing``) adds ``estimated_cost_usd`` without ever
+overwriting reported costs.
 """
 
 from __future__ import annotations
@@ -29,6 +31,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import aiosqlite
 
+from . import pricing
+
 logger = logging.getLogger(__name__)
 
 #: Event kinds that can carry usage payload fields.
@@ -42,6 +46,7 @@ GROUP_BY_DIMENSIONS: Tuple[str, ...] = (
     "harness",
     "task",
     "project",
+    "model",
     "day",
     "kind",
 )
@@ -165,15 +170,41 @@ def _empty_metrics() -> Dict[str, Any]:
         "tokens_out": 0,
         "tokens_total": 0,
         "cost_usd": 0.0,
+        "estimated_cost_usd": 0.0,
+        "_reported_cost_events": 0,
+        "_estimated_cost_events": 0,
     }
 
 
-def _add_usage(metrics: Dict[str, Any], usage: Mapping[str, Any]) -> None:
+def _add_usage(
+    metrics: Dict[str, Any],
+    usage: Mapping[str, Any],
+    *,
+    reported_cost: bool = False,
+    estimated_cost: Optional[float] = None,
+) -> None:
     metrics["events"] += 1
     metrics["tokens_in"] += int(usage["tokens_in"])
     metrics["tokens_out"] += int(usage["tokens_out"])
     metrics["tokens_total"] += int(usage["tokens_total"])
     metrics["cost_usd"] += float(usage["cost_usd"])
+    if reported_cost:
+        metrics["_reported_cost_events"] += 1
+    if estimated_cost is not None:
+        metrics["estimated_cost_usd"] += float(estimated_cost)
+        metrics["_estimated_cost_events"] += 1
+
+
+def _cost_basis(metrics: Mapping[str, Any]) -> str:
+    reported = int(metrics.get("_reported_cost_events", 0))
+    estimated = int(metrics.get("_estimated_cost_events", 0))
+    if reported and estimated:
+        return "mixed"
+    if estimated:
+        return "estimated"
+    if reported:
+        return "reported"
+    return "unavailable"
 
 
 def _finalize_metrics(metrics: Mapping[str, Any]) -> Dict[str, Any]:
@@ -183,7 +214,29 @@ def _finalize_metrics(metrics: Mapping[str, Any]) -> Dict[str, Any]:
         "tokens_out": int(metrics["tokens_out"]),
         "tokens_total": int(metrics["tokens_total"]),
         "cost_usd": round(float(metrics["cost_usd"]), COST_PRECISION),
+        "estimated_cost_usd": round(
+            float(metrics.get("estimated_cost_usd", 0.0)), COST_PRECISION
+        ),
+        "cost_basis": _cost_basis(metrics),
     }
+
+
+def _raw_payload(event: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    payload = event.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def has_reported_cost(event: Mapping[str, Any]) -> bool:
+    """True when the harness explicitly supplied a usable ``cost_usd`` field."""
+    payload = _raw_payload(event)
+    if payload is None:
+        return False
+    return _as_cost(payload.get("cost_usd")) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -211,31 +264,60 @@ def _group_value(event: Mapping[str, Any], dimension: str) -> str:
         if isinstance(ts, str) and len(ts) >= 10 and ts[4] == "-" and ts[7] == "-":
             return ts[:10]
         return UNKNOWN_GROUP
-    field = {
-        "actor": "actor",
-        "harness": "harness",
-        "task": "task_id",
-        "project": "project",
-        "kind": "kind",
-    }[dimension]
-    value = event.get(field)
+    if dimension == "model":
+        payload = _raw_payload(event)
+        value = payload.get("model") if payload is not None else None
+        if value is None:
+            nested = payload.get("payload") if payload is not None else None
+            if isinstance(nested, Mapping):
+                value = nested.get("model")
+        if value is None:
+            value = event.get("model")
+    else:
+        field = {
+            "actor": "actor",
+            "harness": "harness",
+            "task": "task_id",
+            "project": "project",
+            "kind": "kind",
+        }[dimension]
+        value = event.get(field)
     if value is None:
         return UNKNOWN_GROUP
     text = str(value).strip()
     return text[:MAX_GROUP_KEY_LENGTH] if text else UNKNOWN_GROUP
 
 
+def _coerce_price_table(prices: Any) -> Optional[pricing.PriceTable]:
+    if prices is None:
+        return None
+    if isinstance(prices, pricing.PriceTable):
+        return prices
+    if isinstance(prices, Mapping):
+        return pricing.PriceTable(pricing.parse_price_table(prices))
+    if isinstance(prices, (str, Path)):
+        return pricing.load_price_table(prices)
+    raise UsageQueryError("prices must be a price table, JSON object or path")
+
+
 def aggregate_usage(
-    events: Iterable[Mapping[str, Any]], *, group_by: Optional[str] = None
+    events: Iterable[Mapping[str, Any]],
+    *,
+    group_by: Optional[str] = None,
+    prices: Any = None,
 ) -> Dict[str, Any]:
     """Aggregate usage-bearing events into totals (and optional groups).
 
     Pure function: no DB access. ``events`` may contain any mix of kinds; only
     ``usage.reported`` / ``run.ended`` events with usable payload fields
-    contribute. Groups sort by ``cost_usd`` descending, then key ascending, so
-    "where is the money going" is the first thing a client sees.
+    contribute. Groups sort by reported ``cost_usd`` descending, then
+    ``estimated_cost_usd`` and key, so "where is the money going" is the first
+    thing a client sees. ``prices`` may be a loaded
+    :class:`~sugar.dashboard.pricing.PriceTable`, a decoded price mapping, or a
+    price-file path; ``None`` means no estimates.
     """
     dimension = validate_group_by(group_by)
+    price_table = _coerce_price_table(prices)
     totals = _empty_metrics()
     grouped: Dict[str, Dict[str, Any]] = {}
 
@@ -243,7 +325,18 @@ def aggregate_usage(
         usage = extract_usage(event)
         if usage is None:
             continue
-        _add_usage(totals, usage)
+        reported_cost = has_reported_cost(event)
+        estimated_cost = None
+        if price_table is not None:
+            estimated_cost = price_table.estimate_cost(
+                usage.get("model"), usage["tokens_in"], usage["tokens_out"]
+            )
+        _add_usage(
+            totals,
+            usage,
+            reported_cost=reported_cost,
+            estimated_cost=estimated_cost,
+        )
         if dimension is None:
             continue
         key = _group_value(event, dimension)
@@ -251,12 +344,23 @@ def aggregate_usage(
         if bucket is None:
             bucket = _empty_metrics()
             grouped[key] = bucket
-        _add_usage(bucket, usage)
+        _add_usage(
+            bucket,
+            usage,
+            reported_cost=reported_cost,
+            estimated_cost=estimated_cost,
+        )
 
     groups = [
         {"key": key, **_finalize_metrics(bucket)} for key, bucket in grouped.items()
     ]
-    groups.sort(key=lambda group: (-group["cost_usd"], group["key"]))
+    groups.sort(
+        key=lambda group: (
+            -group["cost_usd"],
+            -group["estimated_cost_usd"],
+            group["key"],
+        )
+    )
     return {"totals": _finalize_metrics(totals), "groups": groups}
 
 
@@ -430,7 +534,8 @@ async def usage_report(
         since_id=since_id,
         limit=limit,
     )
-    aggregate = aggregate_usage(events, group_by=dimension)
+    price_table = pricing.load_price_table()
+    aggregate = aggregate_usage(events, group_by=dimension, prices=price_table)
     return {
         "totals": aggregate["totals"],
         "groups": aggregate["groups"],
@@ -455,7 +560,16 @@ def _format_cost(value: float) -> str:
 def format_usage_table(report: Mapping[str, Any]) -> str:
     """Render a usage report as a compact aligned table."""
     totals = report.get("totals") or _empty_metrics()
-    headers = ["", "events", "tokens_in", "tokens_out", "tokens", "cost_usd"]
+    headers = [
+        "",
+        "events",
+        "tokens_in",
+        "tokens_out",
+        "tokens",
+        "cost_usd",
+        "estimated_cost_usd",
+        "cost_basis",
+    ]
     rows: List[List[str]] = [["TOTAL"] + _metric_cells(totals)]
     for group in report.get("groups") or []:
         rows.append([str(group.get("key", UNKNOWN_GROUP))] + _metric_cells(group))
@@ -477,7 +591,8 @@ def format_usage_table(report: Mapping[str, Any]) -> str:
     if not report.get("groups"):
         lines.append("")
         lines.append(
-            "(no group_by; pass --group-by actor|harness|task|project|day|kind)"
+            "(no group_by; pass --group-by "
+            "actor|harness|task|project|model|day|kind)"
         )
     if report.get("truncated"):
         lines.append("")
@@ -495,6 +610,8 @@ def _metric_cells(metrics: Mapping[str, Any]) -> List[str]:
         str(int(metrics.get("tokens_out", 0))),
         str(int(metrics.get("tokens_total", 0))),
         _format_cost(float(metrics.get("cost_usd", 0.0))),
+        _format_cost(float(metrics.get("estimated_cost_usd", 0.0))),
+        str(metrics.get("cost_basis", "unavailable")),
     ]
 
 

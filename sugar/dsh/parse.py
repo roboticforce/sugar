@@ -15,6 +15,34 @@ Event shapes seen in real logs (v4):
 - ``tool/result`` has ``data.toolCallId`` or nests it in
   ``data.message.{toolCallId,source.callId}`` and reports failure via
   ``data.isError`` / ``data.message.isError`` / ``data.error``.
+- ``assistant/message`` (and ``assistant/attempt`` when it carries usage)
+  includes ``data.usage`` = ``{inputTokens, outputTokens, cacheReadTokens,
+  cacheWriteTokens, totalTokens}``. These are **per-response incremental**
+  counters for that single model call (input + output + cache read + cache
+  write == totalTokens), not cumulative session sums — so one
+  ``usage.reported`` is emitted per record (deduped by a usage fingerprint)
+  and summing them is correct. ``tokens_in`` is the full prompt side (fresh
+  input + cache read + cache write) so ``tokens_in + tokens_out`` equals the
+  provider's ``totalTokens``; the fresh slice is kept as ``input_tokens``.
+  ``compaction/summary`` usage is a separate compaction call and is
+  intentionally not counted here.
+
+Trace-enrichment mappings (frozen contract for the trace backend):
+
+- ``subagent/catalog`` (parent session) -> ``subagent.started`` with
+  ``parent_session_id``/``child_session_id``/``label``/``mode``/``created_at``;
+  ``childCreatedAt`` is the ms created timestamp. Catalog entries are unique per
+  child, so the event is emitted once.
+- ``team/task`` -> ``team.task`` with ``team_id``/``team_task_id``/``subject``/
+  ``status``/``owner_id``/``owner_name?``/``blocked_by?``/``parent_session_id``
+  plus the task ``revision`` for update ordering. One event per task revision
+  (deduped by team+task+revision); owner names are resolved from
+  ``team/member`` records seen in the same session.
+- ``deliverables/presented`` files and successful ``write`` tool results ->
+  ``artifact.created`` with ``path``/``description?``/``turn``/
+  ``tool_call_id?`` (paths only, never file contents).
+- Successful ``edit`` tool results -> optional ``workspace.changed`` with the
+  reliable changed ``paths`` (and a diff count, never diff contents).
 """
 
 from __future__ import annotations
@@ -40,6 +68,30 @@ MAX_RESULT_TEXT = 4000
 _MODEL_PATTERN = re.compile(r"['\"]model['\"]\s*:\s*['\"]([^'\"]{1,200})['\"]")
 _PROVIDER_PATTERN = re.compile(r"['\"]provider['\"]\s*:\s*['\"]([^'\"]{1,200})['\"]")
 
+#: DSH usage object keys -> canonical token buckets (camelCase first, snake_case
+#: tolerated for generated/future logs).
+_USAGE_INPUT_KEYS = ("inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
+_USAGE_OUTPUT_KEYS = (
+    "outputTokens",
+    "output_tokens",
+    "completionTokens",
+    "completion_tokens",
+)
+_USAGE_CACHE_READ_KEYS = (
+    "cacheReadTokens",
+    "cache_read_tokens",
+    "cache_read_input_tokens",
+)
+_USAGE_CACHE_WRITE_KEYS = (
+    "cacheWriteTokens",
+    "cache_write_tokens",
+    "cache_creation_input_tokens",
+)
+_USAGE_TOTAL_KEYS = ("totalTokens", "total_tokens")
+
+#: Event types that can carry an assistant-response usage object.
+_USAGE_EVENT_TYPES = ("assistant/message", "assistant/attempt")
+
 _IGNORED_TYPES = frozenset(
     {
         "session/title",
@@ -48,7 +100,6 @@ _IGNORED_TYPES = frozenset(
         "agent/inbox/spliced",
         "system/message",
         "user/message",
-        "assistant/message",
         "todo/write",
         "request/context",
         "job/registered",
@@ -279,6 +330,136 @@ def _parse_arguments(value: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str
     return None, text[:2000]
 
 
+def _first_int(data: Mapping[str, Any], keys: Sequence[str]) -> Optional[int]:
+    for key in keys:
+        value = _as_int(data.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _project_from_cwd(cwd: Optional[str]) -> Optional[str]:
+    """Project label for usage grouping: basename of the session cwd."""
+    if not isinstance(cwd, str) or not cwd.strip():
+        return None
+    text = cwd.strip().rstrip("/\\")
+    if not text:
+        return None
+    name = text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].strip()
+    return name or None
+
+
+def _usage_summary(data: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Normalize one DSH assistant ``usage`` object to canonical token buckets.
+
+    DSH reports ``inputTokens`` (fresh/uncached prompt), ``outputTokens``,
+    ``cacheReadTokens``/``cacheWriteTokens`` and ``totalTokens``, where
+    ``totalTokens == input + output + cache read + cache write`` for that one
+    model call. ``tokens_in`` is the **full prompt side** (fresh input + cache
+    read/write) so the aggregator's ``tokens_total`` (in + out) equals DSH's
+    own ``totalTokens`` — i.e. /api/usage reports the same token volume the
+    provider counted. The fresh-input slice stays available as
+    ``input_tokens`` and the cache slices as ``cache_read_tokens`` /
+    ``cache_write_tokens`` for future cost mapping.
+
+    Each record is per-response incremental (never cumulative), so no
+    delta/cumulative arithmetic is applied; duplicates are deduped by the
+    caller's fingerprint.
+    """
+    usage = data.get("usage")
+    if not isinstance(usage, Mapping):
+        message = data.get("message")
+        if isinstance(message, Mapping) and isinstance(message.get("usage"), Mapping):
+            usage = message.get("usage")
+        else:
+            return None
+
+    input_tokens = _first_int(usage, _USAGE_INPUT_KEYS)
+    tokens_out = _first_int(usage, _USAGE_OUTPUT_KEYS)
+    cache_read = _first_int(usage, _USAGE_CACHE_READ_KEYS)
+    cache_write = _first_int(usage, _USAGE_CACHE_WRITE_KEYS)
+    provider_total = _first_int(usage, _USAGE_TOTAL_KEYS)
+    cache_total = max(cache_read or 0, 0) + max(cache_write or 0, 0)
+    if tokens_out is None and provider_total is not None and input_tokens is not None:
+        tokens_out = max(provider_total - input_tokens - cache_total, 0)
+    if input_tokens is None and provider_total is not None and tokens_out is not None:
+        input_tokens = max(provider_total - tokens_out - cache_total, 0)
+    if input_tokens is None and tokens_out is None:
+        return None
+    input_tokens = max(input_tokens or 0, 0)
+    tokens_out = max(tokens_out or 0, 0)
+    tokens_in = input_tokens + cache_total
+
+    summary: Dict[str, Any] = {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "tokens_total": tokens_in + tokens_out,
+        "input_tokens": input_tokens,
+        "usage_source": "assistant/usage",
+    }
+    if cache_read is not None and cache_read >= 0:
+        summary["cache_read_tokens"] = cache_read
+    if cache_write is not None and cache_write >= 0:
+        summary["cache_write_tokens"] = cache_write
+    if provider_total is not None and provider_total >= 0:
+        summary["provider_total_tokens"] = provider_total
+    return summary
+
+
+def _usage_event(
+    data: Mapping[str, Any],
+    context: _Context,
+    *,
+    ts: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    summary = _usage_summary(data)
+    if summary is None:
+        return None
+    turn = data.get("turn")
+    step = _as_int(data.get("step"))
+    if step is not None:
+        summary["step"] = step
+    project = _project_from_cwd(context.cwd)
+    if project:
+        summary["project"] = project
+    fingerprint = (
+        str(turn),
+        step,
+        summary.get("tokens_in"),
+        summary.get("tokens_out"),
+        summary.get("cache_read_tokens"),
+        summary.get("cache_write_tokens"),
+        summary.get("provider_total_tokens"),
+    )
+    if fingerprint in context.usage_seen:
+        return None
+    context.usage_seen.add(fingerprint)
+
+    envelope = _envelope(
+        "usage.reported",
+        summary=summary,
+        session_id=context.session_id,
+        cwd=context.cwd,
+        turn_id=str(turn) if turn not in (None, "") else None,
+        model=context.model,
+        project=project,
+        status="completed",
+        ts=ts,
+    )
+    # Compatibility bridge: /api/usage reads the spine event's top-level
+    # ``payload`` object (sugar/dashboard/usage.py), while canonical envelopes
+    # keep the summary under payload.payload. Mirror the aggregator-accepted
+    # fields at the top level so DSH usage appears in /api/usage too.
+    payload = envelope.get("payload")
+    if isinstance(payload, dict):
+        for key in ("tokens_in", "tokens_out", "tokens_total"):
+            if key in summary:
+                payload[key] = summary[key]
+        if context.model:
+            payload["model"] = context.model
+    return envelope
+
+
 def _tool_call_summary(data: Mapping[str, Any]) -> Dict[str, Any]:
     summary: Dict[str, Any] = {}
     arguments, raw = _parse_arguments(data.get("arguments"))
@@ -361,6 +542,8 @@ def _result_text(data: Mapping[str, Any]) -> Optional[str]:
 def _fidelity(kind: str) -> str:
     if kind == "session.started" or kind.startswith("turn."):
         return "L1"
+    if kind in ("usage.reported", "team.task"):
+        return "L2"
     return "L3"
 
 
@@ -376,6 +559,7 @@ def _envelope(
     status: Optional[str] = None,
     duration_ms: Optional[int] = None,
     model: Optional[str] = None,
+    project: Optional[str] = None,
     ts: Optional[str] = None,
 ) -> Dict[str, Any]:
     safe_summary = redact.redact_payload(
@@ -400,7 +584,7 @@ def _envelope(
         fidelity=_fidelity(kind),
         ts=ts,
         source=SOURCE,
-        project=None,
+        project=project,
     )
 
 
@@ -410,6 +594,18 @@ class _Context:
     cwd: Optional[str] = None
     model: Optional[str] = None
     calls: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    #: Exact usage records already emitted (assistant/attempt + assistant/message
+    #: can mirror the same record; a retry never repeats a successful request).
+    usage_seen: set = field(default_factory=set)
+    #: team/member id -> display name (used to fill team.task owner_name).
+    team_members: Dict[str, str] = field(default_factory=dict)
+    #: Stable dedupe keys for trace-enrichment events.
+    subagents_seen: set = field(default_factory=set)
+    team_tasks_seen: set = field(default_factory=set)
+    #: session+path -> emitted artifact.created envelope (one per path, with
+    #: description/sha merged in from later presented-file events).
+    artifact_by_path: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    workspaces_seen: set = field(default_factory=set)
 
 
 def _header_event(
@@ -428,6 +624,9 @@ def _header_event(
             summary[summary_key] = _json_safe(value)
     if workspace:
         summary["workspace"] = workspace
+    parent_session = header.get("parentSession")
+    if parent_session not in (None, ""):
+        summary["parent_session_id"] = _json_safe(parent_session)
     return _envelope(
         "session.started",
         summary=summary,
@@ -435,6 +634,294 @@ def _header_event(
         cwd=str(header.get("cwd") or "") or None,
         ts=ms_to_iso(header.get("createdAt")),
     )
+
+
+def _as_text(value: Any, *, limit: int = 1000) -> Optional[str]:
+    if value is None or isinstance(value, (Mapping, list, tuple)):
+        return None
+    text = str(value).strip()
+    return text[:limit] if text else None
+
+
+def _subagent_started(
+    data: Mapping[str, Any], context: _Context, *, ts: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Map one parent-side ``subagent/catalog`` entry to ``subagent.started``."""
+    child_id = _as_text(data.get("childId"), limit=300)
+    if not child_id:
+        return None
+    created_at = ms_to_iso(data.get("childCreatedAt"))
+    key = (context.session_id or "", child_id, created_at or "")
+    if key in context.subagents_seen:
+        return None
+    context.subagents_seen.add(key)
+    summary: Dict[str, Any] = {"child_session_id": child_id}
+    if context.session_id:
+        summary["parent_session_id"] = context.session_id
+    label = _as_text(data.get("label"))
+    if label:
+        summary["label"] = label
+    mode = _as_text(data.get("mode"), limit=100)
+    if mode:
+        summary["mode"] = mode
+    if created_at:
+        summary["created_at"] = created_at
+    return _envelope(
+        "subagent.started",
+        summary=summary,
+        session_id=context.session_id,
+        cwd=context.cwd,
+        model=context.model,
+        project=_project_from_cwd(context.cwd),
+        status="started",
+        ts=ts,
+    )
+
+
+def _team_task_event(
+    data: Mapping[str, Any], context: _Context, *, ts: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Map one ``team/task`` revision snapshot to ``team.task``."""
+    task = data.get("task")
+    if not isinstance(task, Mapping):
+        return None
+    task_id = _as_text(task.get("id"), limit=200)
+    if not task_id:
+        return None
+    team_id = _as_text(data.get("teamId"), limit=300) or context.session_id
+    revision = _as_int(task.get("revision"))
+    status = _as_text(task.get("status"), limit=60)
+    key = (
+        team_id or "",
+        task_id,
+        str(revision) if revision is not None else status or "",
+    )
+    if key in context.team_tasks_seen:
+        return None
+    context.team_tasks_seen.add(key)
+
+    owner_id = _as_text(task.get("ownerId"), limit=300)
+    owner_name = context.team_members.get(owner_id) if owner_id else None
+    summary: Dict[str, Any] = {
+        "team_id": team_id,
+        "team_task_id": task_id,
+        "subject": _as_text(task.get("subject"), limit=500),
+        "status": status,
+        "owner_id": owner_id,
+        "owner_name": owner_name,
+        "parent_session_id": team_id or context.session_id,
+    }
+    if revision is not None:
+        summary["revision"] = revision
+    blocked_by = task.get("blockedBy")
+    if isinstance(blocked_by, list) and blocked_by:
+        summary["blocked_by"] = [_json_safe(item) for item in blocked_by[:50]]
+    return _envelope(
+        "team.task",
+        summary={key: value for key, value in summary.items() if value is not None},
+        session_id=context.session_id,
+        cwd=context.cwd,
+        project=_project_from_cwd(context.cwd),
+        ts=ts,
+    )
+
+
+def _artifact_envelope(
+    path: str,
+    *,
+    context: _Context,
+    description: Optional[str] = None,
+    turn: Optional[int] = None,
+    call_id: Optional[str] = None,
+    sha256: Optional[str] = None,
+    operation: Optional[str] = None,
+    ts: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Build one ``artifact.created`` envelope; a session+path is emitted once.
+
+    A file can be produced by a tool result and later presented (or written
+    again). The artifact identity is the session + path, so later sources only
+    enrich a missing description/sha256 instead of duplicating the event.
+    """
+    key = f"{context.session_id or ''}\0{path}"
+    existing = context.artifact_by_path.get(key)
+    if existing is not None:
+        summary = existing.get("payload", {}).get("payload")
+        if isinstance(summary, dict):
+            if description and not summary.get("description"):
+                summary["description"] = description
+            if sha256 and not summary.get("sha256"):
+                summary["sha256"] = sha256
+            if operation and not summary.get("operation"):
+                summary["operation"] = operation
+        return None
+
+    summary: Dict[str, Any] = {"path": path}
+    if description:
+        summary["description"] = description
+    if operation:
+        summary["operation"] = operation
+    if turn is not None:
+        summary["turn"] = turn
+    if call_id:
+        summary["tool_call_id"] = call_id
+    if sha256:
+        summary["sha256"] = sha256
+    envelope = _envelope(
+        "artifact.created",
+        summary=summary,
+        session_id=context.session_id,
+        cwd=context.cwd,
+        turn_id=str(turn) if turn is not None else None,
+        tool_use_id=call_id,
+        project=_project_from_cwd(context.cwd),
+        ts=ts,
+    )
+    context.artifact_by_path[key] = envelope
+    return envelope
+
+
+def _deliverable_artifacts(
+    data: Mapping[str, Any], context: _Context, *, ts: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Map ``deliverables/presented`` files to ``artifact.created`` events."""
+    turn = _as_int(data.get("turn"))
+    call_id = _as_text(data.get("callId"), limit=300)
+    files = data.get("files")
+    if not isinstance(files, list):
+        return []
+    envelopes: List[Dict[str, Any]] = []
+    for item in files:
+        if not isinstance(item, Mapping):
+            continue
+        path = _as_text(item.get("path"), limit=1000)
+        if not path:
+            continue
+        envelope = _artifact_envelope(
+            path,
+            context=context,
+            description=_as_text(item.get("description"), limit=500),
+            turn=turn,
+            call_id=call_id,
+            sha256=_as_text(item.get("sha256"), limit=100),
+            ts=ts,
+        )
+        if envelope is not None:
+            envelopes.append(envelope)
+    return envelopes
+
+
+def _tool_result_enrichment(
+    data: Mapping[str, Any], context: _Context, *, ts: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Artifact/workspace events derived from a successful file-producing tool result."""
+    if _result_is_error(data):
+        return []
+    call_id = _result_call_id(data)
+    call = context.calls.get(call_id or "")
+    if not call:
+        return []
+    tool_name = str(call.get("name") or "")
+    if tool_name not in ("write", "edit"):
+        return []
+    meta = data.get("meta")
+    if not isinstance(meta, Mapping):
+        return []
+    turn = _as_int(data.get("turn"))
+    if turn is None:
+        turn = _as_int(call.get("turn"))
+    paths: List[str] = []
+    meta_path = _as_text(meta.get("path"), limit=1000)
+    if meta_path:
+        paths.append(meta_path)
+    diffs = meta.get("diffs")
+    if isinstance(diffs, list):
+        for diff in diffs[:50]:
+            if not isinstance(diff, Mapping):
+                continue
+            diff_path = _as_text(diff.get("path"), limit=1000)
+            if diff_path and diff_path not in paths:
+                paths.append(diff_path)
+    if not paths:
+        return []
+
+    envelopes: List[Dict[str, Any]] = []
+    if tool_name == "write":
+        operation = _as_text(meta.get("operation"), limit=40)
+        for path in paths:
+            envelope = _artifact_envelope(
+                path,
+                context=context,
+                turn=turn,
+                call_id=call_id,
+                operation=operation,
+                ts=ts,
+            )
+            if envelope is not None:
+                envelopes.append(envelope)
+    else:  # edit: reliable file paths/diffs exist -> optional workspace.changed
+        key = ("edit", tuple(paths), call_id or "")
+        if key in context.workspaces_seen:
+            return []
+        context.workspaces_seen.add(key)
+        summary = {"paths": paths, "operation": "edit"}
+        if turn is not None:
+            summary["turn"] = turn
+        if call_id:
+            summary["tool_call_id"] = call_id
+        if isinstance(diffs, list):
+            summary["diff_count"] = len(diffs)
+        envelopes.append(
+            _envelope(
+                "workspace.changed",
+                summary=summary,
+                session_id=context.session_id,
+                cwd=context.cwd,
+                turn_id=str(turn) if turn is not None else None,
+                tool_use_id=call_id,
+                project=_project_from_cwd(context.cwd),
+                ts=ts,
+            )
+        )
+    return envelopes
+
+
+def _map_extra_events(
+    event: Mapping[str, Any],
+    seq: int,
+    *,
+    ts: Optional[str],
+    context: _Context,
+) -> List[Dict[str, Any]]:
+    """Secondary envelopes for one raw DSH event (multi-file artifacts, etc.)."""
+    event_type = event.get("type")
+    data = event.get("data")
+    if not isinstance(event_type, str) or not isinstance(data, Mapping):
+        return []
+    if event_type == "deliverables/presented":
+        return _deliverable_artifacts(data, context, ts=ts)
+    if event_type == "tool/result":
+        return _tool_result_enrichment(data, context, ts=ts)
+    return []
+
+
+def _resolve_team_owner_names(events: List[ParsedEvent], context: _Context) -> None:
+    """Fill owner_name on team.task events whose member record arrived later."""
+    if not context.team_members:
+        return
+    for item in events:
+        if item.kind != "team.task":
+            continue
+        payload = item.envelope.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        summary = payload.get("payload")
+        if not isinstance(summary, dict) or summary.get("owner_name"):
+            continue
+        owner_id = summary.get("owner_id")
+        name = context.team_members.get(str(owner_id)) if owner_id else None
+        if name:
+            summary["owner_name"] = name
 
 
 def _map_event(
@@ -449,6 +936,18 @@ def _map_event(
     if not isinstance(event_type, str) or not isinstance(data, Mapping):
         return None
 
+    if event_type == "subagent/catalog":
+        return _subagent_started(data, context, ts=ts)
+    if event_type == "team/member":
+        member = data.get("member")
+        if isinstance(member, Mapping):
+            member_id = _as_text(member.get("id"), limit=300)
+            member_name = _as_text(member.get("name"), limit=200)
+            if member_id and member_name:
+                context.team_members[member_id] = member_name
+        return None
+    if event_type == "team/task":
+        return _team_task_event(data, context, ts=ts)
     if event_type == "turn/start":
         return _envelope(
             "turn.started",
@@ -472,6 +971,8 @@ def _map_event(
             model=context.model,
             ts=ts,
         )
+    if event_type in _USAGE_EVENT_TYPES:
+        return _usage_event(data, context, ts=ts)
     if event_type == "approval/policy":
         return _envelope(
             "policy.decision",
@@ -589,18 +1090,23 @@ def parse_session_file(
             continue
         ts = ms_to_iso(raw.get("time"))
         envelope = _map_event(raw, seq, ts=ts, context=context)
-        if seq <= since_seq or envelope is None:
+        envelopes: List[Dict[str, Any]] = []
+        if envelope is not None:
+            envelopes.append(envelope)
+        envelopes.extend(_map_extra_events(raw, seq, ts=ts, context=context))
+        if seq <= since_seq or not envelopes:
             continue
-        if since_text is not None and ts is not None and ts < since_text:
-            continue
-        event_ts = str(envelope.get("ts") or "")
-        if since_text is not None and event_ts and event_ts < since_text:
-            continue
-        parsed.append(
-            ParsedEvent(
-                seq=seq, kind=str(envelope.get("kind") or ""), envelope=envelope
+        for item in envelopes:
+            if since_text is not None and ts is not None and ts < since_text:
+                continue
+            event_ts = str(item.get("ts") or "")
+            if since_text is not None and event_ts and event_ts < since_text:
+                continue
+            parsed.append(
+                ParsedEvent(seq=seq, kind=str(item.get("kind") or ""), envelope=item)
             )
-        )
+
+    _resolve_team_owner_names(parsed, context)
 
     session_id = (
         str(header.get("id"))

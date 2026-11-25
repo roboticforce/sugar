@@ -275,7 +275,9 @@ Installs:
   writes a LaunchAgent; on other platforms it prints the manual
   `sugar tail dsh --watch` command. A decompressor (`zstd` on PATH, or the
   optional `zstandard` package) is required. The LaunchAgent is inert until you
-  run the printed `launchctl load -w …` command.
+  run the printed `launchctl load -w …` command. The tail also maps assistant
+  usage and subagent/team/artifact events (see `sugar tail dsh` below) so Usage,
+  Trace Explorer and the observed AIBOM show real DSH work.
 - The registry (`~/.sugar/adapters.json`) is what the Coverage API reads.
 
 A Claude Code plugin is also included at `integrations/claude-plugin/` for teams
@@ -290,13 +292,27 @@ sugar tail dsh --watch          # poll every 2s (launchd/systemd/manual)
 sugar tail dsh --since 2026-11-01 --quiet
 ```
 
-DSH writes compressed JSONL session logs; the tailer maps `session`, `turn/*`,
-`tool/call`, `tool/result` (call/result pairing, error detection) and
-`approval/policy` to canonical events at L3, and ignores messages/todos/jobs.
-A per-session checkpoint (`$SUGAR_DSH_STATE` or
-`~/.sugar/dsh-tail-state.json`) makes restarts resume where they stopped;
-delete it to replay a session. Delivery is fail-open and at-most-once per DSH
-sequence number (a board outage loses that cycle rather than retrying forever).
+DSH writes compressed JSONL session logs. The tailer maps:
+
+- `session`, `turn/*`, `tool/call`, `tool/result` (call/result pairing, error
+  detection) and `approval/policy` to canonical events at L3;
+- `assistant/message` usage to `usage.reported` per model response, with the
+  model and turn context. `tokens_in` includes cache read/write so
+  `tokens_in + tokens_out` equals DSH's own `totalTokens`; the fresh-input slice
+  remains `input_tokens` (details in
+  [`spend-attribution.md`](spend-attribution.md));
+- parent-side `subagent/catalog` to `subagent.started`; `team/task` to
+  `team.task`; `deliverables/presented` files and successful `write` tool
+  results to `artifact.created` (paths only); successful `edit` results to an
+  optional `workspace.changed` (paths and diff count, never contents).
+
+These enrichment events feed Trace Explorer and the observed AIBOM. Messages,
+todos and job bookkeeping are otherwise ignored. A per-session checkpoint
+(`$SUGAR_DSH_STATE` or `~/.sugar/dsh-tail-state.json`) makes restarts resume
+where they stopped; delete it to replay a session. Delivery is fail-open and
+at-most-once per `(DSH sequence, canonical event)` — one raw log event can yield
+several canonical events (e.g. a tool result plus an artifact), and a board
+outage loses that cycle rather than retrying forever.
 
 ### `sugar hook`
 

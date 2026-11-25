@@ -69,10 +69,17 @@ between them and your repo.
 - **Verification ledger** (`sugar evidence`, `/api/evidence`): record test runs, checks, reviews, approvals,
   policy decisions, artifacts and commit links against a task; list and summarize them from the CLI, the
   browser **Evidence** panel or the API. Export the same records with the audit tools.
-- **Usage and cost attribution** (`sugar usage`, `/api/usage`): tokens and cost as your harness reports them —
-  no invented pricing table.
+- **Spend attribution** (`sugar usage`, `/api/usage`): tokens and cost as your harness reports them, grouped by
+  model, project or task, plus optional cost estimates from your own price table — reported and estimated values
+  are always labelled separately.
+- **Trace Explorer** (`/api/traces`, dashboard Traces tab): per-session traces with actor swimlanes, a call tree,
+  a span inspector and a layered architecture/artifact graph, including DSH subagent/team/artifact spans.
+- **Observed AIBOM** (`sugar aibom`, `/api/aibom`): the models, harnesses, tools, MCP servers and artifacts Sugar
+  actually saw, with honest CycloneDX 1.6/SPDX 2.3-shaped projections and explicit limitations.
 - **Tamper-evident audit exports** (`sugar audit export` / `sugar audit verify`): canonical JSONL plus a
   SHA-256 manifest and optional HMAC signature. Export before retention prunes, keep the evidence.
+- **Audit packages** (`sugar audit package` / `sugar audit verify-package`): a scoped, self-verifying evidence
+  directory with events, tasks, verification, traces, observed AIBOM, coverage and a claims matrix.
 - Claims are recorded in the same transaction as the work item, so "who is holding this task?" is a query,
   not a guess.
 
@@ -321,7 +328,8 @@ claim work.
 - [Mission Control](docs/mission-control.md) — dashboard, macOS app, event spine
 - [Web Mission Control](docs/web-mission-control.md) — browser UI on macOS/Linux/Windows, screenshots, live Activity clip
 - [Local Dashboard API](docs/local-dashboard.md) — frozen REST/SSE contract
-- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Evidence ledger](docs/evidence.md) · [Audit exports](docs/audit.md)
+- [Trends](docs/trends.md) · [Telemetry](docs/telemetry.md) · [Telemetry Adapters](docs/telemetry-adapters.md) · [Usage & cost](docs/usage.md) · [Spend attribution](docs/spend-attribution.md) · [Evidence ledger](docs/evidence.md)
+- [Trace Explorer](docs/traces.md) · [Observed AIBOM](docs/aibom.md) · [Audit exports](docs/audit.md) · [Audit packages](docs/audit-package.md)
 - [Board Server](docs/board-server.md) — team/remote access and TLS
 - [Storage Port](docs/storage-port.md) · [Adapters](docs/adapters.md) — backends and harness playbook
 - [Harness verification](docs/harness-verification.md) — real CLI/config checks for the installed harnesses

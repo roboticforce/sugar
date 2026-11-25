@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -553,6 +554,8 @@ def add(
             "context": {
                 "added_via": "sugar_cli",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "cwd": os.getcwd(),
+                "project": os.path.basename(os.getcwd()),
             },
         }
         # Provenance: who asked for this work (see sugar/identity.py).
@@ -5075,7 +5078,7 @@ def dashboard(
 @click.option(
     "--group-by",
     type=click.Choice(
-        ["actor", "harness", "task", "project", "day", "kind"],
+        ["actor", "harness", "task", "project", "model", "day", "kind"],
         case_sensitive=False,
     ),
     default=None,
@@ -5147,6 +5150,105 @@ def usage(events_db, since, until, group_by, limit, as_json):
         click.echo(json.dumps(report, indent=2, sort_keys=True))
         return
     click.echo(format_usage_table(report))
+
+
+@cli.command("aibom")
+@click.option(
+    "--db",
+    "--events-db",
+    "events_db",
+    type=click.Path(),
+    default=None,
+    help="Event spine database (default: ~/.sugar/events.db or $SUGAR_EVENTS_DB)",
+)
+@click.option("--project", default=None, help="Only inventory events for this project")
+@click.option(
+    "--since", default=None, help="Only events at/after this ISO-8601 timestamp"
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Maximum events to scan (bounded; max 50000)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "cyclonedx", "spdx"], case_sensitive=False),
+    default="json",
+    show_default=True,
+    help="Output format: observed v0 JSON (default), CycloneDX 1.6 or SPDX 2.3 shape",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print raw JSON instead of a table"
+)
+def aibom(events_db, project, since, limit, output_format, as_json):
+    """Show the observed AIBOM inventory from the event spine (v0)
+
+    This is an **observed runtime inventory** derived from telemetry that
+    reached the event spine: models named by usage/run telemetry, harnesses,
+    tools, MCP servers that follow the ``mcp__<server>__`` tool-name
+    convention, and artifacts that were created. It is read-only, bounded, and
+    not a standards-complete AIBOM (no CycloneDX/SPDX conformance claim).
+
+    Examples:
+
+        sugar aibom
+
+        sugar aibom --project sugar --since 2026-11-01
+
+        sugar aibom --format cyclonedx
+
+        sugar aibom --format spdx
+
+        sugar aibom --json
+
+    ``--format cyclonedx`` and ``--format spdx`` are **observed projections**
+    (CycloneDX 1.6 / SPDX 2.3 shaped) of the same v0 inventory: they are not
+    certified standard AIBOMs, invent no licenses/versions/suppliers, and use
+    deterministic content-hash IDs. The same inventory is served by
+    ``GET /api/aibom``. Requires the dashboard extra
+    (``pip install 'sugarai[dashboard]'``) like the dashboard itself.
+    """
+    import asyncio
+
+    try:
+        from .dashboard.aibom import (
+            AibomQueryError,
+            aibom_report,
+            format_aibom_table,
+            normalize_format,
+            render_aibom,
+        )
+        from .dashboard.spine import default_events_db_path
+    except ImportError as exc:  # pragma: no cover - depends on optional extras
+        raise click.ClickException(
+            "the aibom command needs the dashboard extra: "
+            "pip install 'sugarai[dashboard]'"
+        ) from exc
+
+    db_path = events_db or str(default_events_db_path())
+    try:
+        fmt = normalize_format(output_format)
+        if as_json and fmt != "json":
+            raise click.UsageError("--json cannot be combined with --format " + fmt)
+        report = asyncio.run(
+            aibom_report(
+                db_path,
+                project=project,
+                since=since,
+                limit=limit,
+            )
+        )
+    except AibomQueryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    document = render_aibom(report, fmt)
+    if fmt == "json" and not as_json:
+        click.echo(format_aibom_table(document))
+        return
+    click.echo(json.dumps(document, indent=2, sort_keys=True))
 
 
 # =============================================================================
@@ -5709,6 +5811,31 @@ def _audit_events_db(db_option):
     return str(default_events_db_path().expanduser())
 
 
+def _audit_default_board_db(ctx):
+    """Resolve the Sugar board task database for audit packages."""
+    from pathlib import Path
+
+    config = Path(str((ctx.obj or {}).get("config") or ".sugar/config.yaml"))
+    if config.exists():
+        try:
+            import yaml
+
+            data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+            sugar_data = data.get("sugar")
+            storage = (
+                sugar_data.get("storage") if isinstance(sugar_data, dict) else None
+            )
+            database = storage.get("database") if isinstance(storage, dict) else None
+            if database:
+                return str(Path(str(database)).expanduser())
+        except Exception:
+            pass
+    local = Path(".sugar/sugar.db")
+    if local.exists():
+        return str(local)
+    return str(Path.home() / ".sugar" / "sugar.db")
+
+
 def _audit_print_export(result, json_output):
     import json as _json
 
@@ -5906,6 +6033,293 @@ def audit_verify(jsonl_path, manifest_path, sign_key_env, json_output):
 
     if not result.ok:
         sys.exit(1)
+
+
+@audit.command("package")
+@click.option(
+    "--out",
+    "out_dir",
+    required=True,
+    type=click.Path(file_okay=False, path_type=str),
+    help="Output package directory",
+)
+@click.option("--project", default=None, help="Only include this project scope")
+@click.option("--since", default=None, help="Only events/tasks at/after ISO-8601")
+@click.option("--until", default=None, help="Only events/tasks at/before ISO-8601")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option(
+    "--board-db",
+    default=None,
+    help="Board task database (default: project config storage.database)",
+)
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key (never the key)",
+)
+@click.option("--force", is_flag=True, help="Replace an existing package directory")
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+@click.pass_context
+def audit_package(
+    ctx,
+    out_dir,
+    project,
+    since,
+    until,
+    db_path,
+    board_db,
+    sign_key_env,
+    force,
+    json_output,
+):
+    """Build a scoped, self-verifying audit package directory
+
+    Contains the canonical event export + manifest, board tasks, evidence,
+    traces, observed AIBOM inventory, coverage snapshot, a claims matrix and a
+    README, all hashed in a package manifest (optionally HMAC-signed).
+
+    Examples:
+
+        sugar audit package --out /secure/audit/2026-11
+
+        sugar audit package --out audit-pkg --project sugar --since 2026-11-01
+
+        SUGAR_AUDIT_HMAC_KEY=... sugar audit package --out audit-pkg \
+            --sign-key-env SUGAR_AUDIT_HMAC_KEY
+    """
+    import asyncio
+    import json as _json
+
+    from .audit.export import AuditError
+    from .audit.package import build_audit_package
+
+    try:
+        result = asyncio.run(
+            build_audit_package(
+                out_dir,
+                events_db=_audit_events_db(db_path),
+                board_db=board_db or _audit_default_board_db(ctx),
+                project=project,
+                since=since,
+                until=until,
+                sign_key_env=sign_key_env,
+                force=force,
+            )
+        )
+    except AuditError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:  # unexpected build failure must be a clean nonzero
+        click.echo(f"❌ audit package failed: {exc}", err=True)
+        sys.exit(1)
+
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        return
+    click.echo("✅ Audit package written")
+    click.echo(f"   Directory: {result.out_dir}")
+    click.echo(f"   Manifest:  {result.manifest_path}")
+    click.echo(f"   Events:    {result.events_count}")
+    click.echo(f"   Tasks:     {result.tasks_count}")
+    click.echo(f"   Evidence:  {result.evidence_count}")
+    click.echo(f"   Traces:    {result.traces_count}")
+    click.echo(f"   AIBOM:     {result.aibom_components} component(s)")
+    claims_text = ", ".join(
+        f"{status}={count}" for status, count in sorted(result.claims_summary.items())
+    )
+    click.echo(f"   Claims:    {claims_text or 'none'}")
+    signed_text = (
+        f"hmac-sha256 key_id={result.key_id}" if result.signed else "no (hash-only)"
+    )
+    click.echo(f"   Signed:    {signed_text}")
+    if result.limitations:
+        click.echo(
+            f"   Notes:     {len(result.limitations)} limitation(s); see README.md"
+        )
+    click.echo(f"   Verify:    sugar audit verify-package {result.out_dir}")
+
+
+@audit.command("verify-package")
+@click.argument("package_dir", type=click.Path(file_okay=False, path_type=str))
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the environment variable holding the HMAC key",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify_package(package_dir, sign_key_env, json_output):
+    """Verify an audit package offline; exits non-zero on any mismatch"""
+    import json as _json
+
+    from .audit.package import verify_audit_package
+
+    result = verify_audit_package(package_dir, sign_key_env=sign_key_env)
+    if json_output:
+        click.echo(_json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    elif result.ok:
+        click.echo("✅ Audit package verified")
+        click.echo(f"   Package: {result.package_path}")
+        click.echo(f"   Files:   {result.files_checked} hashed file(s)")
+        signed_text = (
+            f"hmac-sha256 key_id={result.key_id}" if result.signed else "no (hash-only)"
+        )
+        click.echo(f"   Signed:  {signed_text}")
+    else:
+        click.echo("❌ Audit package verification FAILED", err=True)
+        for error in result.errors:
+            click.echo(f"   • {error}", err=True)
+    if not result.ok:
+        sys.exit(1)
+
+
+@audit.command("verify-chain")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify_chain(db_path, json_output):
+    """Verify the per-event hash chain (tamper-evident, not immutable)
+
+    Recomputes every chained event hash and checks links and deleted or
+    rewritten events. Legitimate retention gaps (both event and chain rows
+    pruned) are reported informationally; exits non-zero on a tamper finding.
+    """
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import verify_event_chain
+
+    result = asyncio.run(verify_event_chain(_audit_events_db(db_path)))
+    if json_output:
+        click.echo(_json.dumps(result, indent=2, sort_keys=True))
+    elif result["ok"]:
+        click.echo("✅ Event hash chain verified (tamper-evident, not immutable)")
+        click.echo(f"   Checked:   {result['checked']} chained event(s)")
+        if result.get("head_hash"):
+            click.echo(f"   Head hash: {result['head_hash']}")
+        pruned_ranges = result.get("pruned_ranges") or []
+        if pruned_ranges:
+            rendered = ", ".join(
+                f"{item['from_id']}..{item['to_id']}" for item in pruned_ranges
+            )
+            click.echo(
+                f"   Pruned:    {len(pruned_ranges)} retention gap(s): {rendered}"
+            )
+        checkpoint = result.get("checkpoint")
+        if checkpoint:
+            click.echo(
+                f"   Checkpoint: id {checkpoint.get('id')} "
+                f"({checkpoint.get('from_id')}..{checkpoint.get('to_id')}, "
+                f"{'signed' if checkpoint.get('signature') else 'unsigned'})"
+            )
+    else:
+        click.echo("❌ Event hash chain verification FAILED", err=True)
+        if result.get("first_bad_id") is not None:
+            click.echo(f"   First bad id: {result['first_bad_id']}", err=True)
+        for error in result.get("errors") or []:
+            click.echo(f"   • {error}", err=True)
+    if not result["ok"]:
+        sys.exit(1)
+
+
+@audit.command("checkpoint")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--from-id", "from_id", type=int, default=None, help="First event id")
+@click.option("--to-id", "to_id", type=int, default=None, help="Last event id")
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the env var holding the HMAC key; defaults to "
+    "$SUGAR_AUDIT_SIGN_KEY when set",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_checkpoint(db_path, from_id, to_id, sign_key_env, json_output):
+    """Build and persist a deterministic Merkle checkpoint over an id range"""
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import build_checkpoint
+
+    try:
+        checkpoint = asyncio.run(
+            build_checkpoint(
+                _audit_events_db(db_path),
+                from_id=from_id,
+                to_id=to_id,
+                sign_key_env=sign_key_env,
+            )
+        )
+    except (ValueError, OSError) as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+    if json_output:
+        click.echo(_json.dumps(checkpoint, indent=2, sort_keys=True))
+        return
+    click.echo("✅ Merkle checkpoint created")
+    click.echo(f"   Range:    {checkpoint['from_id']}..{checkpoint['to_id']}")
+    click.echo(f"   Events:   {checkpoint['count']}")
+    click.echo(f"   Root:     {checkpoint['root_hash']}")
+    signed_text = (
+        "hmac-sha256 key_id=" + checkpoint["key_id"]
+        if checkpoint.get("signature")
+        else "no (hash-only)"
+    )
+    click.echo(f"   Signed:   {signed_text}")
+    click.echo("   Note:     checkpoints are tamper-evident, not immutable")
+
+
+@audit.command("checkpoints")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option(
+    "--limit", type=int, default=100, show_default=True, help="Max checkpoints"
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_checkpoints(db_path, limit, json_output):
+    """List stored Merkle checkpoints, newest first"""
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import list_checkpoints
+
+    checkpoints = asyncio.run(list_checkpoints(_audit_events_db(db_path), limit=limit))
+    if json_output:
+        click.echo(_json.dumps(checkpoints, indent=2, sort_keys=True))
+        return
+    if not checkpoints:
+        click.echo("No Merkle checkpoints recorded.")
+        return
+    click.echo(f"Merkle checkpoints ({len(checkpoints)} newest first):")
+    for checkpoint in checkpoints:
+        signed = "signed" if checkpoint.get("signature") else "unsigned"
+        click.echo(
+            f"   #{checkpoint.get('id')} {checkpoint['from_id']}..{checkpoint['to_id']} "
+            f"events={checkpoint['count']} root={checkpoint['root_hash'][:16]}… "
+            f"{signed} {checkpoint['generated_at']}"
+        )
 
 
 # =============================================================================

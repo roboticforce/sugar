@@ -39,15 +39,22 @@ from .security import (
     forbidden_scope_response,
 )
 from ..evidence.query import EvidenceQueryError, query_evidence
+from .attention import (
+    AttentionQueryError,
+    attention_report,
+    trace_insights,
+)
+from .traces import TraceQueryError, trace_detail_report, trace_list_report
 from ..telemetry.coverage import coverage_report
 from ..telemetry.normalize import normalize_harness_name
 from ..telemetry import otlp as otlp_mod
 from ..telemetry.pipeline import TelemetryPipeline
 from ..telemetry.schema import TelemetryValidationError
 from ..telemetry.socket import IngestSocketServer
-from .spine import EventSpine, SpineError
+from .spine import EventSpine, SpineError, verify_event_chain
 from .trends import TrendsQueryError, trends_report
 from .usage import UsageQueryError, usage_report
+from .aibom import AibomQueryError, aibom_report, normalize_format, render_aibom
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +249,91 @@ async def activity(request: Request) -> JSONResponse:
     return JSONResponse({"events": events, "last_id": last_id})
 
 
+async def attention(request: Request) -> JSONResponse:
+    """Derive what needs human attention (``GET /api/attention``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    service = _service(request)
+    tasks = []
+    try:
+        task_page = await service.list_tasks({"limit": "1000", "status": "all"})
+        tasks = list(task_page.get("tasks") or [])
+    except Exception:  # tasks are one signal; attention still works from the spine
+        logger.debug("attention: tasks unavailable", exc_info=True)
+    params = request.query_params
+    try:
+        report = await attention_report(
+            spine.db_path,
+            tasks=tasks,
+            project=params.get("project"),
+            limit=params.get("limit"),
+        )
+    except AttentionQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
+async def spine_chain(request: Request) -> JSONResponse:
+    """Read-only hash-chain verification status (``GET /api/spine/chain``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    return JSONResponse(await verify_event_chain(spine.db_path))
+
+
+async def traces(request: Request) -> JSONResponse:
+    """List session traces (``GET /api/traces``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        report = await trace_list_report(
+            spine.db_path,
+            limit=params.get("limit"),
+            project=params.get("project"),
+            harness=params.get("harness"),
+            since=params.get("since"),
+        )
+    except TraceQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(report)
+
+
+async def trace_detail(request: Request) -> JSONResponse:
+    """Session trace + flat spans (``GET /api/traces/{trace_id}``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    trace_id = request.path_params["trace_id"]
+    try:
+        report = await trace_detail_report(spine.db_path, trace_id)
+    except TraceQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    if report is None:
+        raise DashboardError(404, "not_found")
+    try:
+        report["insights"] = await trace_insights(spine.db_path, trace_id, report)
+    except Exception:  # additive insight must never break the trace response
+        logger.debug("attention: trace insights unavailable", exc_info=True)
+        report["insights"] = {
+            "risk": "watch",
+            "headline": "Insights unavailable",
+            "bullets": [],
+            "flags": [],
+        }
+    return JSONResponse(report)
+
+
 async def usage(request: Request) -> JSONResponse:
     """Aggregate usage/cost telemetry from the event spine (``docs/usage.md``)."""
     spine = getattr(request.app.state, "spine", None)
@@ -264,6 +356,27 @@ async def usage(request: Request) -> JSONResponse:
     except UsageQueryError as exc:
         raise DashboardError(400, "validation_error", str(exc)) from exc
     return JSONResponse(report)
+
+
+async def aibom(request: Request) -> JSONResponse:
+    """Observed AIBOM inventory v0 from the event spine (``GET /api/aibom``)."""
+    spine = getattr(request.app.state, "spine", None)
+    if spine is None:
+        raise DashboardError(
+            503, "spine_unavailable", "the event spine is disabled on this server"
+        )
+    params = request.query_params
+    try:
+        output_format = normalize_format(params.get("format"))
+        report = await aibom_report(
+            spine.db_path,
+            project=params.get("project"),
+            since=params.get("since"),
+            limit=params.get("limit"),
+        )
+    except AibomQueryError as exc:
+        raise DashboardError(400, "validation_error", str(exc)) from exc
+    return JSONResponse(render_aibom(report, output_format))
 
 
 async def trends(request: Request) -> JSONResponse:
@@ -636,8 +749,13 @@ def create_app(
         Route("/api/stats", stats, methods=["GET"]),
         Route("/api/task-types", task_types, methods=["GET"]),
         Route("/api/activity", activity, methods=["GET"]),
+        Route("/api/spine/chain", spine_chain, methods=["GET"]),
+        Route("/api/attention", attention, methods=["GET"]),
+        Route("/api/traces", traces, methods=["GET"]),
+        Route("/api/traces/{trace_id}", trace_detail, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),
         Route("/api/trends", trends, methods=["GET"]),
+        Route("/api/aibom", aibom, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
         Route("/api/events", ingest_event, methods=["POST"]),
         Route("/api/hooks/{harness}", hooks_ingest, methods=["POST"]),
