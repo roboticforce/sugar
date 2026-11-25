@@ -36,7 +36,7 @@ The plugin shells into the `sugar` CLI, so `sugarai` must be installed in the
 Python environment Hermes uses, and `sugar` must be on `PATH`:
 
 ```bash
-pip install "sugarai>=3.10.6,<3.11"
+pip install "sugarai>=3.11.2,<3.12"
 ```
 
 Vector search is **not** installed with the plugin, and that is deliberate: the
