@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.2] - 2026-11-24
+
 ### Added
 
 - **Spend attribution**: task `context.cwd`/`context.project` provenance captured at task creation, usage grouping by `model`/`project`/`task`, and optional estimated cost from an operator-supplied price table (`$SUGAR_MODEL_PRICES` or `~/.sugar/model-prices.json`). Reported `cost_usd` and `estimated_cost_usd` stay separate, with a `cost_basis` label; Activity gains a group selector and model summary and Overview shows a compact usage metric. (#170, #172)
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Observed AIBOM v0**: `GET /api/aibom` and `sugar aibom` expose observed models, harnesses, tools, MCP servers and artifacts with evidence links, coverage and explicit limitations. (#179)
 - **AIBOM exchange projections**: `sugar aibom --format cyclonedx|spdx` (and `?format=` on the API) produce honest CycloneDX 1.6/SPDX 2.3-shaped documents with deterministic content-hash IDs and no invented versions/licenses/suppliers. (#184)
 - **Audit / AIBOM review UI**: browser view for security reviewers over the evidence ledger and observed inventory. (#185)
+- **Event hash chain**: an append-only `event_chain` with canonical SHA-256 hashes, idempotent legacy backfill, retention-aware verification, Merkle checkpoints and `sugar audit verify-chain|checkpoint|checkpoints`; optional HMAC signing. Tamper-evident, not immutable — no external anchor yet. (#188, #189)
 - **Audit packages**: `sugar audit package` builds a scoped, atomic, self-verifying evidence directory (events + manifest, tasks, evidence, traces, observed AIBOM, coverage, claims matrix, README, package manifest with optional HMAC); `sugar audit verify-package` verifies it offline. (#186)
 - **Attention and trace insights**: `GET /api/attention` risk/attention queue (failed/stale sessions, blocked tasks, verification/coverage gaps, denied/pending approvals, conservative spend anomalies) and an additive `insights` object on trace detail; Overview landing view. (#180, #181)
 - **Docs**: new `docs/spend-attribution.md`, `docs/traces.md`, `docs/aibom.md` and `docs/audit-package.md`, with updated documentation index, README links and DSH adapter coverage notes.
@@ -30,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **DSH tail dropped canonical events that shared a sequence number.** A raw DSH event can yield several canonical events (e.g. `tool.completed` + `artifact.created`, or multi-file deliverables); the tail now dedupes by `(DSH sequence, canonical event)` so every event is delivered exactly once. (#178)
 - **Stale running sessions** are no longer flagged as running too long, and synthetic `sugar-doctor` probe sessions are ignored by attention/coverage. (#182, #183)
+- **Hash-chain verification** now treats retention-pruned interior gaps (both event and chain rows absent) as informational rather than tampering, while still failing orphaned or rewritten rows. (#189)
 - **Dashboard filters** no longer appear in views where they do not apply. (#165)
 
 ## [3.11.1] - 2026-11-23
