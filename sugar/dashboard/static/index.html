@@ -795,6 +795,41 @@
   .audit-claim ul { margin: 0; padding-left: 16px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
   .audit-claim p { margin: 0; color: var(--muted); }
   .audit-commands { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+  /* Phase 4: scoped audit package download + verification guidance. */
+  .audit-package { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+  .audit-package-controls {
+    display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .audit-package-controls label { font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; }
+  .audit-package-controls input[type="date"] {
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 7px;
+    padding: 2px 8px; font-size: 12px; color: var(--text);
+  }
+  .audit-package-controls .btn:disabled { opacity: 0.55; cursor: wait; }
+  .audit-package-scope { color: var(--muted); font-size: 11.5px; }
+  .audit-package-status { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .audit-package-status.building { color: var(--yellow); }
+  .audit-package-status.error { color: var(--red); }
+  .audit-package-result { display: flex; flex-direction: column; gap: 6px; }
+  .audit-package-result[hidden] { display: none; }
+  .audit-package-meta {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .audit-package-field b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .audit-package-field code { font-size: 10.5px; word-break: break-all; color: var(--text); }
+  .audit-package-badge {
+    border: 1px solid currentColor; border-radius: 999px; padding: 0 8px;
+    font-size: 10px; line-height: 17px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .audit-package-badge.signed { color: var(--green); }
+  .audit-package-badge.unsigned { color: var(--yellow); }
+  .audit-package-warning {
+    border: 1px solid rgba(210, 153, 34, 0.45); background: rgba(210, 153, 34, 0.07);
+    color: var(--yellow); border-radius: 8px; padding: 7px 9px; font-size: 11px; line-height: 1.5;
+  }
+  .audit-package-warning code, .audit-package-status code { color: var(--text); }
   .audit-command {
     margin: 0; padding: 8px 10px; background: var(--bg-alt); border: 1px solid var(--border);
     border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -818,6 +853,9 @@
     .audit-head select, .audit-head input[type="date"] { flex: 1 1 auto; }
     .audit-claims { grid-template-columns: 1fr; }
     .audit-coverage-row { flex-wrap: wrap; }
+    .audit-package-controls { align-items: flex-start; }
+    .audit-package-controls #audit-package-download { flex: 1 1 100%; }
+    .audit-package-controls input[type="date"] { flex: 1 1 auto; }
   }
 
 </style>
@@ -1045,6 +1083,32 @@
     </div>
     <div class="audit-scroll" id="audit-scroll">
       <div class="audit-banner" id="audit-banner">Observed runtime inventory — not a complete or standards-certified AIBOM. Read-only; this view never mutates data.</div>
+      <section class="audit-section" aria-label="Download audit package">
+        <div class="audit-section-head">
+          <h3>Download audit package</h3>
+          <span class="audit-note" id="audit-package-note">scoped zip · read-only</span>
+        </div>
+        <div class="audit-package">
+          <div class="audit-package-controls">
+            <span class="audit-package-scope" id="audit-package-scope">All projects · no date filter</span>
+            <span class="spacer"></span>
+            <label for="audit-until">Until (optional)</label>
+            <input type="date" id="audit-until" aria-label="Audit package until date">
+            <button class="btn primary" id="audit-package-download" type="button">Download audit package</button>
+          </div>
+          <div class="audit-package-status" id="audit-package-status">Uses the Project and Since scope above.</div>
+          <div class="audit-package-result" id="audit-package-result" hidden>
+            <div class="audit-package-meta">
+              <span class="audit-package-field">Zip <b id="audit-package-filename">—</b></span>
+              <span class="audit-package-field">Files <b id="audit-package-files">—</b></span>
+              <span class="audit-package-field">Size <b id="audit-package-size">—</b></span>
+              <span class="audit-package-field">SHA-256 <code id="audit-package-sha256">—</code></span>
+              <span class="audit-package-badge unsigned" id="audit-package-signed">unsigned</span>
+            </div>
+            <div class="audit-package-warning">⚠ Sensitive metadata — the package contains event, task, evidence and trace metadata. Verify it offline with <code>sugar audit verify-package &lt;dir&gt;</code> before sharing.</div>
+          </div>
+        </div>
+      </section>
       <section class="audit-section" aria-label="Observed AIBOM inventory">
         <div class="audit-section-head">
           <h3>Observed AIBOM inventory</h3>
@@ -1095,6 +1159,7 @@
               <li>First/last seen timestamps, event counts, projects and evidence links back to traces.</li>
               <li>Harness telemetry fidelity and coverage levels L3–L0 for each harness.</li>
               <li>That tamper-evident audit exports can be produced with the CLI.</li>
+              <li>A downloaded package's SHA-256 (and optional HMAC signature) matches its package manifest when verified offline.</li>
             </ul>
           </div>
           <div class="audit-claim">
@@ -1104,18 +1169,22 @@
               <li>Model weights, training data, licenses, datasets or suppliers.</li>
               <li>CycloneDX/SPDX certification or any standards attestation.</li>
               <li>Approvals or policy decisions not recorded in the event spine.</li>
+              <li>That a package is complete outside the selected project/date scope, or that an auditor accepts the format.</li>
             </ul>
           </div>
           <div class="audit-claim">
             <h4>Export for an audit</h4>
-            <p>The UI is read-only and does not package data. Use the CLI to export the spine with a SHA-256 manifest (optionally HMAC-signed) and to verify it offline.</p>
+            <p>Download a scoped zip here (events + manifest, tasks, evidence, traces, AIBOM, coverage, claims and a README, all hashed in a package manifest). The download is local and read-only. Verify the package offline before sharing; an HMAC signature proves the holder of the key vouched for it.</p>
           </div>
         </div>
         <div class="audit-commands" id="audit-commands">
+          <pre class="audit-command">sugar audit package --out audit-package --project sugar --since 2026-11-01</pre>
+          <pre class="audit-command">sugar audit verify-package audit-package</pre>
+          <pre class="audit-command">SUGAR_AUDIT_HMAC_KEY=... sugar audit package --out audit-package --sign-key-env SUGAR_AUDIT_HMAC_KEY</pre>
           <pre class="audit-command">sugar audit export --out audit/2026-11.jsonl</pre>
           <pre class="audit-command">sugar audit verify audit/2026-11.jsonl audit/2026-11.manifest.json</pre>
           <pre class="audit-command">sugar aibom --project sugar --since 2026-11-01 --json</pre>
-          <span class="audit-note">CLI commands run outside the dashboard; this view does not create or download files.</span>
+          <span class="audit-note">CLI commands run outside the dashboard. The download above uses the same package builder; verify the zip offline with <code>sugar audit verify-package &lt;dir&gt;</code> before sharing it.</span>
         </div>
       </section>
     </div>
@@ -1377,7 +1446,12 @@
     aibomFetchedAt: 0,
     auditCoverage: null,
     auditCoverageError: null,
-    auditCoverageLoaded: false
+    auditCoverageLoaded: false,
+    // Audit package download (Phase 4): scoped zip + verification metadata.
+    auditUntil: "",
+    auditPackageInfo: null,
+    auditPackageError: null,
+    auditPackageBuilding: false
   };
 
   let eventSource = null;
@@ -1400,6 +1474,7 @@
   let overviewUsageInFlight = false;
   let aibomInFlight = false;
   let auditCoverageInFlight = false;
+  let auditPackageInFlight = false;
 
   // ------------------------------------------------------------------ utils
 
@@ -5505,11 +5580,231 @@
     }
   }
 
+  // ----------------------------------------- audit package download (Phase 4)
+
+  function auditPackageScopeText() {
+    const bits = [state.auditProject ? "project " + state.auditProject : "all projects"];
+    bits.push(state.auditSince ? "since " + state.auditSince : "no start filter");
+    if (state.auditUntil) bits.push("until " + state.auditUntil);
+    return bits.join(" · ");
+  }
+
+  function renderAuditPackageScope() {
+    const scope = $("audit-package-scope");
+    if (scope) scope.textContent = auditPackageScopeText();
+  }
+
+  function auditPackageUrl() {
+    const params = [];
+    if (state.auditProject) {
+      params.push("project=" + encodeURIComponent(state.auditProject));
+    }
+    if (state.auditSince) {
+      params.push("since=" + encodeURIComponent(state.auditSince + "T00:00:00Z"));
+    }
+    if (state.auditUntil) {
+      params.push("until=" + encodeURIComponent(state.auditUntil + "T23:59:59Z"));
+    }
+    return "/api/audit/package" + (params.length ? "?" + params.join("&") : "");
+  }
+
+  function auditPackageFallbackName() {
+    const project = String(state.auditProject || "all").replace(/[^A-Za-z0-9._-]+/g, "-");
+    return "audit-package-" + project + ".zip";
+  }
+
+  function auditPackageFileName(disposition) {
+    const header = String(disposition || "");
+    if (!header) return "";
+    const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+    if (encoded) {
+      try {
+        return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, ""));
+      } catch (err) {
+        return "";
+      }
+    }
+    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(header);
+    if (quoted) return quoted[1];
+    const plain = /filename\s*=\s*([^;]+)/i.exec(header);
+    return plain ? plain[1].trim().replace(/^"|"$/g, "") : "";
+  }
+
+  function auditPackageSigned(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw || raw === "false" || raw === "0" || raw === "no" || raw === "unsigned") {
+      return false;
+    }
+    return true;
+  }
+
+  function auditFormatBytes(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return "—";
+    if (value < 1024) return value + " B";
+    if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
+    return (value / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  async function auditSha256Hex(blob) {
+    if (!window.crypto || !window.crypto.subtle || !blob) return "";
+    try {
+      const buffer = await blob.arrayBuffer();
+      const digest = await window.crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(digest)).map(function (byte) {
+        return byte.toString(16).padStart(2, "0");
+      }).join("");
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function resetAuditPackageResult() {
+    if (state.auditPackageBuilding) return;
+    state.auditPackageInfo = null;
+    state.auditPackageError = null;
+    renderAuditPackage();
+  }
+
+  function renderAuditPackage() {
+    const status = $("audit-package-status");
+    const result = $("audit-package-result");
+    const button = $("audit-package-download");
+    if (!status || !result) return;
+    renderAuditPackageScope();
+    if (button) button.disabled = state.auditPackageBuilding;
+    if (state.auditPackageBuilding) {
+      status.className = "audit-package-status building";
+      status.textContent = "Building audit package…";
+      result.hidden = true;
+      return;
+    }
+    if (state.auditPackageError) {
+      status.className = "audit-package-status error";
+      status.textContent = state.auditPackageError;
+      result.hidden = true;
+      return;
+    }
+    const info = state.auditPackageInfo;
+    status.className = "audit-package-status";
+    if (!info) {
+      status.textContent = "Uses the Project and Since scope above.";
+      result.hidden = true;
+      return;
+    }
+    status.textContent = "Package downloaded. Verify it offline with " +
+      "sugar audit verify-package <dir> before sharing.";
+    result.hidden = false;
+    const filename = $("audit-package-filename");
+    if (filename) {
+      filename.textContent = info.filename;
+      filename.title = info.filename;
+    }
+    const files = $("audit-package-files");
+    if (files) files.textContent = info.files === null ? "—" : String(info.files);
+    const size = $("audit-package-size");
+    if (size) size.textContent = auditFormatBytes(info.size);
+    const sha = $("audit-package-sha256");
+    if (sha) {
+      sha.textContent = info.sha256 || "—";
+      sha.title = info.sha256 || "SHA-256 header was not provided and could not be computed";
+    }
+    const signed = $("audit-package-signed");
+    if (signed) {
+      signed.textContent = info.signed ? "HMAC-SHA256 signed" : "hash-only (unsigned)";
+      signed.className = "audit-package-badge " + (info.signed ? "signed" : "unsigned");
+    }
+  }
+
+  function triggerAuditPackageDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  async function auditPackageResponseError(response) {
+    let detail = "";
+    try {
+      const data = await response.json();
+      detail = (data && (data.detail || data.error)) || "";
+    } catch (err) {
+      detail = "";
+    }
+    const message = (response.status === 404 || response.status === 405 ||
+      response.status === 503)
+      ? "Audit package unavailable on this server"
+      : "Audit package failed: " + (detail || ("HTTP " + response.status));
+    const error = new Error(message);
+    error.status = response.status;
+    error.auditMessage = message;
+    return error;
+  }
+
+  async function downloadAuditPackage() {
+    if (auditPackageInFlight) return;
+    auditPackageInFlight = true;
+    state.auditPackageBuilding = true;
+    state.auditPackageError = null;
+    state.auditPackageInfo = null;
+    renderAuditPackage();
+    try {
+      const response = await fetch(auditPackageUrl(), {
+        method: "GET",
+        headers: { "Accept": "application/zip, application/octet-stream" },
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw await auditPackageResponseError(response);
+      const contentType = String(response.headers.get("Content-Type") || "").toLowerCase();
+      if (contentType.indexOf("application/json") !== -1) {
+        const data = await response.json().catch(function () { return null; });
+        const detail = (data && (data.detail || data.error)) || "server returned JSON instead of a zip";
+        const error = new Error("Audit package failed: " + detail);
+        error.auditMessage = error.message;
+        throw error;
+      }
+      const blob = await response.blob();
+      const filename = auditPackageFileName(
+        response.headers.get("Content-Disposition")) || auditPackageFallbackName();
+      const headerSha = String(response.headers.get("X-Sugar-Package-Sha256") || "")
+        .trim().toLowerCase();
+      let sha256 = headerSha;
+      if (!sha256) sha256 = await auditSha256Hex(blob);
+      const filesRaw = String(response.headers.get("X-Sugar-Package-Files") || "").trim();
+      const files = /^\d+$/.test(filesRaw) ? Number(filesRaw) : null;
+      const signed = auditPackageSigned(
+        response.headers.get("X-Sugar-Package-Signed"));
+      triggerAuditPackageDownload(blob, filename);
+      state.auditPackageInfo = {
+        filename: filename,
+        size: blob.size,
+        sha256: sha256,
+        files: files,
+        signed: signed
+      };
+    } catch (error) {
+      state.auditPackageError = error && error.auditMessage
+        ? error.auditMessage
+        : "Audit package failed: " + (error && error.message ? error.message : "request failed");
+    } finally {
+      auditPackageInFlight = false;
+      state.auditPackageBuilding = false;
+      renderAuditPackage();
+    }
+  }
+
   function renderAudit() {
     renderAuditProjectOptions();
     renderAuditScopeNote();
     renderAibom();
     renderAuditCoverage();
+    renderAuditPackage();
   }
 
   async function loadAudit() {
@@ -5707,12 +6002,19 @@
     $("audit-refresh").addEventListener("click", function () { loadAudit(); });
     $("audit-project").addEventListener("change", function (event) {
       state.auditProject = event.target.value;
+      resetAuditPackageResult();
       loadAibom();
     });
     $("audit-since").addEventListener("change", function (event) {
       state.auditSince = event.target.value;
+      resetAuditPackageResult();
       loadAibom();
     });
+    $("audit-until").addEventListener("change", function (event) {
+      state.auditUntil = event.target.value;
+      resetAuditPackageResult();
+    });
+    $("audit-package-download").addEventListener("click", downloadAuditPackage);
     $("overview-view-traces").addEventListener("click", function () { setView("traces"); });
     $("attention-filter").addEventListener("click", function (event) {
       const button = event.target.closest("button[data-attention-filter]");
