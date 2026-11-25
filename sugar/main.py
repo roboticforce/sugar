@@ -6181,6 +6181,138 @@ def audit_verify_package(package_dir, sign_key_env, json_output):
         sys.exit(1)
 
 
+@audit.command("verify-chain")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_verify_chain(db_path, json_output):
+    """Verify the per-event hash chain (tamper-evident, not immutable)
+
+    Recomputes every chained event hash and checks links, gaps and deleted or
+    rewritten events. Exits non-zero on the first mismatch.
+    """
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import verify_event_chain
+
+    result = asyncio.run(verify_event_chain(_audit_events_db(db_path)))
+    if json_output:
+        click.echo(_json.dumps(result, indent=2, sort_keys=True))
+    elif result["ok"]:
+        click.echo("✅ Event hash chain verified (tamper-evident, not immutable)")
+        click.echo(f"   Checked:   {result['checked']} chained event(s)")
+        if result.get("head_hash"):
+            click.echo(f"   Head hash: {result['head_hash']}")
+        checkpoint = result.get("checkpoint")
+        if checkpoint:
+            click.echo(
+                f"   Checkpoint: id {checkpoint.get('id')} "
+                f"({checkpoint.get('from_id')}..{checkpoint.get('to_id')}, "
+                f"{'signed' if checkpoint.get('signature') else 'unsigned'})"
+            )
+    else:
+        click.echo("❌ Event hash chain verification FAILED", err=True)
+        if result.get("first_bad_id") is not None:
+            click.echo(f"   First bad id: {result['first_bad_id']}", err=True)
+        for error in result.get("errors") or []:
+            click.echo(f"   • {error}", err=True)
+    if not result["ok"]:
+        sys.exit(1)
+
+
+@audit.command("checkpoint")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option("--from-id", "from_id", type=int, default=None, help="First event id")
+@click.option("--to-id", "to_id", type=int, default=None, help="Last event id")
+@click.option(
+    "--sign-key-env",
+    "sign_key_env",
+    default=None,
+    metavar="VAR",
+    help="Name of the env var holding the HMAC key; defaults to "
+    "$SUGAR_AUDIT_SIGN_KEY when set",
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_checkpoint(db_path, from_id, to_id, sign_key_env, json_output):
+    """Build and persist a deterministic Merkle checkpoint over an id range"""
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import build_checkpoint
+
+    try:
+        checkpoint = asyncio.run(
+            build_checkpoint(
+                _audit_events_db(db_path),
+                from_id=from_id,
+                to_id=to_id,
+                sign_key_env=sign_key_env,
+            )
+        )
+    except (ValueError, OSError) as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(1)
+    if json_output:
+        click.echo(_json.dumps(checkpoint, indent=2, sort_keys=True))
+        return
+    click.echo("✅ Merkle checkpoint created")
+    click.echo(f"   Range:    {checkpoint['from_id']}..{checkpoint['to_id']}")
+    click.echo(f"   Events:   {checkpoint['count']}")
+    click.echo(f"   Root:     {checkpoint['root_hash']}")
+    signed_text = (
+        "hmac-sha256 key_id=" + checkpoint["key_id"]
+        if checkpoint.get("signature")
+        else "no (hash-only)"
+    )
+    click.echo(f"   Signed:   {signed_text}")
+    click.echo("   Note:     checkpoints are tamper-evident, not immutable")
+
+
+@audit.command("checkpoints")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Event database (default: $SUGAR_EVENTS_DB or ~/.sugar/events.db)",
+)
+@click.option(
+    "--limit", type=int, default=100, show_default=True, help="Max checkpoints"
+)
+@click.option("--json", "json_output", is_flag=True, help="JSON summary on stdout")
+def audit_checkpoints(db_path, limit, json_output):
+    """List stored Merkle checkpoints, newest first"""
+    import asyncio
+    import json as _json
+
+    from .dashboard.spine import list_checkpoints
+
+    checkpoints = asyncio.run(list_checkpoints(_audit_events_db(db_path), limit=limit))
+    if json_output:
+        click.echo(_json.dumps(checkpoints, indent=2, sort_keys=True))
+        return
+    if not checkpoints:
+        click.echo("No Merkle checkpoints recorded.")
+        return
+    click.echo(f"Merkle checkpoints ({len(checkpoints)} newest first):")
+    for checkpoint in checkpoints:
+        signed = "signed" if checkpoint.get("signature") else "unsigned"
+        click.echo(
+            f"   #{checkpoint.get('id')} {checkpoint['from_id']}..{checkpoint['to_id']} "
+            f"events={checkpoint['count']} root={checkpoint['root_hash'][:16]}… "
+            f"{signed} {checkpoint['generated_at']}"
+        )
+
+
 # =============================================================================
 # Agent Activity Commands
 # =============================================================================
