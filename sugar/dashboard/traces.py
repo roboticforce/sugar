@@ -41,6 +41,7 @@ MAX_DEPTH = 4
 MAX_SPAN_NAME = 300
 MAX_ID = 300
 MAX_INPUT_OUTPUT_KEYS = 30
+MAX_TRACE_CHILDREN = 20
 
 SESSION_KINDS = ("session.started", "session.ended")
 TURN_KINDS = ("turn.started", "turn.ended")
@@ -1382,6 +1383,121 @@ def _enriched_counts(events: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
     }
 
 
+def _local_parent_trace_id(
+    events: Sequence[Mapping[str, Any]], harness: str
+) -> Optional[str]:
+    """Best-effort parent trace id from a subagent's session.started header."""
+    for event in events:
+        if event.get("kind") != "session.started":
+            continue
+        nested = _summary(event)
+        payload = _payload(event)
+        parent = _first_text(
+            nested.get("parent_session_id"),
+            nested.get("parent_session"),
+            payload.get("parent_session_id"),
+            payload.get("parent_session"),
+            _field(event, "parent_session_id", "parent_session"),
+            limit=MAX_ID,
+        )
+        if parent:
+            parent_harness = _harness(event)
+            if parent_harness == "unknown":
+                parent_harness = harness
+            return _trace_id(parent_harness, parent)
+    return None
+
+
+def _local_subagent_links(
+    events: Sequence[Mapping[str, Any]], harness: str
+) -> Tuple[List[str], int]:
+    """Child trace ids + distinct subagent count from this session's events."""
+    children: List[str] = []
+    seen: set = set()
+    for event in events:
+        if event.get("kind") not in SUBAGENT_KINDS:
+            continue
+        fields = _subagent_fields(event)
+        child = fields["child_session_id"]
+        if not child:
+            continue
+        child_key = _normalize_session_key(child) or child
+        if child_key in seen:
+            continue
+        seen.add(child_key)
+        child_harness = _harness(event)
+        if child_harness == "unknown":
+            child_harness = harness
+        trace_id = _trace_id(child_harness, child)
+        if trace_id not in children and len(children) < MAX_TRACE_CHILDREN:
+            children.append(trace_id)
+    return children, len(seen)
+
+
+def _link_trace_tree(
+    events: Sequence[Mapping[str, Any]], summaries: List[Dict[str, Any]]
+) -> None:
+    """Populate cross-session parent/child links on already-built summaries.
+
+    Links only materialize when the referenced trace exists in ``summaries``;
+    unmatched parent/child session ids are tolerated and ignored. Subagent counts
+    still reflect observed ``subagent.started`` events for an existing parent.
+    """
+    by_session: Dict[str, Dict[str, Any]] = {}
+    for summary in summaries:
+        _harness_name, session_id = split_trace_id(str(summary.get("trace_id") or ""))
+        key = _normalize_session_key(session_id) or session_id
+        if key:
+            by_session[key] = summary
+
+    children: Dict[str, List[str]] = {}
+    observed: Dict[str, set] = {}
+    for summary in summaries:
+        # List summaries only expose parent links backed by a present trace;
+        # detail views still derive the header parent locally.
+        summary["parent_trace_id"] = None
+    for event in _ordered(events):
+        if event.get("kind") not in SUBAGENT_KINDS:
+            continue
+        fields = _subagent_fields(event)
+        child = fields["child_session_id"]
+        child_key = _normalize_session_key(child) or child
+        if not child_key:
+            continue
+        explicit_parent = _normalize_session_key(fields["parent_session_id"])
+        event_session = _normalize_session_key(_session_id(event))
+        parent_summary: Optional[Dict[str, Any]] = None
+        if explicit_parent:
+            parent_summary = by_session.get(explicit_parent)
+        if parent_summary is None and event_session and event_session != child_key:
+            # Subagent events are normally emitted by the parent session; use it
+            # when the explicit parent id is missing or uses a different alias.
+            parent_summary = by_session.get(event_session)
+        if parent_summary is None:
+            continue
+        parent_key = _normalize_session_key(
+            split_trace_id(str(parent_summary.get("trace_id") or ""))[1]
+        ) or str(parent_summary.get("trace_id") or "")
+        observed.setdefault(parent_key, set()).add(child_key)
+        child_summary = by_session.get(child_key)
+        if child_summary is None or child_summary is parent_summary:
+            continue
+        child_trace_id = str(child_summary.get("trace_id") or "")
+        if not child_trace_id:
+            continue
+        bucket = children.setdefault(parent_key, [])
+        if child_trace_id not in bucket and len(bucket) < MAX_TRACE_CHILDREN:
+            bucket.append(child_trace_id)
+        child_summary["parent_trace_id"] = str(parent_summary.get("trace_id") or "")
+
+    for summary in summaries:
+        _harness_name, session_id = split_trace_id(str(summary.get("trace_id") or ""))
+        key = _normalize_session_key(session_id) or session_id
+        summary["child_trace_ids"] = list(children.get(key, []))[:MAX_TRACE_CHILDREN]
+        summary["subagent_count"] = len(observed.get(key, set()))
+        summary.setdefault("parent_trace_id", None)
+
+
 def summarize_trace(
     events: Sequence[Mapping[str, Any]], trace_id: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -1444,6 +1560,8 @@ def summarize_trace(
         tool_calls = max(tool_starts, tool_finishes) if not tool_starts else tool_starts
         # Starts without a completion still count; completions without starts count too.
         tool_calls = tool_starts + max(0, tool_finishes - tool_starts)
+    child_trace_ids, subagent_count = _local_subagent_links(ordered, harness)
+    parent_trace_id = _local_parent_trace_id(ordered, harness)
     return {
         "trace_id": resolved_trace_id,
         "harness": harness,
@@ -1460,6 +1578,9 @@ def summarize_trace(
         "models": models,
         "tokens_total": tokens_total,
         "status": status,
+        "parent_trace_id": parent_trace_id,
+        "child_trace_ids": child_trace_ids,
+        "subagent_count": subagent_count,
         **_enriched_counts(ordered),
     }
 
@@ -1605,14 +1726,18 @@ def build_traces(
         grouped.setdefault(session_id, []).append(event)
     summaries: List[Dict[str, Any]] = []
     for session_id, session_events in grouped.items():
-        summary = summarize_trace(session_events)
+        summaries.append(summarize_trace(session_events))
+    _link_trace_tree(events, summaries)
+    filtered: List[Dict[str, Any]] = []
+    for summary in summaries:
         if project and str(summary.get("project") or "") != project:
             continue
         if harness and str(summary.get("harness") or "") != harness:
             continue
         if since and summary.get("started_at") and summary["started_at"] < since:
             continue
-        summaries.append(summary)
+        filtered.append(summary)
+    summaries = filtered
     summaries.sort(
         key=lambda summary: (
             summary.get("started_at") or "",

@@ -1218,3 +1218,191 @@ class TestTraceInsights:
         insights = client.get("/api/traces/dsh:s-insight").json()["insights"]
         assert insights["risk"] == "watch"
         assert any(flag["kind"] == "coverage" for flag in insights["flags"])
+
+
+# ---------------------------------------------------------------------------
+# Trace tree parent/child links (task-48)
+# ---------------------------------------------------------------------------
+
+
+def tree_events(*, child_session_id="child-1", include_child=True):
+    events = [
+        event(
+            "session.started",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:00Z",
+            payload=nested({"title": "Parent session"}),
+        ),
+        event(
+            "subagent.started",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:01Z",
+            payload=nested(
+                {
+                    "parent_session_id": "s-parent",
+                    "child_session_id": child_session_id,
+                    "label": "researcher",
+                }
+            ),
+        ),
+        event(
+            "session.ended",
+            session_id="s-parent",
+            ts="2026-01-01T10:00:02Z",
+        ),
+    ]
+    if include_child:
+        events.extend(
+            [
+                event(
+                    "session.started",
+                    session_id=child_session_id,
+                    ts="2026-01-01T10:00:03Z",
+                    payload=nested(
+                        {
+                            "title": "Child session",
+                            "parent_session": "s-parent",
+                            "origin": "subagent",
+                        }
+                    ),
+                ),
+                event(
+                    "session.ended",
+                    session_id=child_session_id,
+                    ts="2026-01-01T10:00:04Z",
+                ),
+            ]
+        )
+    return events
+
+
+class TestTraceTree:
+    def test_list_parent_child_links(self, client):
+        seed(client, tree_events())
+        traces = {
+            trace["trace_id"]: trace
+            for trace in client.get("/api/traces").json()["traces"]
+        }
+        assert set(traces) == {"dsh:s-parent", "dsh:child-1"}
+        parent = traces["dsh:s-parent"]
+        child = traces["dsh:child-1"]
+        assert parent["parent_trace_id"] is None
+        assert parent["child_trace_ids"] == ["dsh:child-1"]
+        assert parent["subagent_count"] == 1
+        assert child["parent_trace_id"] == "dsh:s-parent"
+        assert child["child_trace_ids"] == []
+        assert child["subagent_count"] == 0
+
+    def test_detail_links_on_trace_object(self, client):
+        seed(client, tree_events())
+        parent_detail = client.get("/api/traces/dsh:s-parent").json()
+        assert parent_detail["trace"]["child_trace_ids"] == ["dsh:child-1"]
+        assert parent_detail["trace"]["subagent_count"] == 1
+        assert parent_detail["trace"]["parent_trace_id"] is None
+        child_detail = client.get("/api/traces/dsh:child-1").json()
+        assert child_detail["trace"]["parent_trace_id"] == "dsh:s-parent"
+        assert child_detail["trace"]["child_trace_ids"] == []
+
+    def test_detail_child_ids_without_child_trace(self, client):
+        seed(client, tree_events(include_child=False))
+        parent_detail = client.get("/api/traces/dsh:s-parent").json()
+        assert parent_detail["trace"]["child_trace_ids"] == ["dsh:child-1"]
+        assert parent_detail["trace"]["subagent_count"] == 1
+
+    def test_unmatched_child_is_ignored_in_list(self, client):
+        seed(client, tree_events(include_child=False))
+        traces = client.get("/api/traces").json()["traces"]
+        assert [trace["trace_id"] for trace in traces] == ["dsh:s-parent"]
+        parent = traces[0]
+        assert parent["child_trace_ids"] == []
+        # The subagent.started event is still observed on the parent trace.
+        assert parent["subagent_count"] == 1
+
+    def test_duplicate_subagent_events_are_deduped(self, client):
+        events = tree_events()
+        events.insert(
+            2,
+            event(
+                "subagent.started",
+                session_id="s-parent",
+                ts="2026-01-01T10:00:01Z",
+                payload=nested(
+                    {
+                        "parent_session_id": "s-parent",
+                        "child_session_id": "child-1",
+                        "label": "researcher-again",
+                    }
+                ),
+            ),
+        )
+        seed(client, events)
+        parent = next(
+            trace
+            for trace in client.get("/api/traces").json()["traces"]
+            if trace["trace_id"] == "dsh:s-parent"
+        )
+        assert parent["child_trace_ids"] == ["dsh:child-1"]
+        assert parent["subagent_count"] == 1
+
+    def test_child_session_prefix_is_normalized(self, client):
+        events = tree_events(child_session_id="session-child-1")
+        seed(client, events)
+        traces = {
+            trace["trace_id"]: trace
+            for trace in client.get("/api/traces").json()["traces"]
+        }
+        parent = traces["dsh:s-parent"]
+        child = traces["dsh:session-child-1"]
+        # The event advertises the bare child id while the trace keeps its raw id.
+        assert parent["child_trace_ids"] == ["dsh:session-child-1"]
+        assert child["parent_trace_id"] == "dsh:s-parent"
+
+    def test_legacy_summary_has_empty_tree_fields(self, client):
+        seed(client, session_events())
+        summary = client.get("/api/traces").json()["traces"][0]
+        assert summary["parent_trace_id"] is None
+        assert summary["child_trace_ids"] == []
+        assert summary["subagent_count"] == 0
+
+    def test_child_trace_ids_are_bounded(self, client):
+        events = [
+            event(
+                "session.started",
+                session_id="s-parent",
+                ts="2026-01-01T10:00:00Z",
+                payload=nested({"title": "Parent"}),
+            )
+        ]
+        for index in range(25):
+            child_id = f"child-{index}"
+            events.append(
+                event(
+                    "subagent.started",
+                    session_id="s-parent",
+                    ts="2026-01-01T10:00:01Z",
+                    payload=nested(
+                        {
+                            "parent_session_id": "s-parent",
+                            "child_session_id": child_id,
+                        }
+                    ),
+                )
+            )
+            events.append(
+                event(
+                    "session.started",
+                    session_id=child_id,
+                    ts="2026-01-01T10:00:02Z",
+                    payload=nested({"parent_session": "s-parent"}),
+                )
+            )
+        seed(client, events)
+        parent = next(
+            trace
+            for trace in client.get("/api/traces", params={"limit": 100}).json()[
+                "traces"
+            ]
+            if trace["trace_id"] == "dsh:s-parent"
+        )
+        assert len(parent["child_trace_ids"]) == 20
+        assert parent["subagent_count"] == 25
