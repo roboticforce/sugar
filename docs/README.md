@@ -44,12 +44,16 @@ against one board:
 - **[Storage Port](storage-port.md)** - `TaskStore` contract, the backend-agnostic conformance suite, SQLite-specific semantics, and what a Postgres backend must implement
 - **[Board Server](board-server.md)** - Share one board: remote binding, scoped `read`/`write` tokens, browser cookie exchange, TLS-proxy deployment and threat model
 - **[Usage & Cost](usage.md)** - Harness-reported usage/cost events, `/api/usage`, `sugar usage`, and the Activity panel: "where is the money going?"
+- **[Spend Attribution](spend-attribution.md)** - Task cwd/project provenance, grouping by model/project/task, optional operator price-table estimates ("reported" vs "estimated"), CLI/API examples and limits
+- **[Trace Explorer](traces.md)** - Per-session traces and spans (`/api/traces`), Timeline (actor swimlanes, call tree, inspector) and Graph modes, derived insights, DSH multi-agent enrichment and limitations
 - **[Telemetry](telemetry.md)** - Live agent activity events (`tool.invoked`, `run.started`, `run.ended`, `agent.activity`, `usage.reported`), `sugar emit`, and the MCP `sugar_emit_event` tool
 - **[Telemetry Adapters](telemetry-adapters.md)** - Phase 1b plug-and-play capture: canonical `sugar.telemetry.v1` envelope, L0-L3 fidelity, `sugar connect`/`sugar hook`/`sugar doctor`, Claude Code/Cursor/Codex/Goose/DSH adapters, OTLP protobuf+JSON receiver (`/v1/traces`, `/v1/logs`), ADK/OpenAI/Claude SDK helpers, coverage API/UI, redaction
 - **[Harness Verification](harness-verification.md)** - Real-machine integration checks for Claude Code, Codex, Goose, Cursor, OpenCode, Hermes Kanban and DSH: `scripts/verify_harnesses.py`, what PASS/SKIP mean, and the current verified matrix
 - **[Trends](trends.md)** - Time-bucketed work analytics (`/api/trends`, `sugar trends`): throughput, failures, cycle time and spend by agent, harness or project
 - **[Evidence Ledger](evidence.md)** - First-class verification records: `POST/GET /api/evidence`, `sugar evidence record|list|summary`, the browser Evidence panel, verification/policy/approval/artifact kinds and how they export with audit
+- **[Observed AIBOM](aibom.md)** - Observed runtime AI inventory from the event spine (`/api/aibom`, `sugar aibom`), plus honest CycloneDX 1.6/SPDX 2.3-shaped projections and their caveats
 - **[Audit Exports](audit.md)** - Tamper-evident JSONL exports of the event spine (manifest with first/last id, count, SHA-256, optional HMAC) plus `sugar audit verify` for compliance and client evidence
+- **[Audit Packages](audit-package.md)** - Scoped, self-verifying evidence directory: events/tasks/evidence/traces/AIBOM/coverage/claims/README with a hashed package manifest and `sugar audit verify-package`
 
 ### 🛠️ Developer Documentation (`docs/dev/`)
 Documentation for developers who want to **contribute** to Sugar:
