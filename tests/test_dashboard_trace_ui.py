@@ -355,3 +355,115 @@ def test_trace_graph_does_not_regress_existing_explorer(html):
     assert 'id="trace-back"' in html
     # Timeline stays the default; graph is opt-in only.
     assert 'state.traceVisual = mode === "graph" ? "graph" : "timeline"' in html
+
+
+# ---------------------------------------------------------------------------
+# Phase 3b: parent/child trace hierarchy, subagent links, LLM aggregation
+# ---------------------------------------------------------------------------
+
+
+def test_trace_hierarchy_summary_fields_are_normalized(html):
+    # Additive backend summary fields (task-48) are consumed if present.
+    for field in ("parent_trace_id", "child_trace_ids", "subagent_count"):
+        assert field in html, f"missing hierarchy field {field}"
+    for field in ("parentTraceId", "childTraceIds", "subagentCount"):
+        assert field in html, f"missing normalized hierarchy field {field}"
+    assert "function traceStringId" in html
+    assert "function traceStringList" in html
+    assert "function traceHierarchyRows" in html
+    assert "function openTraceRelation" in html
+    assert "function traceById" in html
+
+
+def test_trace_list_hierarchy_indicators_and_flat_fallback(html):
+    assert "traceHierarchyRows(traces)" in html
+    assert "traceRow(row.trace, row.depth)" in html
+    assert "trace-hierarchy-chip" in html
+    assert "trace-hierarchy-badge" in html
+    assert "child of " in html
+    assert "child trace" in html
+    assert "subagent" in html
+    # Children follow their parent (indented); orphan/absent-parent traces stay
+    # at depth 0, so a payload without hierarchy fields renders flat.
+    assert "if (!nested.has(trace.id)) walk(trace, 0)" in html
+    assert "main.style.paddingLeft = (level * 14)" in html
+    assert "trace-row.child" in html
+    assert "event.stopPropagation()" in html
+
+
+def test_trace_detail_parent_navigation(html):
+    assert 'id="trace-parent-link"' in html
+    assert 'id="trace-relations"' in html
+    assert "← Parent" in html
+    assert "function renderTraceRelations" in html
+    assert "renderTraceRelations(trace)" in html
+    assert "parentLink.hidden = !trace.parentTraceId" in html
+    assert "trace.parentTraceId" in html
+    assert 'openTraceRelation(trace.parentTraceId, "Parent trace")' in html
+    assert "Parent: " in html
+
+
+def test_trace_detail_subagent_links(html):
+    assert "child_session_id" in html
+    assert "attrs.child_session_id" in html
+    assert "childSessionId" in html
+    assert "subagent: " in html
+    assert "child session " in html
+    assert "selectTraceSpan(span.id)" in html
+    # Subagent count is also surfaced in the summary chips.
+    assert 'add("subagents", subagents)' in html
+    # Lanes annotate subagent child sessions.
+    assert "subagent session " in html
+
+
+def test_trace_graph_aggregates_llm_nodes(html):
+    assert "llmGroups" in html
+    assert "aggregatedLlm" in html
+    assert "llmagg:" in html
+    assert "repeated LLM call(s) aggregated by model/turn." in html
+    assert 'sub: "llm · " + model' in html
+    # Aggregation key is model + turn (or the model alone without a turn parent).
+    assert (
+        'const key = (span.model || "unknown-model") + "|" + llmTurnKey(span);' in html
+    )
+    assert "function llmTurnKey" in html
+    # Existing tool aggregation and node cap are preserved.
+    assert "toolGroups" in html
+    assert "TRACE_GRAPH_NODE_CAP = 80" in html
+
+
+def test_trace_timeline_repeated_llm_tooltip(html):
+    assert "function traceLlmRepeatCounts" in html
+    assert "traceLlmRepeatCounts()" in html
+    assert "similar LLM calls this turn" in html
+    assert "counts.get(key) || 0) + 1" in html
+
+
+def test_trace_hierarchy_absent_fields_keep_flat_fallback(html):
+    # Parent/child strips stay hidden without the additive fields.
+    assert (
+        'id="trace-parent-link" type="button" title="Open parent trace" hidden' in html
+    )
+    assert "box.hidden = nodes.length === 0" in html
+    assert "if (trace.parentTraceId) addParent(trace.parentTraceId)" in html
+    # The LLM aggregation note is conditional (older traces with one LLM span
+    # produce no aggregation note).
+    assert "if (model.aggregatedLlm > 0)" in html
+
+
+def test_trace_hierarchy_summary_contract_is_optional(spine_client):
+    response = spine_client.get("/api/traces?limit=100")
+    if response.status_code in (404, 405, 503):
+        pytest.skip("GET /api/traces requires the event spine")
+    payload = response.json()
+    traces = payload if isinstance(payload, list) else payload.get("traces")
+    assert isinstance(traces, list)
+    for trace in traces:
+        if "parent_trace_id" in trace:
+            assert trace["parent_trace_id"] is None or isinstance(
+                trace["parent_trace_id"], str
+            )
+        if "child_trace_ids" in trace:
+            assert isinstance(trace["child_trace_ids"], list)
+        if "subagent_count" in trace:
+            assert isinstance(trace["subagent_count"], int)
